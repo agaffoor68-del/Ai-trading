@@ -10,7 +10,8 @@ from sqlalchemy.orm import sessionmaker
 
 from app.core.config import settings
 
-DATABASE_URL = settings.DATABASE_URL
+# Force psycopg v3 driver (psycopg2 is incompatible with Python 3.14)
+DATABASE_URL = settings.DATABASE_URL.replace("postgresql://", "postgresql+psycopg://")
 
 engine = create_engine(
     DATABASE_URL,
