@@ -11,12 +11,10 @@ from sqlalchemy.orm import sessionmaker
 from app.core.config import settings
 
 # Force psycopg v3 driver (psycopg2 is incompatible with Python 3.14)
-# Render injects DATABASE_URL as postgresql:// or postgres:// — normalize to +psycopg
+# Render injects DATABASE_URL as postgresql:// — normalize to +psycopg dialect
 _DATABASE_URL = settings.DATABASE_URL
-for _scheme in ("postgresql://", "postgres://"):
-    if _DATABASE_URL.startswith(_scheme):
-        _DATABASE_URL = "postgresql+psycopg://" + _DATABASE_URL[len(_scheme):]
-        break
+_DATABASE_URL = _DATABASE_URL.replace("postgresql://", "postgresql+psycopg://")
+_DATABASE_URL = _DATABASE_URL.replace("postgres://", "postgresql+psycopg://")
 DATABASE_URL = _DATABASE_URL
 
 engine = create_engine(
