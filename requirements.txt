@@ -14,7 +14,7 @@ python-dotenv==1.0.1
 pydantic-settings==2.16.2
 # Critical: Render crash prevention (DO NOT CHANGE)
 websockets==8.1.0
-wsproto==0.24.0
+wsproto==1.3.2
 # For async HTTP downloads (Fyers Symbol Master, API calls)
 aiohttp==3.9.1
 # Redis cache for WebSocket ticks (PostgreSQL protection)
