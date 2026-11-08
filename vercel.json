@@ -1,0 +1,58 @@
+{
+  "builds": [
+    {
+      "src": "frontend/next.config.mjs",
+      "use": "@vercel/next"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "frontend/app/$1"
+    },
+    {
+      "src": "/api/(.*)",
+      "dest": "frontend/api/$1"
+    }
+  ],
+  "environmentVariables": {
+    "NEXT_PUBLIC_API_URL": {
+      "fromSecret": "api_url"
+    },
+    "GROK_API_KEY": {
+      "fromSecret": "grok_api_key"
+    },
+    "TOTAL_CAPITAL": {
+      "fromEnv": "TOTAL_CAPITAL"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        },
+        {
+          "key": "X-XSS-Protection",
+          "value": "1; mode=block"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        }
+      ]
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "http://localhost:8000/api/:path*"
+    }
+  ]
+}

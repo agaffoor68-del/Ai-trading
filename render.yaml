@@ -1,0 +1,57 @@
+# Render.com Deployment Configuration
+# https://render.com/docs/services/postgres
+
+services:
+  - type: web
+    name: options-trading-platform
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app.main:app -w 4 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT
+    envVars:
+      DATABASE_URL:
+        fromService:
+          type: postgres
+          name: options-trading-db
+          property: connectionString
+      FYERS_CLIENT_ID:
+        fromSecret: fyers_client_id
+      FYERS_CLIENT_SECRET:
+        fromSecret: fyers_client_secret
+      FYERS_REDIRECT_URI:
+        fromSecret: fyers_redirect_uri
+      KOTAK_CLIENT_ID:
+        fromSecret: kotak_client_id
+      KOTAK_CLIENT_SECRET:
+        fromSecret: kotak_client_secret
+      TOTAL_TRADING_CAPITAL:
+        fromEnv: TOTAL_CAPITAL
+      RISK_PER_TRADE:
+        default: "0.01"
+      CORS_ORIGINS:
+        default: "https://your-vercel-domain.vercel.app,http://localhost:3000"
+    # Critical: Use wsproto for WebSocket compatibility
+    # The Dockerfile already includes wsproto in requirements.txt
+
+  # PostgreSQL Database
+  - type: postgres
+    name: options-trading-db
+    plan: free
+    autoDelete: true
+
+  # Redis for caching (optional)
+  # - type: redis
+  #   name: options-redis
+  #   plan: free
+
+# Vercel Frontend Configuration
+# (Deploy separately to Vercel)
+# https://vercel.com/docs/frameworks/nextjs
+
+# Optional: Sidekiq for background jobs
+# - type: worker
+#   name: options-trading-worker
+#   plan: free
+#   command: python -m app.services.background_jobs
+#   connections:
+#     - postgres: options-trading-db

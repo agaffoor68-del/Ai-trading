@@ -1,0 +1,27 @@
+# Phase 1: Core Setup, Fyers Auth & Redis
+# Non-Negotiable Rules:
+# - DATA: Fyers API v3 ONLY (historical, quotes, WebSocket)
+# - EXECUTION: Kotak Neo ONLY (Phase 2)
+# - AI: Grok API ONLY for financial news (Phase 3)
+# - TIMEZONE: IST (Asia/Kolkata) ONLY
+# - WEBSOCKETS: websockets==8.1 + wsproto (Render crash prevention)
+
+fastapi==0.104.1
+uvicorn[standard]==0.30.4
+sqlalchemy==2.0.23
+psycopg2-binary==2.9.9
+python-dotenv==1.0.1
+pydantic-settings==2.16.2
+# Critical: Render crash prevention (DO NOT CHANGE)
+websockets==8.1.0
+wsproto==0.24.0
+# For async HTTP downloads (Fyers Symbol Master, API calls)
+aiohttp==3.9.1
+# Redis cache for WebSocket ticks (PostgreSQL protection)
+redis==5.0.1
+# NTP time synchronization
+ntplib==0.4.5
+# Authentication & Authorization
+passlib[bcrypt]==1.7.4
+python-jose[cryptography]==3.5.0
+python-multipart==0.0.33
