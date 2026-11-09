@@ -9,7 +9,7 @@
 fastapi==0.104.1
 uvicorn==0.30.4
 sqlalchemy==2.0.36
-psycopg==3.2.4
+psycopg2-binary==2.9.9
 python-dotenv>=1.2.2
 pydantic-settings==2.16.2
 # Critical: Render crash prevention (DO NOT CHANGE)
