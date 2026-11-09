@@ -54,7 +54,9 @@ class SymbolMasterDownloader:
 
         async with session.get(url) as resp:
             if resp.status != 200:
-                raise Exception(f"Failed to download {filename}: HTTP {resp.status}")
+                logger.warning(f"Failed to download {filename}: HTTP {resp.status} - {url}")
+                # Return empty CSV content to allow graceful degradation
+                return ""
             return await resp.text()
 
     def parse_csv(self, csv_content: str, exchange: str) -> list[dict]:
@@ -110,12 +112,21 @@ class SymbolMasterDownloader:
 
         db = SessionLocal()
         try:
+            total_instruments = 0
             for exchange, filename in SYMBOL_MASTER_FILES.items():
                 logger.info(f"Processing {exchange} symbol master...")
 
                 csv_content = await self.download_csv(filename)
+                if not csv_content.strip():
+                    logger.warning(f"Empty CSV content for {filename}, skipping...")
+                    continue
+                    
                 instruments = self.parse_csv(csv_content, exchange)
                 logger.info(f"Parsed {len(instruments)} instruments from {filename}")
+
+                if not instruments:
+                    logger.warning(f"No valid instruments parsed from {filename}")
+                    continue
 
                 # Clear existing instruments for this exchange
                 db.query(Instrument).filter(Instrument.exchange == exchange).delete()
@@ -131,10 +142,11 @@ class SymbolMasterDownloader:
                         f"Inserted {min(i + batch_size, len(instruments))}/{len(instruments)} "
                         f"{exchange} instruments"
                     )
+                
+                total_instruments += len(instruments)
 
-            total = db.query(Instrument).count()
-            logger.info(f"Symbol master load complete: {total} total instruments")
-            return total
+            logger.info(f"Symbol master load complete: {total_instruments} total instruments")
+            return total_instruments
         finally:
             db.close()
 

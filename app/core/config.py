@@ -52,6 +52,10 @@ class Settings(BaseSettings):
         default="http://localhost:8000/api/v1/fyers/auth/callback",
         description="Fyers OAuth2 redirect URI",
     )
+    FYERS_SYMBOL_MASTER_BASE: str = Field(
+        default="https://public.fyers.in/sym_details/",
+        description="Base URL for Fyers Symbol Master CSV files",
+    )
 
     # -------------------------------------------------------------------------
     # 3. Kotak Neo (Execution - ONLY broker for order placement)
