@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     # 1. Database & Cache (required)
     # -------------------------------------------------------------------------
     DATABASE_URL: str = Field(
-        default="postgresql://user:password@localhost:5432/trading_platform",
+        default="postgresql+psycopg://user:password@localhost:5432/trading_platform",
         description="PostgreSQL connection string",
     )
     REDIS_URL: str = Field(
