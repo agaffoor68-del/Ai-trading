@@ -36,7 +36,8 @@ class SymbolMasterDownloader:
     """
 
     def __init__(self):
-        self.base_url = settings.FYERS_SYMBOL_MASTER_BASE
+        # Strip trailing slash to avoid double-slash in URL construction
+        self.base_url = settings.FYERS_SYMBOL_MASTER_BASE.rstrip('/')
         self.session: aiohttp.ClientSession | None = None
 
     async def _get_session(self) -> aiohttp.ClientSession:
