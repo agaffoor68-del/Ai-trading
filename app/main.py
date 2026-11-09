@@ -28,6 +28,7 @@ from app.api.v1.endpoints.fyers_auth import router as fyers_router
 from app.api.v1.endpoints.market import router as market_router
 from app.api.v1.endpoints.auth import router as auth_router
 from app.api.v1.endpoints.admin import router as admin_router
+from app.services.symbol_master import SymbolMasterDownloader
 
 import aiohttp
 
@@ -122,7 +123,17 @@ async def startup_event():
     except Exception as e:
         logger.error(f"NTP sync error: {str(e)}")
 
-    # 4. Log instrument count
+    # 4. Download and sync Fyers Symbol Master (NSE_CM.csv, NSE_FO.csv)
+    try:
+        logger.info("Starting Fyers Symbol Master download...")
+        downloader = SymbolMasterDownloader()
+        total_instruments = await downloader.load_all()
+        await downloader.close()
+        logger.info(f"Fyers Symbol Master sync complete: {total_instruments} instruments loaded")
+    except Exception as e:
+        logger.error(f"Fyers Symbol Master download error: {str(e)}")
+
+    # 5. Log instrument count
     db = SessionLocal()
     try:
         count = db.query(Instrument).count()
