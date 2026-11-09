@@ -8,13 +8,13 @@ Non-Negotiable Rule: Fyers API v3 is the ONLY data source.
 """
 
 import asyncio
-import csv
 import io
 import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import aiohttp
+import pandas as pd
 
 from app.core.config import settings
 from app.core.database import SessionLocal, Instrument, init_db
@@ -27,6 +27,27 @@ SYMBOL_MASTER_FILES = {
     "NSE_CM": "NSE_CM.csv",
     "NSE_FO": "NSE_FO.csv",
 }
+
+# Correct Fyers Symbol Master column names (headerless/positional)
+FYERS_COLUMNS = [
+    "fytoken",
+    "symbol",
+    "instrumentType",
+    "lotSize",
+    "tickSize",
+    "ISIN",
+    "tradingSession",
+    "lastUpdate",
+    "expiryDate",
+    "symbolTicker",
+    "exchange",
+    "segment",
+    "scripCode",
+    "scripName",
+    "scripToken",
+    "strikePrice",
+    "optionType",
+]
 
 
 class SymbolMasterDownloader:
@@ -62,50 +83,90 @@ class SymbolMasterDownloader:
 
     def parse_csv(self, csv_content: str, exchange: str) -> list[dict]:
         """Parse Fyers Symbol Master CSV content into instrument records."""
-        instruments = []
-        reader = csv.DictReader(io.StringIO(csv_content))
+        if not csv_content.strip():
+            logger.warning(f"Empty CSV content for {exchange}")
+            return []
 
-        for row in reader:
-            try:
-                symbol = row.get("symbol", "").strip()
-                if not symbol:
+        try:
+            # Read headerless CSV with explicit column names
+            df = pd.read_csv(
+                io.StringIO(csv_content),
+                header=None,
+                names=FYERS_COLUMNS,
+                dtype=str,  # Read all as strings first
+                skipinitialspace=True,
+            )
+            
+            logger.info(f"Raw DataFrame shape for {exchange}: {df.shape}")
+            logger.info(f"Columns: {list(df.columns)}")
+            
+            # Skip metadata rows - filter rows where fytoken is numeric (valid instrument rows)
+            # Fyers metadata rows typically have non-numeric fytoken
+            df = df[df['fytoken'].str.isnumeric()]
+            
+            logger.info(f"Filtered DataFrame shape for {exchange}: {df.shape}")
+            
+            if df.empty:
+                logger.warning(f"No valid instrument rows found for {exchange}")
+                return []
+
+            # Strip whitespace from all string columns
+            for col in df.select_dtypes(include=['object']).columns:
+                df[col] = df[col].str.strip()
+            
+            # Replace empty strings with None
+            df = df.replace('', None)
+
+            instruments = []
+            for _, row in df.iterrows():
+                try:
+                    # Skip rows with missing required fields
+                    if not row.get('symbol') or not row.get('fytoken'):
+                        continue
+                    
+                    # Parse numeric fields
+                    lot_size = int(row['lotSize']) if row['lotSize'] and row['lotSize'].isdigit() else None
+                    strike = float(row['strikePrice']) if row['strikePrice'] else None
+                    
+                    # Parse expiry date
+                    expiry = None
+                    if row['expiryDate']:
+                        try:
+                            expiry = datetime.strptime(row['expiryDate'], "%Y-%m-%d")
+                        except ValueError:
+                            try:
+                                expiry = datetime.strptime(row['expiryDate'], "%d-%b-%Y")
+                            except ValueError:
+                                pass
+                    
+                    instruments.append(
+                        {
+                            "symbol": row['symbol'],
+                            "name": row['scripName'],
+                            "exchange": exchange,
+                            "segment": row['segment'],
+                            "lot_size": lot_size,
+                            "tick_size": row['tickSize'],
+                            "instrument_type": row['instrumentType'],
+                            "expiry": expiry,
+                            "strike": strike,
+                            "option_type": row['optionType'],
+                            "fyers_token": row['fytoken'],
+                            "is_active": 1,
+                            "created_at": datetime.now(IST),
+                            "updated_at": datetime.now(IST),
+                        }
+                    )
+                except Exception as e:
+                    logger.warning(f"Skipping row due to parse error: {e}")
                     continue
 
-                instruments.append(
-                    {
-                        "symbol": symbol,
-                        "name": row.get("name", "").strip() or None,
-                        "exchange": exchange,
-                        "segment": row.get("segment", "").strip() or None,
-                        "lot_size": int(row.get("lot_size", 0) or 0) or None,
-                        "tick_size": row.get("tick_size", "").strip() or None,
-                        "instrument_type": row.get("instrument_type", "").strip() or None,
-                        "expiry": self._parse_date(row.get("expiry")),
-                        "strike": row.get("strike", "").strip() or None,
-                        "option_type": row.get("option_type", "").strip() or None,
-                        "fyers_token": row.get("token", "").strip() or None,
-                        "is_active": 1,
-                        "created_at": datetime.now(IST),
-                        "updated_at": datetime.now(IST),
-                    }
-                )
-            except Exception as e:
-                logger.warning(f"Skipping row due to parse error: {e}")
-                continue
-
-        return instruments
-
-    @staticmethod
-    def _parse_date(date_str: str):
-        if not date_str or date_str.strip() == "":
-            return None
-        try:
-            return datetime.strptime(date_str.strip(), "%Y-%m-%d")
-        except ValueError:
-            try:
-                return datetime.strptime(date_str.strip(), "%d-%b-%Y")
-            except ValueError:
-                return None
+            logger.info(f"Successfully parsed {len(instruments)} instruments from {exchange}")
+            return instruments
+            
+        except Exception as e:
+            logger.error(f"Failed to parse CSV for {exchange}: {e}")
+            return []
 
     async def load_all(self):
         """Download and load all symbol master files into PostgreSQL."""
