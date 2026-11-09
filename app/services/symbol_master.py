@@ -29,19 +29,19 @@ SYMBOL_MASTER_FILES = {
 }
 
 # Correct Fyers Symbol Master column names (headerless/positional)
-# Updated based on Fyers actual CSV format (18 columns)
+# Updated based on Fyers actual CSV format (18 columns) with numerical instrument types
 FYERS_COLUMNS = [
     "fytoken",              # 0: fytoken (numeric instrument ID)
     "symbol_ticker",        # 1: symbol_ticker (e.g., NSE:SBIN-EQ)
-    "ISIN",                 # 2: ISIN
-    "trading_session",      # 3: trading_session
-    "last_update_date",     # 4: last_update_date
-    "expiry_date",          # 5: expiry_date
-    "exchange",             # 6: exchange (NSE/BSE)
-    "segment",              # 7: segment (CM/FO)
-    "instrument_type",      # 8: instrument_type (EQ/FUT/OPT)
-    "lot_size",             # 9: lot_size
-    "tick_size",            # 10: tick_size
+    "instrument_type",      # 2: instrument_type (10=EQ, 11=FUT, 12=OPT)
+    "exchange",             # 3: exchange (NSE, BSE)
+    "segment",              # 4: segment (CM, FO)
+    "lot_size",             # 5: lot_size
+    "tick_size",            # 6: tick_size
+    "ISIN",                 # 7: ISIN
+    "trading_session",      # 8: trading_session
+    "last_update_date",     # 9: last_update_date
+    "expiry_date",          # 10: expiry_date
     "strike_price",         # 11: strike_price
     "option_type",          # 12: option_type (CE/PE)
     "scrip_code",           # 13: scrip_code
@@ -128,14 +128,15 @@ class SymbolMasterDownloader:
             
             # For NSE_CM, keep EQ instruments; for NSE_FO, keep all FUT/OPT
             # Since we're downloading specific files, we don't need to filter by exchange
+            # Fyers uses numerical codes: 10=EQ, 11=FUT, 12=OPT
             if exchange == "NSE_CM":
-                # Keep EQ (Equity) instruments - handle variations
-                df = df[df['instrument_type'].isin(['EQ', 'EQUITY', 'STK'])]
-                logger.info(f"Filtered for EQ instruments in {exchange}")
+                # Keep EQ (Equity) instruments - numerical code 10
+                df = df[df['instrument_type'].isin(['10', 'EQ', 'EQUITY', 'STK'])]
+                logger.info(f"Filtered for EQ instruments (code 10) in {exchange}")
             elif exchange == "NSE_FO":
-                # Keep FUT (Futures) and OPT (Options) instruments
-                df = df[df['instrument_type'].isin(['FUT', 'OPT', 'FUTURE', 'OPTION'])]
-                logger.info(f"Filtered for FUT/OPT instruments in {exchange}")
+                # Keep FUT (Futures, code 11) and OPT (Options, code 12) instruments
+                df = df[df['instrument_type'].isin(['11', '12', 'FUT', 'OPT', 'FUTURE', 'OPTION'])]
+                logger.info(f"Filtered for FUT/OPT instruments (codes 11/12) in {exchange}")
             
             logger.info(f"Filtered DataFrame shape for {exchange}: {df.shape}")
             
