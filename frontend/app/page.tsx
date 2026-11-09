@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react';
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
 export default function Home() {
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -17,7 +19,7 @@ export default function Home() {
     <main className="min-h-screen bg-slate-50 p-8 font-sans text-slate-900">
       <div className="max-w-4xl mx-auto">
         <h1 className="text-3xl font-bold mb-4">Options Trading Platform</h1>
-        <p className="mb-6 text-slate-600">Frontend connected to backend at http://localhost:8000</p>
+        <p className="mb-6 text-slate-600">Frontend connected to backend at {API_URL}</p>
         {error && (
           <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded text-red-800 text-sm">
             Error connecting to backend: {error}
