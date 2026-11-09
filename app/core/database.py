@@ -13,10 +13,13 @@ from app.core.config import settings
 # Force psycopg3 driver - Render injects DATABASE_URL as postgresql://
 # which SQLAlchemy defaults to psycopg2 (not installed). Normalize to +psycopg.
 _DATABASE_URL = settings.DATABASE_URL
-if _DATABASE_URL.startswith("postgresql://"):
-    _DATABASE_URL = "postgresql+psycopg://" + _DATABASE_URL[len("postgresql://"):]
-elif _DATABASE_URL.startswith("postgres://"):
-    _DATABASE_URL = "postgresql+psycopg://" + _DATABASE_URL[len("postgres://"):]
+if _DATABASE_URL.startswith("postgres://"):
+    _DATABASE_URL = _DATABASE_URL.replace("postgres://", "postgresql+psycopg://", 1)
+elif _DATABASE_URL.startswith("postgresql://"):
+    _DATABASE_URL = _DATABASE_URL.replace("postgresql://", "postgresql+psycopg://", 1)
+elif "postgresql+psycopg2://" in _DATABASE_URL:
+    _DATABASE_URL = _DATABASE_URL.replace("postgresql+psycopg2://", "postgresql+psycopg://", 1)
+# If it already has +psycopg, leave it as is.
 DATABASE_URL = _DATABASE_URL
 
 engine = create_engine(
