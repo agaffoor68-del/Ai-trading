@@ -29,24 +29,26 @@ SYMBOL_MASTER_FILES = {
 }
 
 # Correct Fyers Symbol Master column names (headerless/positional)
+# Based on actual Fyers CSV format: 18 columns total
 FYERS_COLUMNS = [
-    "fytoken",
-    "symbol",
-    "instrumentType",
-    "lotSize",
-    "tickSize",
-    "ISIN",
-    "tradingSession",
-    "lastUpdate",
-    "expiryDate",
-    "symbolTicker",
-    "exchange",
-    "segment",
-    "scripCode",
-    "scripName",
-    "scripToken",
-    "strikePrice",
-    "optionType",
+    "fytoken",              # 0: fytoken (numeric instrument ID)
+    "symbol_ticker",        # 1: symbol_ticker (e.g., NSE:SBIN-EQ)
+    "exchange",             # 2: exchange (NSE/BSE)
+    "segment",              # 3: segment (CM/FO)
+    "instrument_type",      # 4: instrument_type (EQ/FUT/OPT)
+    "lot_size",             # 5: lot_size
+    "tick_size",            # 6: tick_size
+    "ISIN",                 # 7: ISIN
+    "trading_session",      # 8: trading_session
+    "last_update_date",     # 9: last_update_date
+    "expiry_date",          # 10: expiry_date
+    "strike_price",         # 11: strike_price
+    "option_type",          # 12: option_type (CE/PE)
+    "scrip_code",           # 13: scrip_code
+    "scrip_name",           # 14: scrip_name
+    "scrip_token",          # 15: scrip_token
+    "reserved1",            # 16: reserved1
+    "reserved2",            # 17: reserved2
 ]
 
 
@@ -101,7 +103,7 @@ class SymbolMasterDownloader:
             logger.info(f"Columns: {list(df.columns)}")
             
             # DEBUG: Log unique values before cleaning
-            logger.info(f"DEBUG {exchange} - instrumentType unique: {df['instrumentType'].unique()[:20]}")
+            logger.info(f"DEBUG {exchange} - instrument_type unique: {df['instrument_type'].unique()[:20]}")
             logger.info(f"DEBUG {exchange} - exchange unique: {df['exchange'].unique()[:20]}")
             logger.info(f"DEBUG {exchange} - segment unique: {df['segment'].unique()[:20]}")
             
@@ -110,29 +112,29 @@ class SymbolMasterDownloader:
                 df[col] = df[col].str.strip()
             
             # Convert to uppercase for consistent filtering
-            df['instrumentType'] = df['instrumentType'].str.upper()
+            df['instrument_type'] = df['instrument_type'].str.upper()
             df['exchange'] = df['exchange'].str.upper()
             df['segment'] = df['segment'].str.upper()
             
-            logger.info(f"DEBUG {exchange} - instrumentType unique after cleaning: {df['instrumentType'].unique()[:20]}")
+            logger.info(f"DEBUG {exchange} - instrument_type unique after cleaning: {df['instrument_type'].unique()[:20]}")
             logger.info(f"DEBUG {exchange} - exchange unique after cleaning: {df['exchange'].unique()[:20]}")
             
             # Replace empty strings with None
             df = df.replace('', None)
             
-            # Filter out metadata rows: keep rows with valid fytoken (numeric) and valid symbol
+            # Filter out metadata rows: keep rows with valid fytoken (numeric) and valid symbol_ticker
             df = df[df['fytoken'].str.isnumeric()]
-            df = df[df['symbol'].notna()]
+            df = df[df['symbol_ticker'].notna()]
             
             # For NSE_CM, keep EQ instruments; for NSE_FO, keep all FUT/OPT
             # Since we're downloading specific files, we don't need to filter by exchange
             if exchange == "NSE_CM":
                 # Keep EQ (Equity) instruments - handle variations
-                df = df[df['instrumentType'].isin(['EQ', 'EQUITY', 'STK'])]
+                df = df[df['instrument_type'].isin(['EQ', 'EQUITY', 'STK'])]
                 logger.info(f"Filtered for EQ instruments in {exchange}")
             elif exchange == "NSE_FO":
                 # Keep FUT (Futures) and OPT (Options) instruments
-                df = df[df['instrumentType'].isin(['FUT', 'OPT', 'FUTURE', 'OPTION'])]
+                df = df[df['instrument_type'].isin(['FUT', 'OPT', 'FUTURE', 'OPTION'])]
                 logger.info(f"Filtered for FUT/OPT instruments in {exchange}")
             
             logger.info(f"Filtered DataFrame shape for {exchange}: {df.shape}")
@@ -140,7 +142,7 @@ class SymbolMasterDownloader:
             # Log sample of filtered data
             if not df.empty:
                 logger.info(f"Sample filtered rows for {exchange}:")
-                logger.info(df[['fytoken', 'symbol', 'instrumentType', 'exchange', 'segment']].head(10).to_string())
+                logger.info(df[['fytoken', 'symbol_ticker', 'instrument_type', 'exchange', 'segment']].head(10).to_string())
             
             if df.empty:
                 logger.warning(f"No valid instrument rows found for {exchange} after filtering")
@@ -150,36 +152,41 @@ class SymbolMasterDownloader:
             for _, row in df.iterrows():
                 try:
                     # Skip rows with missing required fields
-                    if not row.get('symbol') or not row.get('fytoken'):
+                    if not row.get('symbol_ticker') or not row.get('fytoken'):
                         continue
                     
+                    # Parse symbol from symbol_ticker (e.g., "NSE:SBIN-EQ" -> "SBIN-EQ")
+                    symbol = row['symbol_ticker']
+                    if ':' in symbol:
+                        symbol = symbol.split(':', 1)[1]
+                    
                     # Parse numeric fields
-                    lot_size = int(row['lotSize']) if row['lotSize'] and row['lotSize'].isdigit() else None
-                    strike = float(row['strikePrice']) if row['strikePrice'] else None
+                    lot_size = int(row['lot_size']) if row['lot_size'] and row['lot_size'].isdigit() else None
+                    strike = float(row['strike_price']) if row['strike_price'] else None
                     
                     # Parse expiry date
                     expiry = None
-                    if row['expiryDate']:
+                    if row['expiry_date']:
                         try:
-                            expiry = datetime.strptime(row['expiryDate'], "%Y-%m-%d")
+                            expiry = datetime.strptime(row['expiry_date'], "%Y-%m-%d")
                         except ValueError:
                             try:
-                                expiry = datetime.strptime(row['expiryDate'], "%d-%b-%Y")
+                                expiry = datetime.strptime(row['expiry_date'], "%d-%b-%Y")
                             except ValueError:
                                 pass
                     
                     instruments.append(
                         {
-                            "symbol": row['symbol'],
-                            "name": row['scripName'],
+                            "symbol": symbol,
+                            "name": row['scrip_name'],
                             "exchange": exchange,
                             "segment": row['segment'],
                             "lot_size": lot_size,
-                            "tick_size": row['tickSize'],
-                            "instrument_type": row['instrumentType'],
+                            "tick_size": row['tick_size'],
+                            "instrument_type": row['instrument_type'],
                             "expiry": expiry,
                             "strike": strike,
-                            "option_type": row['optionType'],
+                            "option_type": row['option_type'],
                             "fyers_token": row['fytoken'],
                             "is_active": 1,
                             "created_at": datetime.now(IST),
