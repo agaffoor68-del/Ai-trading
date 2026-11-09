@@ -10,7 +10,14 @@ from sqlalchemy.orm import sessionmaker
 
 from app.core.config import settings
 
-DATABASE_URL = settings.DATABASE_URL
+# Force psycopg3 driver - Render injects DATABASE_URL as postgresql://
+# which SQLAlchemy defaults to psycopg2 (not installed). Normalize to +psycopg.
+_DATABASE_URL = settings.DATABASE_URL
+if _DATABASE_URL.startswith("postgresql://"):
+    _DATABASE_URL = "postgresql+psycopg://" + _DATABASE_URL[len("postgresql://"):]
+elif _DATABASE_URL.startswith("postgres://"):
+    _DATABASE_URL = "postgresql+psycopg://" + _DATABASE_URL[len("postgres://"):]
+DATABASE_URL = _DATABASE_URL
 
 engine = create_engine(
     DATABASE_URL,
