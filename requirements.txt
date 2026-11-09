@@ -6,11 +6,12 @@
 # - TIMEZONE: IST (Asia/Kolkata) ONLY
 # - WEBSOCKETS: websockets==8.1 + wsproto (Render crash prevention)
 
-fastapi==0.104.1
+fastapi==0.115.8
 uvicorn==0.30.4
 sqlalchemy==2.0.36
 psycopg[binary]==3.2.1
 python-dotenv>=1.2.2
+pydantic>=2.11.8
 pydantic-settings==2.16.2
 # Critical: Render crash prevention (DO NOT CHANGE)
 websockets>=10.4.0
