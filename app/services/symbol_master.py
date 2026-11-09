@@ -100,22 +100,51 @@ class SymbolMasterDownloader:
             logger.info(f"Raw DataFrame shape for {exchange}: {df.shape}")
             logger.info(f"Columns: {list(df.columns)}")
             
-            # Skip metadata rows - filter rows where fytoken is numeric (valid instrument rows)
-            # Fyers metadata rows typically have non-numeric fytoken
-            df = df[df['fytoken'].str.isnumeric()]
+            # DEBUG: Log unique values before cleaning
+            logger.info(f"DEBUG {exchange} - instrumentType unique: {df['instrumentType'].unique()[:20]}")
+            logger.info(f"DEBUG {exchange} - exchange unique: {df['exchange'].unique()[:20]}")
+            logger.info(f"DEBUG {exchange} - segment unique: {df['segment'].unique()[:20]}")
             
-            logger.info(f"Filtered DataFrame shape for {exchange}: {df.shape}")
-            
-            if df.empty:
-                logger.warning(f"No valid instrument rows found for {exchange}")
-                return []
-
-            # Strip whitespace from all string columns
+            # Strip whitespace from all string columns FIRST
             for col in df.select_dtypes(include=['object']).columns:
                 df[col] = df[col].str.strip()
             
+            # Convert to uppercase for consistent filtering
+            df['instrumentType'] = df['instrumentType'].str.upper()
+            df['exchange'] = df['exchange'].str.upper()
+            df['segment'] = df['segment'].str.upper()
+            
+            logger.info(f"DEBUG {exchange} - instrumentType unique after cleaning: {df['instrumentType'].unique()[:20]}")
+            logger.info(f"DEBUG {exchange} - exchange unique after cleaning: {df['exchange'].unique()[:20]}")
+            
             # Replace empty strings with None
             df = df.replace('', None)
+            
+            # Filter out metadata rows: keep rows with valid fytoken (numeric) and valid symbol
+            df = df[df['fytoken'].str.isnumeric()]
+            df = df[df['symbol'].notna()]
+            
+            # For NSE_CM, keep EQ instruments; for NSE_FO, keep all FUT/OPT
+            # Since we're downloading specific files, we don't need to filter by exchange
+            if exchange == "NSE_CM":
+                # Keep EQ (Equity) instruments - handle variations
+                df = df[df['instrumentType'].isin(['EQ', 'EQUITY', 'STK'])]
+                logger.info(f"Filtered for EQ instruments in {exchange}")
+            elif exchange == "NSE_FO":
+                # Keep FUT (Futures) and OPT (Options) instruments
+                df = df[df['instrumentType'].isin(['FUT', 'OPT', 'FUTURE', 'OPTION'])]
+                logger.info(f"Filtered for FUT/OPT instruments in {exchange}")
+            
+            logger.info(f"Filtered DataFrame shape for {exchange}: {df.shape}")
+            
+            # Log sample of filtered data
+            if not df.empty:
+                logger.info(f"Sample filtered rows for {exchange}:")
+                logger.info(df[['fytoken', 'symbol', 'instrumentType', 'exchange', 'segment']].head(10).to_string())
+            
+            if df.empty:
+                logger.warning(f"No valid instrument rows found for {exchange} after filtering")
+                return []
 
             instruments = []
             for _, row in df.iterrows():
