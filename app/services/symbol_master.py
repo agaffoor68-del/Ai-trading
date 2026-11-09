@@ -29,26 +29,26 @@ SYMBOL_MASTER_FILES = {
 }
 
 # Correct Fyers Symbol Master column names (headerless/positional)
-# Updated based on Fyers actual CSV format (18 columns) with numerical instrument types
+# Updated based on OFFICIAL Fyers documentation (18 columns)
 FYERS_COLUMNS = [
     "fytoken",              # 0: fytoken (numeric instrument ID)
-    "symbol_ticker",        # 1: symbol_ticker (e.g., NSE:SBIN-EQ)
+    "symbol",               # 1: symbol (e.g., SBIN-EQ)
     "instrument_type",      # 2: instrument_type (10=EQ, 11=FUT, 12=OPT)
-    "exchange",             # 3: exchange (NSE, BSE)
-    "segment",              # 4: segment (CM, FO)
-    "lot_size",             # 5: lot_size
-    "tick_size",            # 6: tick_size
-    "ISIN",                 # 7: ISIN
-    "trading_session",      # 8: trading_session
-    "last_update_date",     # 9: last_update_date
-    "expiry_date",          # 10: expiry_date
-    "strike_price",         # 11: strike_price
-    "option_type",          # 12: option_type (CE/PE)
-    "scrip_code",           # 13: scrip_code
-    "scrip_name",           # 14: scrip_name
-    "scrip_token",          # 15: scrip_token
-    "reserved1",            # 16: reserved1
-    "reserved2",            # 17: reserved2
+    "lot_size",             # 3: lot_size
+    "tick_size",            # 4: tick_size
+    "ISIN",                 # 5: ISIN
+    "trading_session",      # 6: trading_session
+    "last_update_date",     # 7: last_update_date
+    "expiry_date",          # 8: expiry_date
+    "symbol_ticker",        # 9: symbol_ticker (e.g., NSE:SBIN-EQ)
+    "exchange",             # 10: exchange (NSE, BSE)
+    "segment",              # 11: segment (CM, FO)
+    "scrip_code",           # 12: scrip_code
+    "underlying_symbol",    # 13: underlying_symbol
+    "underlying_scrip_code", # 14: underlying_scrip_code
+    "strike_price",         # 15: strike_price
+    "option_type",          # 16: option_type (CE/PE)
+    "underlying_fytoken",   # 17: underlying_fytoken
 ]
 
 
@@ -122,9 +122,9 @@ class SymbolMasterDownloader:
             # Replace empty strings with None
             df = df.replace('', None)
             
-            # Filter out metadata rows: keep rows with valid fytoken (numeric) and valid symbol_ticker
+            # Filter out metadata rows: keep rows with valid fytoken (numeric) and valid symbol
             df = df[df['fytoken'].str.isnumeric()]
-            df = df[df['symbol_ticker'].notna()]
+            df = df[df['symbol'].notna()]
             
             # For NSE_CM, keep EQ instruments; for NSE_FO, keep all FUT/OPT
             # Since we're downloading specific files, we don't need to filter by exchange
@@ -143,7 +143,7 @@ class SymbolMasterDownloader:
             # Log sample of filtered data
             if not df.empty:
                 logger.info(f"Sample filtered rows for {exchange}:")
-                logger.info(df[['fytoken', 'symbol_ticker', 'instrument_type', 'exchange', 'segment']].head(10).to_string())
+                logger.info(df[['fytoken', 'symbol', 'instrument_type', 'exchange', 'segment']].head(10).to_string())
             
             if df.empty:
                 logger.warning(f"No valid instrument rows found for {exchange} after filtering")
@@ -153,13 +153,14 @@ class SymbolMasterDownloader:
             for _, row in df.iterrows():
                 try:
                     # Skip rows with missing required fields
-                    if not row.get('symbol_ticker') or not row.get('fytoken'):
+                    if not row.get('symbol') or not row.get('fytoken'):
                         continue
                     
-                    # Parse symbol from symbol_ticker (e.g., "NSE:SBIN-EQ" -> "SBIN-EQ")
-                    symbol = row['symbol_ticker']
-                    if ':' in symbol:
-                        symbol = symbol.split(':', 1)[1]
+                    # Parse symbol (use symbol_ticker if available and symbol is not descriptive)
+                    symbol = row['symbol']
+                    symbol_ticker = row.get('symbol_ticker')
+                    if symbol_ticker and ':' in symbol_ticker:
+                        symbol = symbol_ticker.split(':', 1)[1]
                     
                     # Parse numeric fields
                     lot_size = int(row['lot_size']) if row['lot_size'] and row['lot_size'].isdigit() else None
@@ -179,7 +180,7 @@ class SymbolMasterDownloader:
                     instruments.append(
                         {
                             "symbol": symbol,
-                            "name": row['scrip_name'],
+                            "name": row['symbol'],  # Use symbol as name since scrip_name is not in current format
                             "exchange": exchange,
                             "segment": row['segment'],
                             "lot_size": lot_size,
