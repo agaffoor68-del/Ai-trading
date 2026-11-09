@@ -39,16 +39,16 @@ FYERS_COLUMNS = [
     "trading_session",      # 5: trading_session
     "last_update_date",     # 6: last_update_date
     "expiry_date",          # 7: expiry_date
-    "exchange",             # 8: exchange (NSE, BSE)
-    "segment",              # 9: segment (CM, FO)
+    "instrument_type",      # 8: instrument_type (10=EQ, 11=FUT, 12=OPT)
+    "scrip_code",           # 9: scrip_code
     "symbol",               # 10: symbol (e.g., SBIN-EQ)
-    "scrip_code",           # 11: scrip_code
-    "instrument_type",      # 12: instrument_type (10=EQ, 11=FUT, 12=OPT)
-    "underlying_symbol",    # 13: underlying_symbol
-    "underlying_scrip_code", # 14: underlying_scrip_code
-    "strike_price",         # 15: strike_price
-    "option_type",          # 16: option_type (CE/PE)
-    "underlying_fytoken",   # 17: underlying_fytoken
+    "segment",              # 11: segment (CM, FO)
+    "strike_price",         # 12: strike_price
+    "option_type",          # 13: option_type (CE/PE)
+    "underlying_symbol",    # 14: underlying_symbol
+    "underlying_scrip_code", # 15: underlying_scrip_code
+    "underlying_fytoken",   # 16: underlying_fytoken
+    "reserved",             # 17: reserved
 ]
 
 
@@ -104,7 +104,6 @@ class SymbolMasterDownloader:
             
             # DEBUG: Log unique values before cleaning
             logger.info(f"DEBUG {exchange} - instrument_type unique: {df['instrument_type'].unique()[:20]}")
-            logger.info(f"DEBUG {exchange} - exchange unique: {df['exchange'].unique()[:20]}")
             logger.info(f"DEBUG {exchange} - segment unique: {df['segment'].unique()[:20]}")
             
             # Strip whitespace from all string columns FIRST
@@ -113,11 +112,10 @@ class SymbolMasterDownloader:
             
             # Convert to uppercase for consistent filtering
             df['instrument_type'] = df['instrument_type'].str.upper()
-            df['exchange'] = df['exchange'].str.upper()
             df['segment'] = df['segment'].str.upper()
             
             logger.info(f"DEBUG {exchange} - instrument_type unique after cleaning: {df['instrument_type'].unique()[:20]}")
-            logger.info(f"DEBUG {exchange} - exchange unique after cleaning: {df['exchange'].unique()[:20]}")
+            logger.info(f"DEBUG {exchange} - segment unique after cleaning: {df['segment'].unique()[:20]}")
             
             # Replace empty strings with None
             df = df.replace('', None)
@@ -143,7 +141,7 @@ class SymbolMasterDownloader:
             # Log sample of filtered data
             if not df.empty:
                 logger.info(f"Sample filtered rows for {exchange}:")
-                logger.info(df[['fytoken', 'symbol', 'instrument_type', 'exchange', 'segment']].head(10).to_string())
+                logger.info(df[['fytoken', 'symbol', 'instrument_type', 'segment']].head(10).to_string())
             
             if df.empty:
                 logger.warning(f"No valid instrument rows found for {exchange} after filtering")
@@ -161,6 +159,11 @@ class SymbolMasterDownloader:
                     symbol_ticker = row.get('symbol_ticker')
                     if symbol_ticker and ':' in symbol_ticker:
                         symbol = symbol_ticker.split(':', 1)[1]
+                    
+                    # Extract exchange from symbol_ticker (e.g., "NSE:SBIN-EQ" -> "NSE")
+                    parsed_exchange = exchange  # Default to the file's exchange
+                    if symbol_ticker and ':' in symbol_ticker:
+                        parsed_exchange = symbol_ticker.split(':', 1)[0]
                     
                     # Parse numeric fields
                     lot_size = int(row['lot_size']) if row['lot_size'] and row['lot_size'].isdigit() else None
@@ -181,7 +184,7 @@ class SymbolMasterDownloader:
                         {
                             "symbol": symbol,
                             "name": row['symbol'],  # Use symbol as name since scrip_name is not in current format
-                            "exchange": exchange,
+                            "exchange": parsed_exchange,
                             "segment": row['segment'],
                             "lot_size": lot_size,
                             "tick_size": row['tick_size'],
