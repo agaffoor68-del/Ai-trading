@@ -29,21 +29,21 @@ SYMBOL_MASTER_FILES = {
 }
 
 # Correct Fyers Symbol Master column names (headerless/positional)
-# Updated based on OFFICIAL Fyers documentation (18 columns)
+# Updated based on ACTUAL Fyers CSV format from logs (18 columns)
 FYERS_COLUMNS = [
     "fytoken",              # 0: fytoken (numeric instrument ID)
-    "symbol",               # 1: symbol (e.g., SBIN-EQ)
-    "instrument_type",      # 2: instrument_type (10=EQ, 11=FUT, 12=OPT)
+    "symbol_ticker",        # 1: symbol_ticker (e.g., NSE:SBIN-EQ)
+    "ISIN",                 # 2: ISIN
     "lot_size",             # 3: lot_size
     "tick_size",            # 4: tick_size
-    "ISIN",                 # 5: ISIN
-    "trading_session",      # 6: trading_session
-    "last_update_date",     # 7: last_update_date
-    "expiry_date",          # 8: expiry_date
-    "symbol_ticker",        # 9: symbol_ticker (e.g., NSE:SBIN-EQ)
-    "exchange",             # 10: exchange (NSE, BSE)
-    "segment",              # 11: segment (CM, FO)
-    "scrip_code",           # 12: scrip_code
+    "trading_session",      # 5: trading_session
+    "last_update_date",     # 6: last_update_date
+    "expiry_date",          # 7: expiry_date
+    "exchange",             # 8: exchange (NSE, BSE)
+    "segment",              # 9: segment (CM, FO)
+    "symbol",               # 10: symbol (e.g., SBIN-EQ)
+    "scrip_code",           # 11: scrip_code
+    "instrument_type",      # 12: instrument_type (10=EQ, 11=FUT, 12=OPT)
     "underlying_symbol",    # 13: underlying_symbol
     "underlying_scrip_code", # 14: underlying_scrip_code
     "strike_price",         # 15: strike_price
