@@ -2,14 +2,14 @@
 
 import { useEffect, useState } from 'react';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
 export default function Home() {
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch('/api/')
+    fetch(`${API_URL}/`)
       .then((res) => res.json())
       .then((data) => setStatus(JSON.stringify(data, null, 2)))
       .catch((err) => setError(err.message));
@@ -30,8 +30,8 @@ export default function Home() {
           <pre className="bg-slate-100 p-4 rounded text-sm overflow-x-auto">{status || 'Loading...'}</pre>
         </div>
         <div className="mt-6 flex gap-3">
-          <a href="/api/health" className="inline-block px-4 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700">Health Check</a>
-          <a href="/api/docs" className="inline-block px-4 py-2 bg-slate-800 text-white rounded text-sm hover:bg-slate-900">API Docs</a>
+          <a href={`${API_URL}/health`} className="inline-block px-4 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700">Health Check</a>
+          <a href={`${API_URL}/docs`} className="inline-block px-4 py-2 bg-slate-800 text-white rounded text-sm hover:bg-slate-900">API Docs</a>
         </div>
       </div>
     </main>
