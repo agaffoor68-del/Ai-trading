@@ -46,9 +46,15 @@ app = FastAPI(
     description="Authentication & Admin System - Fyers API v3 ONLY for data, Kotak Neo for execution",
 )
 
+origins = [
+    "https://ai-trading-9fkt.vercel.app",
+    "http://localhost:3000",
+    "http://localhost:8000",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
