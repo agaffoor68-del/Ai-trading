@@ -18,6 +18,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 
 from app.core.config import settings
 from app.core.database import engine, SessionLocal, Base, Instrument, init_db
@@ -86,7 +87,7 @@ async def root():
 async def health_check():
     try:
         db = SessionLocal()
-        db.execute("SELECT 1")
+        db.execute(text("SELECT 1"))
         db.close()
         return {
             "status": "healthy",
