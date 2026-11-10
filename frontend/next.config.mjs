@@ -7,7 +7,7 @@ const nextConfig = {
     const destination = process.env.NEXT_PUBLIC_API_URL;
 
     if (!destination) {
-      throw new Error('NEXT_PUBLIC_API_URL must be configured');
+      return [];
     }
     return [
       {
