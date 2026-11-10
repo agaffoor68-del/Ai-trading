@@ -1,21 +1,84 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { LayoutDashboard, TrendingUp, Brain, List, BarChart, Settings, LogOut } from "lucide-react";
+import {
+  LayoutDashboard,
+  TrendingUp,
+  List,
+  Brain,
+  ShoppingBag,
+  Briefcase,
+  FlaskConical,
+  GitBranch,
+  RotateCcw,
+  BarChart,
+  Link as LinkIcon,
+  Shield,
+  Settings,
+  Users,
+  Key,
+  ChevronDown,
+  ChevronUp,
+} from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useState } from "react";
 
-const navItems = [
-  { href: "/", label: "Overview", icon: LayoutDashboard },
-  { href: "/market", label: "Market Watch", icon: TrendingUp },
-  { href: "/signals", label: "AI Signals", icon: Brain },
-  { href: "/options", label: "Options Chain", icon: List },
-  { href: "/analytics", label: "Analytics", icon: BarChart },
-  { href: "/settings", label: "Settings", icon: Settings },
+// Mock user with ADMIN role
+const user = { role: "ADMIN" as "ADMIN" | "USER" };
+
+const navGroups = [
+  {
+    label: "MAIN DESK",
+    items: [
+      { href: "/", label: "Overview", icon: LayoutDashboard },
+      { href: "/market-watch", label: "Market Watch", icon: TrendingUp },
+      { href: "/option-chain", label: "Option Chain", icon: List },
+      { href: "/ai-signals", label: "AI Signals", icon: Brain },
+    ],
+  },
+  {
+    label: "TRADING",
+    items: [
+      { href: "/order-ticket", label: "Order Ticket", icon: ShoppingBag },
+      { href: "/positions", label: "Positions", icon: Briefcase },
+      { href: "/paper-trading", label: "Paper Trading", icon: FlaskConical },
+    ],
+  },
+  {
+    label: "QUANT",
+    items: [
+      { href: "/strategies", label: "Strategies", icon: GitBranch },
+      { href: "/backtest", label: "Backtest", icon: RotateCcw },
+      { href: "/analytics", label: "Analytics", icon: BarChart },
+    ],
+  },
+  {
+    label: "SYSTEM",
+    items: [
+      { href: "/broker-connect", label: "Broker Connect", icon: LinkIcon },
+      { href: "/risk-management", label: "Risk Management", icon: Shield },
+      { href: "/settings", label: "Settings", icon: Settings },
+    ],
+  },
+  {
+    label: "ADMIN",
+    items: [
+      { href: "/admin", label: "Admin Panel", icon: Users },
+    ],
+    adminOnly: true,
+  },
 ];
 
 export function Sidebar() {
   const pathname = usePathname();
+  const [collapsedGroups, setCollapsedGroups] = useState<string[]>([]);
+
+  const toggleGroup = (label: string) => {
+    setCollapsedGroups((prev) =>
+      prev.includes(label) ? prev.filter((g) => g !== label) : [...prev, label]
+    );
+  };
 
   return (
     <motion.aside
@@ -39,36 +102,76 @@ export function Sidebar() {
         <span className="text-xl font-bold text-white tracking-tight">AlphaTradePro</span>
       </div>
 
-      {/* Navigation */}
-      <nav className="flex-1 px-4 py-6 space-y-1 overflow-y-auto">
-        {navItems.map((item, index) => {
-          const Icon = item.icon;
-          const isActive = pathname === item.href;
+      {/* Navigation Groups */}
+      <nav className="flex-1 px-4 py-4 space-y-4 overflow-y-auto">
+        {navGroups.map((group, groupIndex) => {
+          // Admin-only check
+          if (group.adminOnly && user.role !== "ADMIN") {
+            return null;
+          }
+
+          const isCollapsed = collapsedGroups.includes(group.label);
+
           return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 ${
-                isActive
-                  ? "bg-gradient-to-r from-neon-cyan/10 to-neon-purple/10 border-l-4 border-neon-cyan text-white shadow-glow-cyan"
-                  : "text-text-secondary hover:text-white hover:bg-card-bg hover:border-l-4 hover:border-neon-cyan/30"
-              } group`}
+            <motion.div
+              key={group.label}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: groupIndex * 0.08 }}
             >
-              <motion.div
-                initial={{ scale: 0.8, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                transition={{ delay: index * 0.05 }}
-                className="w-5 h-5 flex-shrink-0"
+              {/* Group Header */}
+              <button
+                onClick={() => toggleGroup(group.label)}
+                className="w-full flex items-center justify-between px-3 py-2 text-xs font-semibold uppercase tracking-wider text-text-muted hover:text-white transition-colors"
               >
-                <Icon className="w-5 h-5" strokeWidth={2.5} />
+                <span>{group.label}</span>
+                <motion.span
+                  animate={{ rotate: isCollapsed ? -90 : 0 }}
+                  transition={{ type: "spring", stiffness: 300, damping: 25 }}
+                >
+                  <ChevronDown className="w-4 h-4" strokeWidth={2.5} />
+                </motion.span>
+              </button>
+
+              {/* Group Items */}
+              <motion.div
+                initial={false}
+                animate={{ height: isCollapsed ? 0 : "auto", opacity: isCollapsed ? 0 : 1 }}
+                transition={{ duration: 0.2, ease: "easeInOut" }}
+                className="overflow-hidden space-y-1"
+              >
+                {group.items.map((item, itemIndex) => {
+                  const Icon = item.icon;
+                  const isActive = pathname === item.href;
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      className={`flex items-center gap-3 px-4 py-2.5 rounded-xl transition-all duration-300 ${
+                        isActive
+                          ? "bg-gradient-to-r from-neon-cyan/10 to-neon-purple/10 border-l-4 border-neon-cyan text-white shadow-glow-cyan"
+                          : "text-text-secondary hover:text-white hover:bg-card-bg hover:border-l-4 hover:border-neon-cyan/30"
+                      } group`}
+                    >
+                      <motion.div
+                        initial={{ scale: 0.8, opacity: 0 }}
+                        animate={{ scale: 1, opacity: 1 }}
+                        transition={{ delay: groupIndex * 0.08 + itemIndex * 0.03 }}
+                        className="w-5 h-5 flex-shrink-0"
+                      >
+                        <Icon className="w-5 h-5" strokeWidth={2.5} />
+                      </motion.div>
+                      <span className="font-medium text-sm">{item.label}</span>
+                    </Link>
+                  );
+                })}
               </motion.div>
-              <span className="font-medium text-sm">{item.label}</span>
-            </Link>
+            </motion.div>
           );
         })}
       </nav>
 
-      {/* Bottom: Version & Logout */}
+      {/* Bottom: Version & Status */}
       <div className="p-4 border-t border-glow-border">
         <div className="flex items-center justify-between text-xs text-text-muted">
           <span>v2.0.0 Phase 2</span>
@@ -76,6 +179,10 @@ export function Sidebar() {
             <span className="w-1.5 h-1.5 rounded-full bg-neon-green animate-pulse-glow" />
             LIVE
           </span>
+        </div>
+        <div className="mt-3 pt-3 border-t border-glow-border flex items-center gap-2 text-xs text-text-muted">
+          <Key className="w-3.5 h-3.5" strokeWidth={2.5} />
+          <span>ADMIN MODE</span>
         </div>
       </div>
     </motion.aside>
