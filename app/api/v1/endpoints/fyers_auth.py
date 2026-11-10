@@ -107,7 +107,10 @@ async def fyers_callback(request: Request):
         app_secret = settings.FYERS_CLIENT_SECRET
         app_id_hash = generate_app_id_hash(app_id, app_secret)
         
-        logger.info(f"Generated appIdHash for client: {app_id[:4]}*** (hash: {app_id_hash[:16]}...)")
+        logger.info(f"Fyers Client ID (full): {app_id}")
+        logger.info(f"Fyers Client ID suffix: {app_id[-4:] if len(app_id) > 4 else 'N/A'}")
+        logger.info(f"Generated appIdHash: {app_id_hash}")
+        logger.info(f"appIdHash (first 20): {app_id_hash[:20]}...")
         
         token_payload = {
             "grant_type": "authorization_code",
