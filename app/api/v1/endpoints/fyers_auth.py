@@ -48,13 +48,11 @@ async def fyers_login():
 
         # Fyers v3 authorization URL
         auth_url = (
-            f"{settings.FYERS_API_BASE}/v3/authorize?"
+            f"{settings.FYERS_API_BASE}/v3/generate-authcode?"
             f"client_id={client_id}"
             f"&redirect_uri={redirect_uri}"
-            f"&response_type={response_type}"
+            f"&response_type=code"
             f"&state={state}"
-            f"&code_challenge={os.getenv('FYERS_CODE_CHALLENGE', '')}"
-            f"&code_challenge_method=S256"
         )
 
         logger.info(f"Fyers auth URL generated for client: {client_id[:4]}***")

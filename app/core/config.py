@@ -96,6 +96,10 @@ class Settings(BaseSettings):
         default="",
         description="Fyers API refresh token (if available)",
     )
+    FYERS_API_BASE: str = Field(
+        default="https://api-t1.fyers.in/api",
+        description="Fyers API base URL (v3)",
+    )
     FYERS_SYMBOL_MASTER_BASE: str = Field(
         default="https://public.fyers.in/sym_details/",
         description="Base URL for Fyers Symbol Master CSV files",
