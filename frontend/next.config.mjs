@@ -4,11 +4,8 @@ const nextConfig = {
   async rewrites() {
     // In production, API calls are proxied via Vercel's routing
     // In development, we rewrite to the local backend
-    const destination = process.env.NEXT_PUBLIC_API_URL;
+    const destination = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
-    if (!destination) {
-      throw new Error('NEXT_PUBLIC_API_URL must be configured');
-    }
     return [
       {
         source: '/api/:path*',
