@@ -1,39 +1,36 @@
 "use client";
 
-import { useEffect, useState } from 'react';
+import { useState } from "react";
+import { motion } from "framer-motion";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL;
+const watchlist = [
+  ["NIFTY 50", "23,148.25", "+0.84%", "up"], ["BANKNIFTY", "49,782.10", "+1.12%", "up"], ["FINNIFTY", "21,904.60", "-0.18%", "down"], ["SENSEX", "76,810.90", "+0.62%", "up"], ["RELIANCE", "2,942.30", "+1.74%", "up"], ["HDFCBANK", "1,684.75", "-0.46%", "down"], ["SBIN", "824.55", "+2.31%", "up"], ["INFY", "1,548.20", "+0.98%", "up"], ["TCS", "3,918.00", "-0.12%", "down"], ["ICICIBANK", "1,302.40", "+0.66%", "up"],
+];
+const tape = [["NIFTY 50", "23,148.25", "+0.84%", "up"], ["BANKNIFTY", "49,782.10", "+1.12%", "up"], ["SENSEX", "76,810.90", "+0.62%", "up"], ["FINNIFTY", "21,904.60", "-0.18%", "down"]];
+const strikes = ["23,250", "23,200", "23,150", "23,100", "23,050"];
+
+function Sparkline({ down = false }: { down?: boolean }) { return <svg viewBox="0 0 64 20" className="h-5 w-16"><polyline fill="none" stroke={down ? "#ff003c" : "#00ff66"} strokeWidth="1.5" points={down ? "0,5 8,8 16,7 24,13 32,10 40,16 48,12 56,17 64,14" : "0,16 8,13 16,15 24,8 32,11 40,5 48,8 56,2 64,5"} /></svg> }
+function Candles() { return <div className="absolute inset-0 flex items-end justify-around px-5 pb-6 pt-7 opacity-90">{[44,65,52,72,48,83,62,75,58,92,68,77,61,87,72,96,81,91,74,98,88,94].map((h, i) => <div key={i} className="flex h-full items-end gap-1"><div style={{ height: `${Math.min(h + 15, 99)}%` }} className={`w-px ${i % 4 === 1 ? "bg-[#ff003c]" : "bg-[#00ff66]"}`} /><div style={{ height: `${h}%` }} className={`w-2 rounded-[1px] ${i % 4 === 1 ? "bg-[#ff003c] shadow-[0_0_8px_#ff003c]" : "bg-[#00ff66] shadow-[0_0_8px_#00ff66]"}`} /></div>)}</div> }
 
 export default function Home() {
-  const [status, setStatus] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    fetch(`${API_URL}/`)
-      .then((res) => res.json())
-      .then((data) => setStatus(JSON.stringify(data, null, 2)))
-      .catch((err) => setError(err.message));
-  }, []);
-
-  return (
-    <main className="min-h-screen bg-slate-50 p-8 font-sans text-slate-900">
-      <div className="max-w-4xl mx-auto">
-        <h1 className="text-3xl font-bold mb-4">Options Trading Platform</h1>
-        <p className="mb-6 text-slate-600">Frontend connected to backend at {API_URL}</p>
-        {error && (
-          <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded text-red-800 text-sm">
-            Error connecting to backend: {error}
-          </div>
-        )}
-        <div className="bg-white border border-slate-200 rounded-lg p-6 shadow-sm">
-          <h2 className="text-lg font-semibold mb-3">Backend API Status (GET /api/)</h2>
-          <pre className="bg-slate-100 p-4 rounded text-sm overflow-x-auto">{status || 'Loading...'}</pre>
-        </div>
-        <div className="mt-6 flex gap-3">
-          <a href={`${API_URL}/health`} className="inline-block px-4 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700">Health Check</a>
-          <a href={`${API_URL}/docs`} className="inline-block px-4 py-2 bg-slate-800 text-white rounded text-sm hover:bg-slate-900">API Docs</a>
-        </div>
-      </div>
-    </main>
-  );
+  const [selected, setSelected] = useState("NIFTY 50");
+  const [timeframe, setTimeframe] = useState("5m");
+  const [live, setLive] = useState(false);
+  const [side, setSide] = useState("BUY");
+  const [journalOpen, setJournalOpen] = useState(true);
+  return <main className="min-h-screen bg-black text-white selection:bg-cyan-400/30">
+    <header className="flex h-16 items-center gap-6 border-b border-white/10 bg-[#000000] px-5">
+      <div className="flex shrink-0 items-center gap-3"><div className="text-lg font-black tracking-[.18em] text-cyan-300 [text-shadow:0_0_14px_#00f0ff]">ALPHATRADE <span className="text-white">PRO</span></div><span className="flex items-center gap-1.5 rounded border border-[#00ff66]/30 bg-[#00ff66]/10 px-2 py-1 text-[9px] font-bold uppercase tracking-widest text-[#00ff66]"><i className="h-1.5 w-1.5 rounded-full bg-[#00ff66] shadow-[0_0_8px_#00ff66]" />Market Open</span></div>
+      <div className="mx-auto flex h-9 w-full max-w-xl items-center gap-3 rounded border border-white/10 bg-[#0a0a0a] px-3 text-xs text-white/35 focus-within:border-cyan-400/60"><span className="text-base">⌕</span><input aria-label="Search Fyers symbols" placeholder="Search Fyers symbols · NIFTY, SBIN..." className="w-full bg-transparent outline-none placeholder:text-white/25" /><kbd className="rounded border border-white/10 px-1.5 py-0.5 text-[9px] text-white/25">⌘ K</kbd></div>
+      <div className="hidden shrink-0 items-center gap-3 text-[10px] font-bold uppercase tracking-wider md:flex"><span className="text-[#00ff66]">● Kotak: Connected</span><span className="text-[#00ff66]">● Fyers: Connected</span><button className="border-l border-white/10 pl-3 text-white/60">AG <span className="text-white/25">⌄</span></button></div>
+    </header>
+    <div className="overflow-hidden border-b border-cyan-400/10 bg-[#050505] py-2"><div className="ticker flex w-max gap-16">{[...tape, ...tape].map(([name, price, change, trend], i) => <div key={i} className="flex items-center gap-3 text-[11px] font-mono"><span className="font-bold tracking-wider text-white/65">{name}</span><span className="text-white">{price}</span><span className={trend === "up" ? "text-[#00ff66]" : "text-[#ff003c]"}>{change}</span></div>)}</div></div>
+    <div className="grid gap-3 p-3 lg:grid-cols-[20%_50%_30%]">
+      <section className="panel min-w-0"><div className="section-title"><span>MARKET WATCH</span><span className="text-[9px] text-white/30">10 SYMBOLS</span></div><div className="grid grid-cols-[1fr_auto_auto] gap-2 border-b border-white/10 px-3 py-2 text-[9px] uppercase tracking-widest text-white/30"><span>Symbol</span><span>LTP</span><span>Chg%</span></div>{watchlist.map(([name, price, change, trend]) => <button key={name} onClick={() => setSelected(name)} className={`grid w-full grid-cols-[1fr_auto_auto] items-center gap-2 border-l-2 px-3 py-2.5 text-left transition ${selected === name ? "border-cyan-300 bg-cyan-300/[.07]" : "border-transparent hover:bg-white/[.03]"}`}><div><div className="text-[11px] font-bold tracking-wide text-white/85">{name}</div><Sparkline down={trend === "down"} /></div><span className="font-mono text-[11px] text-white/80">{price}</span><span className={`font-mono text-[10px] ${trend === "up" ? "text-[#00ff66]" : "text-[#ff003c]"}`}>{change}</span></button>)}</section>
+      <section className="flex min-w-0 flex-col gap-3"><div className="panel chart-panel h-[390px]"><div className="flex items-center justify-between border-b border-white/10 px-4 py-3"><div><span className="text-sm font-bold">{selected}</span><span className="ml-3 font-mono text-xs text-[#00ff66]">23,148.25 <small>+0.84%</small></span></div><div className="flex gap-1">{["1m", "5m", "15m"].map(t => <button key={t} onClick={() => setTimeframe(t)} className={`rounded px-2 py-1 text-[10px] ${timeframe === t ? "bg-cyan-300/15 text-cyan-300" : "text-white/35 hover:text-white"}`}>{t}</button>)}</div></div><div className="relative h-[calc(100%-53px)] overflow-hidden bg-[linear-gradient(rgba(255,255,255,.04)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.04)_1px,transparent_1px)] bg-[size:44px_44px]"><div className="absolute right-2 top-4 flex flex-col gap-3 text-[9px] text-white/30"><span>23,400</span><span>23,300</span><span>23,200</span><span>23,100</span><span>23,000</span></div><Candles /><div className="absolute bottom-6 left-4 right-4 border-t border-dashed border-cyan-300/60" /><div className="absolute bottom-[27px] right-3 bg-cyan-300 px-1.5 py-0.5 font-mono text-[9px] font-bold text-black">23,148.25</div><div className="absolute left-4 top-3 flex gap-2 text-[9px]"><span className="text-white/40">EMA <b className="text-[#00f0ff]">●</b></span><span className="text-white/40">VWAP <b className="text-yellow-300">●</b></span><span className="text-white/40">RSI <b className="text-[#00ff66]">●</b></span></div></div></div><div className="panel overflow-hidden"><div className="section-title"><span>OPTIONS CHAIN <em className="ml-2 not-italic text-cyan-300">NIFTY 50 · 23,150 ATM</em></span><span className="text-[9px] text-white/30">EXP 28 NOV 2026</span></div><div className="grid grid-cols-[1fr_70px_70px_70px_1fr] border-b border-white/10 px-3 py-2 text-[9px] uppercase tracking-widest text-white/30"><span>CALL · CE</span><span>LTP</span><span>OI</span><span>VOL</span><span className="text-right">PUT · PE</span></div>{strikes.map((strike, i) => <div key={strike} className={`grid grid-cols-[1fr_70px_70px_70px_1fr] items-center px-3 py-2 font-mono text-[10px] ${i === 2 ? "bg-cyan-300/[.07] shadow-[inset_0_0_20px_rgba(0,240,255,.08)]" : ""}`}><span className="text-[#00ff66]">{["182.40","211.15","246.80","289.25","340.10"][i]}</span><span className="text-white/75">{["12.4k","18.2k","24.8k","19.1k","11.3k"][i]}</span><span className="text-white/55">{["1.2M","2.4M","3.1M","1.8M","0.9M"][i]}</span><span className="font-bold text-yellow-300">{strike}</span><span className="text-right text-[#ff003c]">{["418.25","371.60","326.90","282.15","241.30"][i]}</span></div>)}</div></section>
+      <aside className="flex min-w-0 flex-col gap-3"><motion.div whileHover={{ scale: 1.01 }} className="panel relative overflow-hidden border-cyan-300/30 bg-[radial-gradient(circle_at_80%_0%,rgba(0,240,255,.13),transparent_40%)] p-4"><div className="mb-4 flex items-center justify-between"><h2 className="font-bold tracking-wide">◈ Grok AI Radar</h2><span className="animate-pulse rounded bg-[#00ff66]/10 px-2 py-1 text-[9px] font-bold text-[#00ff66]">LIVE</span></div><div className="mb-1 text-[10px] uppercase tracking-widest text-white/35">Momentum signal</div><div className="text-lg font-black text-[#00ff66] [text-shadow:0_0_12px_#00ff66]">BUY NIFTY 23100 CE</div><div className="mt-4 flex items-center justify-between text-[10px]"><span className="text-white/45">Confidence</span><b className="text-cyan-300">85%</b></div><div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/10"><div className="h-full w-[85%] bg-cyan-300 shadow-[0_0_10px_#00f0ff]" /></div><p className="mt-4 border-l border-white/15 pl-3 text-[11px] leading-relaxed text-white/55">Fed rate cut boosts IT sector</p><button className="mt-5 w-full rounded border border-cyan-300/60 bg-cyan-300/10 py-2.5 text-[10px] font-black uppercase tracking-widest text-cyan-300 transition hover:bg-cyan-300 hover:text-black">Execute AI Trade</button></motion.div>
+      <div className="panel p-4"><div className="mb-4 flex items-center justify-between"><h2 className="font-bold tracking-wide">Order Ticket</h2><div className="flex rounded border border-white/10 p-0.5 text-[9px] font-bold"><button onClick={() => setLive(false)} className={`px-2 py-1 ${!live ? "bg-cyan-300/15 text-cyan-300" : "text-white/35"}`}>PAPER</button><button onClick={() => setLive(true)} className={`px-2 py-1 ${live ? "bg-[#ff003c]/15 text-[#ff003c]" : "text-white/35"}`}>LIVE</button></div></div><div className="mb-4 grid grid-cols-2 gap-1 rounded bg-white/[.04] p-1">{["BUY","SELL"].map(s => <button key={s} onClick={() => setSide(s)} className={`py-2 text-[10px] font-black ${side === s ? s === "BUY" ? "bg-[#00ff66]/15 text-[#00ff66]" : "bg-[#ff003c]/15 text-[#ff003c]" : "text-white/35"}`}>{s}</button>)}</div><div className="grid grid-cols-2 gap-3">{[["STRIKE","ATM"],["OPTION TYPE","CE"],["QTY (AUTO)","50"],["ORDER TYPE","MARKET"]].map(([label, value]) => <label key={label} className="text-[9px] uppercase tracking-widest text-white/35">{label}<select defaultValue={value} className="mt-1 w-full border border-white/10 bg-[#0a0a0a] px-2 py-2 text-xs text-white outline-none"><option>{value}</option><option>ITM-1</option><option>OTM-1</option><option>PE</option></select></label>)}</div><div className="mt-3 grid grid-cols-2 gap-3">{[["STOP LOSS","180"],["TARGET","360"]].map(([label, value]) => <label key={label} className="text-[9px] uppercase tracking-widest text-white/35">{label}<input defaultValue={value} className="mt-1 w-full border border-white/10 bg-[#0a0a0a] px-2 py-2 font-mono text-xs text-white outline-none focus:border-cyan-300" /></label>)}</div><button className={`mt-4 w-full py-3 text-[10px] font-black tracking-[.2em] text-black transition hover:brightness-125 ${side === "BUY" ? "bg-[#00ff66] shadow-[0_0_18px_rgba(0,255,102,.3)]" : "bg-[#ff003c]"}`}>PLACE {side} ORDER · {live ? "LIVE" : "PAPER"}</button></div></aside>
+    </div>
+    <section className="mx-3 mb-4 panel overflow-hidden"><button onClick={() => setJournalOpen(!journalOpen)} className="section-title w-full text-left"><span>TRADE JOURNAL <em className="ml-2 not-italic text-white/30">LAST EXECUTIONS</em></span><span className="text-white/35">{journalOpen ? "⌃" : "⌄"}</span></button>{journalOpen && <div className="grid grid-cols-[1.5fr_1fr_1fr_1fr_1fr] px-4 py-2 text-[9px] uppercase tracking-widest text-white/30"><span>Symbol</span><span>Entry</span><span>Exit</span><span>PnL</span><span>Status</span>{[["NIFTY 23100 CE","245.10","312.40","+₹3,365","CLOSED"],["BANKNIFTY 49800 PE","188.50","164.25","-₹1,212","CLOSED"],["FINNIFTY 21900 CE","96.20","142.80","+₹2,330","CLOSED"]].map(([a,b,c,d,e]) => <><span className="py-2 font-medium text-white/75">{a}</span><span className="py-2 font-mono text-white/55">{b}</span><span className="py-2 font-mono text-white/55">{c}</span><span className={`py-2 font-mono ${d[0] === "+" ? "text-[#00ff66]" : "text-[#ff003c]"}`}>{d}</span><span className="py-2 text-[#00ff66]">● {e}</span></>)}</div>}</section>
+  </main>
 }

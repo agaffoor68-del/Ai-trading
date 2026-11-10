@@ -2,8 +2,8 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Options Trading Platform',
-  description: 'Autonomous Options Trading Platform',
+  title: 'AlphaTradePro · Institutional Options Desk',
+  description: 'Institutional-grade algorithmic options trading dashboard.',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
