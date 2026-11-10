@@ -18,8 +18,13 @@ router = APIRouter(tags=["market-data"])
 # ETF/Unwanted suffixes to deprioritize (unless explicitly searched)
 ETF_EXCLUSION_PATTERNS = ["BEES", "ADD", "EW", "ETF", "NIFTYBEES", "NIFTYADD"]
 
-# Noise patterns to exclude unless explicitly searched
-NOISE_PATTERNS = ["ALPHA", "500", "200", "100", "50", "MIDCAP", "SMALLCAP", "LARGECAP", "MICROCAP"]
+# Noise patterns to EXCLUDE unless explicitly searched (filters obscure indices)
+NOISE_PATTERNS = [
+    "AQL", "GS", "ALPHA", "500", "200", "100", "50", 
+    "MIDCAP", "SMALLCAP", "LARGECAP", "MICROCAP",
+    "AUTO", "PHARMA", "IT", "METAL", "REALTY", "ENERGY",
+    "MEDIA", "FMCG", "PVT", "BANK", "FIN", "COMM"
+]
 
 # Index keywords that should be prioritized
 INDEX_KEYWORDS = ["NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "SENSEX", "BANKEX"]
@@ -57,10 +62,22 @@ def is_etf_like(symbol: str) -> bool:
     return any(pattern in symbol_upper for pattern in ETF_EXCLUSION_PATTERNS)
 
 
-def is_noise(symbol: str) -> bool:
-    """Check if symbol is noise (obscure indices, ETFs) unless explicitly searched."""
+def is_noise(symbol: str, query: str) -> bool:
+    """
+    Check if symbol is noise (obscure indices like NIFTY AQL, NIFTY 500, etc.)
+    Returns True if it's noise AND the user didn't explicitly search for it.
+    """
     symbol_upper = symbol.upper()
-    return any(pattern in symbol_upper for pattern in NOISE_PATTERNS)
+    query_upper = query.upper()
+    
+    # If user explicitly searched for the noise term, don't filter it
+    for pattern in NOISE_PATTERNS:
+        if pattern in symbol_upper:
+            # Allow if query contains the pattern (explicit search)
+            if pattern in query_upper:
+                return False
+            return True
+    return False
 
 
 def is_index_like(query: str, symbol: str) -> bool:
@@ -137,6 +154,12 @@ async def search_symbols(
                 for inst in results
             ]
 
+            # FILTER OUT NOISE before ranking (unless explicitly searched)
+            filtered_results = [
+                item for item in result_dicts 
+                if not is_noise(item.get("symbol", ""), query)
+            ]
+
             # Rank results
             def rank_score(item: dict) -> tuple:
                 symbol = item.get("symbol", "").upper()
@@ -145,11 +168,11 @@ async def search_symbols(
                 # Score components (lower = better)
                 
                 # 0. MAIN INDEX EXACT MATCH (highest priority)
-                # If query is "NIFTY", boost NSE:NIFTY50-INDEX to top
+                # If query is "NIFTY", boost NSE:NIFTY50-INDEX to absolute top
                 main_index_match = 0
                 if is_exact_index and target_index_symbol:
-                    # Check if this item is the main index we want
-                    main_index_match = 0 if symbol == target_index_symbol.replace("NSE:", "").replace("-INDEX", "") or symbol == target_index_symbol else 1
+                    target_clean = target_index_symbol.replace("NSE:", "").replace("-INDEX", "")
+                    main_index_match = 0 if symbol == target_clean or symbol == target_index_symbol else 1
                 else:
                     main_index_match = 1
                 
@@ -173,16 +196,13 @@ async def search_symbols(
                 # 6. ETF deprioritization
                 etf_penalty = 10 if is_etf_like(symbol) else 0
                 
-                # 7. Noise penalty (obscure indices like NIFTY 500, ALPHA, etc.)
-                noise_penalty = 5 if is_noise(symbol) else 0
-                
-                # 8. Segment priority (FO before CM for indices)
+                # 7. Segment priority (FO before CM for indices)
                 segment_priority = 0 if item.get("exchange") == "NSE_FO" else 1
                 
-                return (main_index_match, exact_match, prefix_match, index_priority, type_priority + fo_boost, etf_penalty, noise_penalty, segment_priority, symbol)
+                return (main_index_match, exact_match, prefix_match, index_priority, type_priority + fo_boost, etf_penalty, segment_priority, symbol)
 
             # Sort by ranking
-            ranked_results = sorted(result_dicts, key=rank_score)
+            ranked_results = sorted(filtered_results, key=rank_score)
             
             # Apply limit after ranking
             final_results = ranked_results[:limit]
