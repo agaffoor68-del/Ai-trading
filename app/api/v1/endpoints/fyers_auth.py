@@ -7,6 +7,7 @@ This module handles the daily OAuth2 flow to generate access tokens.
 
 import logging
 import os
+import traceback
 import aiohttp
 from fastapi import APIRouter, Request, Response
 
@@ -57,19 +58,23 @@ async def fyers_login():
 
     except Exception as e:
         logger.error(f"Fyers login endpoint error: {str(e)}")
+        logger.error(traceback.format_exc())
         return Response(content="Internal server error during Fyers login", status_code=500)
 
 
-@router.post("/auth/callback")
+@router.get("/callback")
 async def fyers_callback(request: Request):
     """
     Handle Fyers OAuth2 callback.
     Exchanges authorization code for access token.
+    Route: /api/v1/fyers/callback (matches Fyers Dashboard redirect URL)
     """
     try:
-        form_data = await request.form()
-        code = form_data.get("code")
-        state = form_data.get("state")
+        # Fyers sends query params, not form data
+        code = request.query_params.get("code")
+        state = request.query_params.get("state")
+        
+        logger.info(f"Fyers callback received - code: {'present' if code else 'missing'}, state: {'present' if state else 'missing'}")
 
         if not code:
             logger.error("Fyers callback: authorization code missing")
@@ -120,7 +125,9 @@ async def fyers_callback(request: Request):
 
     except aiohttp.ClientError as e:
         logger.error(f"Fyers callback network error: {str(e)}")
+        logger.error(traceback.format_exc())
         return Response(content="Network error while contacting Fyers API", status_code=502)
     except Exception as e:
         logger.error(f"Fyers callback unexpected error: {str(e)}")
+        logger.error(traceback.format_exc())
         return Response(content="Internal server error in Fyers callback", status_code=500)
