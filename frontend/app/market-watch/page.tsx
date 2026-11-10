@@ -33,7 +33,7 @@ interface DisplayItem extends SearchResult {
   change: number | null;
   changePercent: number | null;
   sparkline: number[];
-  priceSource: "mock" | "live" | "none";
+  priceSource: "live" | "fetching";
 }
 
 // Mock price data for fallback
@@ -119,9 +119,10 @@ function MarketRow({ item, index }: { item: DisplayItem; index: number }) {
               LIVE
             </span>
           )}
-          {item.priceSource === "mock" && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-neon-orange/20 text-neon-orange font-medium">
-              MOCK
+          {item.priceSource === "fetching" && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-neon-orange/20 text-neon-orange font-medium animate-pulse flex items-center gap-1">
+              <Loader2 className="w-3 h-3 animate-spin" strokeWidth={2.5} />
+              Fetching...
             </span>
           )}
         </div>
@@ -173,10 +174,11 @@ export default function MarketWatchPage() {
 
     setIsLoadingQuotes(true);
     
+    // Take top 10 results for quotes
+    const topSymbols = symbols.slice(0, 10);
+    
     // Build Fyers symbol format (NSE:SYMBOL-TYPE)
-    const fyersSymbols = symbols.map(s => {
-      // Use fyers_token to construct proper symbol if available
-      // For now, construct from exchange and symbol
+    const fyersSymbols = topSymbols.map(s => {
       const exchange = s.exchange === "NSE_FO" ? "NSE" : s.exchange === "NSE_CM" ? "NSE" : s.exchange;
       return `${exchange}:${s.symbol}`;
     });
@@ -197,9 +199,8 @@ export default function MarketWatchPage() {
       const quotes = data.quotes || {};
 
       // Merge quotes with search results
-      return symbols.map((item, idx) => {
+      return topSymbols.map((item, idx) => {
         const quote = quotes[fyersSymbols[idx]] || quotes[item.symbol] || quotes[item.fyers_token];
-        const mockPrice = MOCK_PRICES[item.symbol] || MOCK_PRICES[item.symbol.replace("NSE:", "")];
         
         if (quote && quote.ltp !== null && quote.ltp !== undefined) {
           // Live data from Redis/Fyers
@@ -211,54 +212,29 @@ export default function MarketWatchPage() {
             sparkline: generateSparkline(quote.ltp),
             priceSource: "live" as const,
           };
-        } else if (mockPrice) {
-          // Mock data fallback
-          return {
-            ...item,
-            ltp: mockPrice.ltp,
-            change: mockPrice.change,
-            changePercent: mockPrice.changePercent,
-            sparkline: generateSparkline(mockPrice.ltp),
-            priceSource: "mock" as const,
-          };
         } else {
-          // No data available
+          // No live data yet - show fetching state
           return {
             ...item,
             ltp: null,
             change: null,
             changePercent: null,
             sparkline: Array(8).fill(0),
-            priceSource: "none" as const,
+            priceSource: "fetching" as const,
           };
         }
       });
     } catch (err) {
-      console.warn("Failed to fetch quotes, using mock/none:", err);
-      // Return with mock or none
-      return symbols.map(item => {
-        const mockPrice = MOCK_PRICES[item.symbol] || MOCK_PRICES[item.symbol.replace("NSE:", "")];
-        
-        if (mockPrice) {
-          return {
-            ...item,
-            ltp: mockPrice.ltp,
-            change: mockPrice.change,
-            changePercent: mockPrice.changePercent,
-            sparkline: generateSparkline(mockPrice.ltp),
-            priceSource: "mock" as const,
-          };
-        } else {
-          return {
-            ...item,
-            ltp: null,
-            change: null,
-            changePercent: null,
-            sparkline: Array(8).fill(0),
-            priceSource: "none" as const,
-          };
-        }
-      });
+      console.warn("Failed to fetch quotes:", err);
+      // Return fetching state on error
+      return topSymbols.map(item => ({
+        ...item,
+        ltp: null,
+        change: null,
+        changePercent: null,
+        sparkline: Array(8).fill(0),
+        priceSource: "fetching" as const,
+      }));
     } finally {
       setIsLoadingQuotes(false);
     }
