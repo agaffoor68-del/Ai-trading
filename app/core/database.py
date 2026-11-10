@@ -1,14 +1,17 @@
 """
 Phase 1 Database Configuration
-PostgreSQL ONLY - SQLAlchemy 2.0 with psycopg2 driver.
+PostgreSQL ONLY - SQLAlchemy 2.0 with psycopg3 driver.
 No SQLite allowed per non-negotiable rules.
 """
 
-from sqlalchemy import Column, DateTime, Integer, String, Text, create_engine
+import logging
+from sqlalchemy import Column, DateTime, Integer, String, Text, create_engine, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 # Force psycopg3 driver - Render injects DATABASE_URL as postgresql://
 # which SQLAlchemy defaults to psycopg2 (not installed). Normalize to +psycopg.
@@ -20,6 +23,12 @@ elif _DATABASE_URL.startswith("postgresql://"):
 elif "postgresql+psycopg2://" in _DATABASE_URL:
     _DATABASE_URL = _DATABASE_URL.replace("postgresql+psycopg2://", "postgresql+psycopg://", 1)
 # If it already has +psycopg, leave it as is.
+
+# Automatically append sslmode=require if missing (required for Render PostgreSQL)
+if "sslmode=" not in _DATABASE_URL:
+    separator = "&" if "?" in _DATABASE_URL else "?"
+    _DATABASE_URL = f"{_DATABASE_URL}{separator}sslmode=require"
+
 DATABASE_URL = _DATABASE_URL
 
 engine = create_engine(
@@ -68,4 +77,13 @@ def get_db():
 
 def init_db():
     """Create all tables."""
-    Base.metadata.create_all(bind=engine)
+    try:
+        Base.metadata.create_all(bind=engine)
+        # Test the connection
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        logger.info("Database connection successful")
+    except Exception as e:
+        logger.error(f"Database connection failed: {e}")
+        logger.error(f"DATABASE_URL (sanitized): {DATABASE_URL.split('@')[0]}@***")
+        raise
