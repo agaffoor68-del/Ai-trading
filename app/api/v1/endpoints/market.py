@@ -15,6 +15,47 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["market-data"])
 
 
+# ETF/Unwanted suffixes to deprioritize (unless explicitly searched)
+ETF_EXCLUSION_PATTERNS = ["BEES", "ADD", "EW", "ETF", "NIFTYBEES", "NIFTYADD"]
+
+# Index keywords that should be prioritized
+INDEX_KEYWORDS = ["NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "SENSEX", "BANKEX"]
+
+# Instrument type priority: Index=1, Futures=2, Options=3, Equity=4, Others=5
+INSTRUMENT_TYPE_PRIORITY = {
+    "13": 1,   # Index
+    "INDEX": 1,
+    "11": 2,   # Futures
+    "FUT": 2,
+    "FUTURE": 2,
+    "12": 3,   # Options
+    "OPT": 3,
+    "OPTION": 3,
+    "10": 4,   # Equity
+    "EQ": 4,
+    "EQUITY": 4,
+    "STK": 4,
+}
+
+
+def is_etf_like(symbol: str) -> bool:
+    """Check if symbol looks like an ETF/unwanted variant."""
+    symbol_upper = symbol.upper()
+    return any(pattern in symbol_upper for pattern in ETF_EXCLUSION_PATTERNS)
+
+
+def is_index_like(query: str, symbol: str) -> bool:
+    """Check if query matches an index keyword exactly."""
+    query_upper = query.upper()
+    symbol_upper = symbol.upper()
+    return any(keyword == query_upper for keyword in INDEX_KEYWORDS) and any(keyword in symbol_upper for keyword in INDEX_KEYWORDS)
+
+
+def get_instrument_priority(instrument_type: str) -> int:
+    """Get priority score for instrument type (lower = higher priority)."""
+    return INSTRUMENT_TYPE_PRIORITY.get(instrument_type.upper() if instrument_type else "", 5)
+
+
 @router.get("/search")
 async def search_symbols(
     query: str = Query(..., min_length=1, description="Search query (symbol or name)"),
@@ -24,14 +65,23 @@ async def search_symbols(
     """
     Search symbols from the local PostgreSQL symbol master
     (parsed from Fyers Symbol Master CSVs).
+    
+    Priority order:
+    1. Exact matches on symbol
+    2. Index instruments (NIFTY, BANKNIFTY, etc.)
+    3. Futures & Options (F&O)
+    4. Equity
+    5. ETFs/Unwanted variants deprioritized
     """
     try:
         from app.core.database import SessionLocal, Instrument
+        from sqlalchemy import or_
 
         db = SessionLocal()
         try:
-            from sqlalchemy import or_
-
+            # Fetch more results for better ranking
+            fetch_limit = min(limit * 5, 200)
+            
             filter_condition = or_(
                 Instrument.symbol.ilike(f"%{query}%"),
                 Instrument.name.ilike(f"%{query}%"),
@@ -43,25 +93,62 @@ async def search_symbols(
                 db.query(Instrument)
                 .filter(filter_condition)
                 .filter(Instrument.is_active == 1)
-                .limit(limit)
+                .limit(fetch_limit)
                 .all()
             )
+
+            # Convert to list of dicts for ranking
+            result_dicts = [
+                {
+                    "symbol": inst.symbol,
+                    "exchange": inst.exchange,
+                    "name": inst.name,
+                    "fyers_token": inst.fyers_token,
+                    "instrument_type": inst.instrument_type,
+                    "lot_size": inst.lot_size,
+                }
+                for inst in results
+            ]
+
+            # Rank results
+            query_upper = query.upper()
+            
+            def rank_score(item: dict) -> tuple:
+                symbol = item.get("symbol", "").upper()
+                inst_type = item.get("instrument_type", "")
+                
+                # Score components (lower = better)
+                # 1. Exact match on symbol (highest priority)
+                exact_match = 0 if symbol == query_upper else 1
+                
+                # 2. Starts with query (prefix match)
+                prefix_match = 0 if symbol.startswith(query_upper) else 1
+                
+                # 3. Index keyword exact match (NIFTY, BANKNIFTY, etc.)
+                index_priority = 0 if is_index_like(query, item.get("symbol", "")) else 1
+                
+                # 4. Instrument type priority (Index > FUT > OPT > EQ > Others)
+                type_priority = get_instrument_priority(inst_type)
+                
+                # 5. ETF deprioritization
+                etf_penalty = 10 if is_etf_like(symbol) else 0
+                
+                # 6. Segment priority (FO before CM for indices)
+                segment_priority = 0 if item.get("exchange") == "NSE_FO" else 1
+                
+                return (exact_match, prefix_match, index_priority, type_priority, etf_penalty, segment_priority, symbol)
+
+            # Sort by ranking
+            ranked_results = sorted(result_dicts, key=rank_score)
+            
+            # Apply limit after ranking
+            final_results = ranked_results[:limit]
 
             return {
                 "query": query,
                 "exchange": exchange or "all",
-                "results": [
-                    {
-                        "symbol": inst.symbol,
-                        "exchange": inst.exchange,
-                        "name": inst.name,
-                        "fyers_token": inst.fyers_token,
-                        "instrument_type": inst.instrument_type,
-                        "lot_size": inst.lot_size,
-                    }
-                    for inst in results
-                ],
-                "total": len(results),
+                "results": final_results,
+                "total": len(final_results),
             }
         finally:
             db.close()
