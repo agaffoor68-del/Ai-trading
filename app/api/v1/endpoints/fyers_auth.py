@@ -117,10 +117,13 @@ async def fyers_callback(request: Request):
             "appIdHash": app_id_hash,
             "code": code,
         }
+        
+        logger.info(f"Sending token exchange to Fyers: {settings.FYERS_API_BASE}/v3/validate-authcode")
+        logger.info(f"Payload: grant_type=authorization_code, appIdHash={app_id_hash[:20]}..., code={code[:10]}...")
 
         async with aiohttp.ClientSession() as session:
             async with session.post(
-                f"{settings.FYERS_API_BASE}/v3/token",
+                f"{settings.FYERS_API_BASE}/v3/validate-authcode",
                 json=token_payload,
                 timeout=aiohttp.ClientTimeout(total=30),
             ) as resp:
