@@ -6,13 +6,19 @@ Endpoints for symbol search, quotes, and historical data via Fyers.
 """
 
 import logging
+from typing import List
 from fastapi import APIRouter, Query
+from pydantic import BaseModel
 
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["market-data"])
+
+
+class QuotesRequest(BaseModel):
+    symbols: List[str]
 
 
 # ETF/Unwanted suffixes to deprioritize (unless explicitly searched)
@@ -223,13 +229,13 @@ async def search_symbols(
 
 
 @router.post("/quotes")
-async def get_quotes(
-    symbols: list[str] = Query(..., description="List of symbols (e.g., NSE:NIFTY50-INDEX, NSE:SBIN-EQ)"),
-):
+async def get_quotes(request: QuotesRequest):
     """
     Get live quotes for multiple symbols from Fyers API v3.
+    Expects JSON body: {"symbols": ["NSE:NIFTY50-INDEX", "NSE:SBIN-EQ"]}
     Batches requests to avoid timeout (max 50 symbols per request).
     """
+    symbols = request.symbols
     try:
         from app.services.fyers_api import fyers_api_client
         from app.services.redis_ws import redis_tick_store
