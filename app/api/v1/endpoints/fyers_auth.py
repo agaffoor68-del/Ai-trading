@@ -8,6 +8,7 @@ This module handles the daily OAuth2 flow to generate access tokens.
 import logging
 import os
 import traceback
+import hashlib
 import aiohttp
 from fastapi import APIRouter, Request, Response
 
@@ -17,6 +18,11 @@ from app.services.fyers_token import save_fyers_token, get_fyers_token
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["fyers-auth"])
+
+
+def generate_app_id_hash(client_id: str, client_secret: str) -> str:
+    """Generate SHA-256 hash of 'client_id:client_secret' for Fyers appIdHash."""
+    return hashlib.sha256(f"{client_id}:{client_secret}".encode()).hexdigest()
 
 
 @router.get("/login")
@@ -96,11 +102,16 @@ async def fyers_callback(request: Request):
         # Use exact redirect_uri from Fyers Dashboard
         redirect_uri = "https://ai-trading-9qoa.onrender.com/api/v1/fyers/callback"
         
+        # Generate appIdHash as per Fyers v3 API spec
+        app_id = settings.FYERS_CLIENT_ID
+        app_secret = settings.FYERS_CLIENT_SECRET
+        app_id_hash = generate_app_id_hash(app_id, app_secret)
+        
+        logger.info(f"Generated appIdHash for client: {app_id[:4]}*** (hash: {app_id_hash[:16]}...)")
+        
         token_payload = {
-            "client_id": settings.FYERS_CLIENT_ID,
-            "client_secret": settings.FYERS_CLIENT_SECRET,
-            "redirect_uri": redirect_uri,
             "grant_type": "authorization_code",
+            "appIdHash": app_id_hash,
             "code": code,
         }
 
