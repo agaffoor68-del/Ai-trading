@@ -200,6 +200,53 @@ async def search_symbols(
         return {"query": query, "results": [], "total": 0, "error": str(e)}
 
 
+@router.post("/quotes")
+async def get_quotes(
+    symbols: list[str] = Query(..., description="List of symbols (e.g., NSE:NIFTY50-INDEX, NSE:SBIN-EQ)"),
+):
+    """
+    Get live quotes for multiple symbols.
+    Fyers API v3 is the ONLY data source.
+    """
+    try:
+        from app.services.redis_ws import redis_tick_store
+        
+        # Check Redis cache for all symbols
+        results = {}
+        missing = []
+        
+        for symbol in symbols:
+            cached = await redis_tick_store.get_tick(symbol)
+            if cached and cached.get("ltp") is not None:
+                results[symbol] = {
+                    "symbol": symbol,
+                    "ltp": cached.get("ltp"),
+                    "change": cached.get("change"),
+                    "change_percent": cached.get("change_percent"),
+                    "source": "redis_cache",
+                    "updated_at": cached.get("updated_at"),
+                }
+            else:
+                missing.append(symbol)
+        
+        # For missing symbols, we'd normally fetch from Fyers REST API
+        # For now, return what we have
+        for symbol in missing:
+            results[symbol] = {
+                "symbol": symbol,
+                "ltp": None,
+                "change": None,
+                "change_percent": None,
+                "source": "fyers_api_v3",
+                "message": "Subscribe via Fyers WebSocket for live quotes",
+            }
+        
+        return {"quotes": results, "total": len(symbols)}
+    except Exception as e:
+        logger.error(f"Quotes error: {str(e)}")
+        return {"quotes": {}, "total": 0, "error": str(e)}
+
+
 @router.get("/quote/{symbol}")
 async def get_quote(symbol: str):
     """
@@ -215,6 +262,8 @@ async def get_quote(symbol: str):
             return {
                 "symbol": symbol,
                 "ltp": cached.get("ltp"),
+                "change": cached.get("change"),
+                "change_percent": cached.get("change_percent"),
                 "source": "redis_cache",
                 "updated_at": cached.get("updated_at"),
             }
@@ -223,6 +272,8 @@ async def get_quote(symbol: str):
         return {
             "symbol": symbol,
             "ltp": None,
+            "change": None,
+            "change_percent": None,
             "source": "fyers_api_v3",
             "message": "Subscribe via Fyers WebSocket for live quotes",
         }
