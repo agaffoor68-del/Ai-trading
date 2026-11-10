@@ -239,12 +239,16 @@ async def get_quotes(request: QuotesRequest):
     
     # Check if Fyers is authenticated before proceeding
     from app.core.config import settings
-    if not settings.FYERS_ACCESS_TOKEN:
-        logger.warning("Fyers quotes requested but FYERS_ACCESS_TOKEN is empty")
+    from app.services.fyers_token import get_fyers_token
+    
+    # Try to get token from persistent storage first
+    token = get_fyers_token() or settings.FYERS_ACCESS_TOKEN
+    if not token:
+        logger.warning("Fyers quotes requested but no access token available")
         return {
             "quotes": {}, 
             "total": len(symbols), 
-            "error": "Fyers not authenticated. Please login via /api/v1/fyers/login"
+            "error": "Fyers token missing. Please login via /api/v1/fyers/login"
         }
     
     try:

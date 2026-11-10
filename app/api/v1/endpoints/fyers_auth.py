@@ -12,6 +12,7 @@ import aiohttp
 from fastapi import APIRouter, Request, Response
 
 from app.core.config import settings
+from app.services.fyers_token import save_fyers_token, get_fyers_token
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +34,15 @@ async def fyers_login():
                 status_code=500,
             )
 
+        # Ensure redirect_uri matches Fyers Dashboard exactly
         redirect_uri = settings.FYERS_REDIRECT_URI
+        if not redirect_uri:
+            logger.error("FYERS_REDIRECT_URI not configured")
+            return Response(
+                content="Configuration error: FYERS_REDIRECT_URI missing",
+                status_code=500,
+            )
+        
         response_type = "code"
         state = os.getenv("FYERS_STATE", "trading_platform_state")
 
@@ -49,6 +58,7 @@ async def fyers_login():
         )
 
         logger.info(f"Fyers auth URL generated for client: {client_id[:4]}***")
+        logger.info(f"Redirect URI: {redirect_uri}")
         return {
             "authorization_url": auth_url,
             "state": state,
@@ -110,19 +120,27 @@ async def fyers_callback(request: Request):
             )
 
         access_token = token_response.get("access_token")
+        refresh_token = token_response.get("refresh_token", "")
+        expires_in = token_response.get("expires_in", 86400)
+        
         if not access_token:
             logger.error("Fyers token response: no access_token returned")
             return Response(content="No access token in Fyers response", status_code=400)
 
-        # Save token to settings (in-memory) - for persistence, save to DB/Redis
+        # Save token to persistent storage (JSON file)
+        saved = save_fyers_token(access_token, expires_in, refresh_token)
+        if not saved:
+            logger.error("Failed to save Fyers token to storage")
+        
+        # Also update in-memory settings for immediate use
         settings.FYERS_ACCESS_TOKEN = access_token
-        logger.info(f"Fyers access token saved to settings (length: {len(access_token)})")
+        logger.info(f"Fyers access token saved to storage and settings (length: {len(access_token)})")
 
         logger.info(f"Fyers OAuth2 successful for client: {settings.FYERS_CLIENT_ID[:4]}***")
         return {
             "status": "success",
             "access_token": access_token,
-            "expires_in": token_response.get("expires_in", 86400),
+            "expires_in": expires_in,
             "token_type": token_response.get("token_type", "Bearer"),
             "message": "Access token saved. Fyers API is now authenticated.",
         }
@@ -135,3 +153,29 @@ async def fyers_callback(request: Request):
         logger.error(f"Fyers callback unexpected error: {str(e)}")
         logger.error(traceback.format_exc())
         return Response(content="Internal server error in Fyers callback", status_code=500)
+
+
+@router.get("/token-status")
+async def fyers_token_status():
+    """
+    Check current Fyers token status.
+    """
+    from app.services.fyers_token import get_fyers_token_status
+    
+    status = get_fyers_token_status()
+    return status
+
+
+@router.post("/logout")
+async def fyers_logout():
+    """
+    Clear Fyers token (logout).
+    """
+    from app.services.fyers_token import clear_fyers_token
+    
+    cleared = clear_fyers_token()
+    if cleared:
+        settings.FYERS_ACCESS_TOKEN = ""
+        return {"status": "success", "message": "Fyers token cleared"}
+    
+    return {"status": "error", "message": "Failed to clear token"}

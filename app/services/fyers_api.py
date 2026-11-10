@@ -11,6 +11,7 @@ from datetime import datetime
 import aiohttp
 
 from app.core.config import settings
+from app.services.fyers_token import get_fyers_token
 
 logger = logging.getLogger(__name__)
 IST = ZoneInfo("Asia/Kolkata")
@@ -23,19 +24,22 @@ class FyersAPIClient:
     Fyers API v3 REST client for quotes, historical data, and profile.
     """
     
-    def __init__(self, access_token: Optional[str] = None):
-        self.access_token = access_token
+    def __init__(self):
         self.session: Optional[aiohttp.ClientSession] = None
     
-    def _get_headers(self) -> Dict[str, str]:
-        """Get headers with current access token from settings."""
-        token = self.access_token or settings.FYERS_ACCESS_TOKEN
+    def _get_auth_header(self) -> Optional[str]:
+        """Get Authorization header value with current token."""
+        # Priority: 1. Persistent storage, 2. Settings (in-memory)
+        token = get_fyers_token() or settings.FYERS_ACCESS_TOKEN
         if not token:
-            logger.warning("FYERS_ACCESS_TOKEN is empty!")
-        return {
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
-        }
+            logger.warning("FYERS_ACCESS_TOKEN not available in storage or settings")
+            return None
+        # Fyers expects format: "client_id:access_token"
+        client_id = settings.FYERS_CLIENT_ID
+        if not client_id:
+            logger.error("FYERS_CLIENT_ID not configured")
+            return None
+        return f"{client_id}:{token}"
     
     async def _get_session(self) -> aiohttp.ClientSession:
         if self.session is None or self.session.closed:
@@ -53,12 +57,14 @@ class FyersAPIClient:
         Fetch live quotes for multiple symbols from Fyers API v3.
         
         Fyers Quotes API: GET /api/v3/quotes?symbols=NSE:NIFTY50-INDEX,NSE:SBIN-EQ
+        Authorization: client_id:access_token
         Returns: { "d": [ { "v": { "symbol": "NSE:NIFTY50-INDEX", "ltp": 24345.85, "ch": 124.35, "chp": 0.51 } } ] }
         """
         # Check if token is available
-        if not settings.FYERS_ACCESS_TOKEN:
-            logger.error("FYERS_ACCESS_TOKEN not configured")
-            return {"error": "Fyers not authenticated. Please login."}
+        auth_header = self._get_auth_header()
+        if not auth_header:
+            logger.error("Fyers authentication not configured")
+            return {"error": "Fyers not authenticated. Please login via /api/v1/fyers/login"}
         
         session = await self._get_session()
         
@@ -68,15 +74,20 @@ class FyersAPIClient:
         params = {"symbols": symbols_param}
         
         try:
-            async with session.get(url, params=params, headers=self._get_headers()) as resp:
+            async with session.get(url, params=params, headers={"Authorization": auth_header}) as resp:
                 if resp.status != 200:
-                    logger.error(f"Fyers quotes API error: HTTP {resp.status}")
+                    error_text = await resp.text()
+                    logger.error(f"Fyers quotes API error: HTTP {resp.status} - {error_text}")
+                    if resp.status == 401:
+                        return {"error": "Fyers token expired or invalid. Please re-login."}
                     return {}
                 
                 data = await resp.json()
                 
                 if data.get("code") != 200:
                     logger.error(f"Fyers quotes error code: {data.get('code')} - {data.get('message')}")
+                    if data.get("code") == 401:
+                        return {"error": "Fyers token expired or invalid. Please re-login."}
                     return {}
                 
                 result = {}
@@ -109,5 +120,5 @@ class FyersAPIClient:
             return {}
 
 
-# Global client instance (uses FYERS_ACCESS_TOKEN from settings)
+# Global client instance
 fyers_api_client = FyersAPIClient()
