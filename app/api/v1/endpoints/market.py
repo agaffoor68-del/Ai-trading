@@ -18,8 +18,21 @@ router = APIRouter(tags=["market-data"])
 # ETF/Unwanted suffixes to deprioritize (unless explicitly searched)
 ETF_EXCLUSION_PATTERNS = ["BEES", "ADD", "EW", "ETF", "NIFTYBEES", "NIFTYADD"]
 
+# Noise patterns to exclude unless explicitly searched
+NOISE_PATTERNS = ["ALPHA", "500", "200", "100", "50", "MIDCAP", "SMALLCAP", "LARGECAP", "MICROCAP"]
+
 # Index keywords that should be prioritized
 INDEX_KEYWORDS = ["NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "SENSEX", "BANKEX"]
+
+# Exact match symbols for main indices (symbol_ticker format from Fyers)
+EXACT_INDEX_SYMBOLS = {
+    "NIFTY": "NSE:NIFTY50-INDEX",
+    "BANKNIFTY": "NSE:BANKNIFTY-INDEX",
+    "FINNIFTY": "NSE:FINNIFTY-INDEX",
+    "MIDCPNIFTY": "NSE:MIDCPNIFTY-INDEX",
+    "SENSEX": "BSE:SENSEX-INDEX",
+    "BANKEX": "BSE:BANKEX-INDEX",
+}
 
 # Instrument type priority: Index=1, Futures=2, Options=3, Equity=4, Others=5
 INSTRUMENT_TYPE_PRIORITY = {
@@ -42,6 +55,12 @@ def is_etf_like(symbol: str) -> bool:
     """Check if symbol looks like an ETF/unwanted variant."""
     symbol_upper = symbol.upper()
     return any(pattern in symbol_upper for pattern in ETF_EXCLUSION_PATTERNS)
+
+
+def is_noise(symbol: str) -> bool:
+    """Check if symbol is noise (obscure indices, ETFs) unless explicitly searched."""
+    symbol_upper = symbol.upper()
+    return any(pattern in symbol_upper for pattern in NOISE_PATTERNS)
 
 
 def is_index_like(query: str, symbol: str) -> bool:
@@ -67,18 +86,26 @@ async def search_symbols(
     (parsed from Fyers Symbol Master CSVs).
     
     Priority order:
-    1. Exact matches on symbol
-    2. Index instruments (NIFTY, BANKNIFTY, etc.)
-    3. Futures & Options (F&O)
-    4. Equity
-    5. ETFs/Unwanted variants deprioritized
+    1. Exact match on main index (NIFTY → NSE:NIFTY50-INDEX)
+    2. Exact matches on symbol
+    3. Prefix matches
+    4. Main Index instruments (NIFTY, BANKNIFTY, etc.)
+    5. Futures & Options (F&O) - instrument_type 11/12
+    6. Equity
+    7. Noise/ETFs deprioritized or filtered
     """
     try:
         from app.core.database import SessionLocal, Instrument
-        from sqlalchemy import or_
+        from sqlalchemy import or_, func
 
         db = SessionLocal()
         try:
+            query_upper = query.upper()
+            
+            # Check if query is an exact index keyword
+            is_exact_index = query_upper in EXACT_INDEX_SYMBOLS
+            target_index_symbol = EXACT_INDEX_SYMBOLS.get(query_upper)
+            
             # Fetch more results for better ranking
             fetch_limit = min(limit * 5, 200)
             
@@ -111,14 +138,22 @@ async def search_symbols(
             ]
 
             # Rank results
-            query_upper = query.upper()
-            
             def rank_score(item: dict) -> tuple:
                 symbol = item.get("symbol", "").upper()
                 inst_type = item.get("instrument_type", "")
                 
                 # Score components (lower = better)
-                # 1. Exact match on symbol (highest priority)
+                
+                # 0. MAIN INDEX EXACT MATCH (highest priority)
+                # If query is "NIFTY", boost NSE:NIFTY50-INDEX to top
+                main_index_match = 0
+                if is_exact_index and target_index_symbol:
+                    # Check if this item is the main index we want
+                    main_index_match = 0 if symbol == target_index_symbol.replace("NSE:", "").replace("-INDEX", "") or symbol == target_index_symbol else 1
+                else:
+                    main_index_match = 1
+                
+                # 1. Exact match on symbol
                 exact_match = 0 if symbol == query_upper else 1
                 
                 # 2. Starts with query (prefix match)
@@ -130,13 +165,21 @@ async def search_symbols(
                 # 4. Instrument type priority (Index > FUT > OPT > EQ > Others)
                 type_priority = get_instrument_priority(inst_type)
                 
-                # 5. ETF deprioritization
+                # 5. F&O boost (instrument_type 11/12) for index queries
+                fo_boost = 0
+                if is_index_like(query, item.get("symbol", "")) and inst_type.upper() in ["11", "12", "FUT", "OPT"]:
+                    fo_boost = -1  # Boost F&O for index searches
+                
+                # 6. ETF deprioritization
                 etf_penalty = 10 if is_etf_like(symbol) else 0
                 
-                # 6. Segment priority (FO before CM for indices)
+                # 7. Noise penalty (obscure indices like NIFTY 500, ALPHA, etc.)
+                noise_penalty = 5 if is_noise(symbol) else 0
+                
+                # 8. Segment priority (FO before CM for indices)
                 segment_priority = 0 if item.get("exchange") == "NSE_FO" else 1
                 
-                return (exact_match, prefix_match, index_priority, type_priority, etf_penalty, segment_priority, symbol)
+                return (main_index_match, exact_match, prefix_match, index_priority, type_priority + fo_boost, etf_penalty, noise_penalty, segment_priority, symbol)
 
             # Sort by ranking
             ranked_results = sorted(result_dicts, key=rank_score)
