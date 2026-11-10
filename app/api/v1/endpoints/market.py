@@ -23,7 +23,9 @@ NOISE_PATTERNS = [
     "AQL", "GS", "ALPHA", "500", "200", "100", "50", 
     "MIDCAP", "SMALLCAP", "LARGECAP", "MICROCAP",
     "AUTO", "PHARMA", "IT", "METAL", "REALTY", "ENERGY",
-    "MEDIA", "FMCG", "PVT", "BANK", "FIN", "COMM"
+    "MEDIA", "FMCG", "PVT", "BANK", "FIN", "COMM",
+    "CHEMICALS", "EV", "GROWSECT", "HOUSING", "INFRA",
+    "PHARMA", "METAL", "REALTY", "ENERGY", "MEDIA"
 ]
 
 # Index keywords that should be prioritized
@@ -225,13 +227,16 @@ async def get_quotes(
     symbols: list[str] = Query(..., description="List of symbols (e.g., NSE:NIFTY50-INDEX, NSE:SBIN-EQ)"),
 ):
     """
-    Get live quotes for multiple symbols.
-    Fyers API v3 is the ONLY data source.
+    Get live quotes for multiple symbols from Fyers API v3.
+    Batches requests to avoid timeout (max 50 symbols per request).
     """
     try:
+        from app.services.fyers_api import fyers_api_client
         from app.services.redis_ws import redis_tick_store
         
-        # Check Redis cache for all symbols
+        logger.info(f"Fetching quotes for {len(symbols)} symbols")
+        
+        # First check Redis cache for hot symbols
         results = {}
         missing = []
         
@@ -249,19 +254,27 @@ async def get_quotes(
             else:
                 missing.append(symbol)
         
-        # For missing symbols, we'd normally fetch from Fyers REST API
-        # For now, return what we have
-        for symbol in missing:
-            results[symbol] = {
-                "symbol": symbol,
-                "ltp": None,
-                "change": None,
-                "change_percent": None,
-                "source": "fyers_api_v3",
-                "message": "Subscribe via Fyers WebSocket for live quotes",
-            }
+        # Fetch missing symbols from Fyers API in batches
+        if missing:
+            batch_size = 50
+            for i in range(0, len(missing), batch_size):
+                batch = missing[i:i + batch_size]
+                logger.info(f"Fetching Fyers quotes batch {i//batch_size + 1}: {len(batch)} symbols")
+                
+                fyers_quotes = await fyers_api_client.get_quotes(batch)
+                
+                for symbol, quote in fyers_quotes.items():
+                    results[symbol] = quote
         
-        return {"quotes": results, "total": len(symbols)}
+        # Return all results (live + cached)
+        response = {
+            "quotes": results,
+            "total": len(symbols),
+        }
+        
+        logger.info(f"Returned quotes for {len(results)} symbols (cache + Fyers)")
+        return response
+        
     except Exception as e:
         logger.error(f"Quotes error: {str(e)}")
         return {"quotes": {}, "total": 0, "error": str(e)}
