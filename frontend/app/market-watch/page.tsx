@@ -2,32 +2,49 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
-import { TrendingUp, TrendingDown, Minus, Search, RefreshCw, AlertCircle, Loader2, X } from "lucide-react";
+import { TrendingUp, TrendingDown, Search, RefreshCw, Loader2, X, AlertCircle, Sparkles } from "lucide-react";
 import { Sidebar } from "@/components/Sidebar";
 import { Header } from "@/components/Header";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
-interface MarketItem {
+// Search result type from backend
+interface SearchResult {
   symbol: string;
+  exchange: string;
   name: string;
-  ltp: number;
-  change: number;
-  changePercent: number;
+  fyers_token: string;
+  instrument_type: string;
+  lot_size: number | null;
+}
+
+// Extended type for table display (with mock prices for now)
+interface DisplayItem extends SearchResult {
+  ltp: number | null;
+  change: number | null;
+  changePercent: number | null;
   sparkline: number[];
 }
 
-// Mock data fallback
-const MOCK_MARKET_DATA: MarketItem[] = [
-  { symbol: "NIFTY 50", name: "NIFTY 50", ltp: 24345.85, change: 124.35, changePercent: 0.51, sparkline: [24200, 24250, 24180, 24300, 24280, 24345] },
-  { symbol: "BANKNIFTY", name: "BANK NIFTY", ltp: 51890.20, change: -85.40, changePercent: -0.16, sparkline: [51950, 51900, 51800, 51850, 51920, 51890] },
-  { symbol: "RELIANCE", name: "Reliance Ind.", ltp: 2845.60, change: 42.15, changePercent: 1.50, sparkline: [2800, 2810, 2825, 2835, 2840, 2845] },
-  { symbol: "TCS", name: "TCS", ltp: 4120.75, change: -12.30, changePercent: -0.30, sparkline: [4130, 4125, 4115, 4120, 4118, 4120] },
-  { symbol: "HDFC BANK", name: "HDFC Bank", ltp: 1678.45, change: 18.90, changePercent: 1.14, sparkline: [1660, 1665, 1670, 1675, 1677, 1678] },
-  { symbol: "INFOSYS", name: "Infosys", ltp: 1845.30, change: -8.20, changePercent: -0.44, sparkline: [1850, 1848, 1840, 1845, 1842, 1845] },
-  { symbol: "ICICI BANK", name: "ICICI Bank", ltp: 1120.75, change: 15.30, changePercent: 1.38, sparkline: [1105, 1110, 1115, 1118, 1120, 1120] },
-  { symbol: "KOTAK BANK", name: "Kotak Bank", ltp: 1785.90, change: -5.10, changePercent: -0.28, sparkline: [1790, 1788, 1785, 1786, 1784, 1785] },
-];
+// Mock price data for known symbols (until WebSocket is connected)
+const MOCK_PRICES: Record<string, { ltp: number; change: number; changePercent: number }> = {
+  "NIFTY": { ltp: 24345.85, change: 124.35, changePercent: 0.51 },
+  "NIFTY 50": { ltp: 24345.85, change: 124.35, changePercent: 0.51 },
+  "BANKNIFTY": { ltp: 51890.20, change: -85.40, changePercent: -0.16 },
+  "RELIANCE": { ltp: 2845.60, change: 42.15, changePercent: 1.50 },
+  "TCS": { ltp: 4120.75, change: -12.30, changePercent: -0.30 },
+  "HDFC BANK": { ltp: 1678.45, change: 18.90, changePercent: 1.14 },
+  "INFOSYS": { ltp: 1845.30, change: -8.20, changePercent: -0.44 },
+  "ICICI BANK": { ltp: 1120.75, change: 15.30, changePercent: 1.38 },
+  "KOTAK BANK": { ltp: 1785.90, change: -5.10, changePercent: -0.28 },
+  "SBIN": { ltp: 785.40, change: 12.30, changePercent: 1.59 },
+  "ITC": { ltp: 485.20, change: -2.10, changePercent: -0.43 },
+  "AXIS BANK": { ltp: 1150.75, change: 8.90, changePercent: 0.78 },
+};
+
+function generateSparkline(basePrice: number): number[] {
+  return Array(8).fill(0).map((_, i) => basePrice + (Math.random() - 0.5) * basePrice * 0.02);
+}
 
 function SparklineChart({ data, color }: { data: number[]; color: string }) {
   const width = 80;
@@ -64,8 +81,9 @@ function SparklineChart({ data, color }: { data: number[]; color: string }) {
   );
 }
 
-function MarketRow({ item, index }: { item: MarketItem; index: number }) {
-  const isPositive = item.change >= 0;
+function MarketRow({ item, index }: { item: DisplayItem; index: number }) {
+  const hasPrice = item.ltp !== null && item.ltp !== undefined;
+  const isPositive = hasPrice && (item.change ?? 0) >= 0;
   const Icon = isPositive ? TrendingUp : TrendingDown;
   const color = isPositive ? "#00FF66" : "#FF003C";
   
@@ -80,24 +98,41 @@ function MarketRow({ item, index }: { item: MarketItem; index: number }) {
         <div className="flex items-center gap-3">
           <span className="font-mono font-semibold text-white text-base">{item.symbol}</span>
           <span className="text-[11px] text-text-muted uppercase tracking-wider">{item.name}</span>
+          {item.instrument_type && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-neon-purple/20 text-neon-purple font-medium">
+              {item.instrument_type === "13" ? "INDEX" : item.instrument_type === "11" ? "FUT" : item.instrument_type === "12" ? "OPT" : item.instrument_type}
+            </span>
+          )}
         </div>
       </td>
-      <td className="px-5 py-4 font-mono font-semibold text-white tabular-nums">
-        ₹{item.ltp.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+      <td className="px-5 py-4 font-mono tabular-nums">
+        {hasPrice ? (
+          <span className="text-white">₹{item.ltp!.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+        ) : (
+          <span className="text-text-muted">—</span>
+        )}
       </td>
       <td className="px-5 py-4">
-        <div className="flex items-center gap-2">
-          <Icon className={`w-4 h-4 text-${isPositive ? "neon-green" : "neon-red"}`} strokeWidth={2.5} />
-          <span className={`font-mono font-medium text-${isPositive ? "neon-green" : "neon-red"}`}>
-            {isPositive ? "+" : ""}{item.changePercent.toFixed(2)}%
-          </span>
-          <span className={`text-[11px] font-mono text-${isPositive ? "neon-green" : "neon-red"}`}>
-            ({isPositive ? "+" : ""}₹{Math.abs(item.change).toFixed(2)})
-          </span>
-        </div>
+        {hasPrice ? (
+          <div className="flex items-center gap-2">
+            <Icon className={`w-4 h-4 text-${isPositive ? "neon-green" : "neon-red"}`} strokeWidth={2.5} />
+            <span className={`font-mono font-medium text-${isPositive ? "neon-green" : "neon-red"}`}>
+              {isPositive ? "+" : ""}{item.changePercent!.toFixed(2)}%
+            </span>
+            <span className={`text-[11px] font-mono text-${isPositive ? "neon-green" : "neon-red"}`}>
+              ({isPositive ? "+" : ""}₹{Math.abs(item.change!).toFixed(2)})
+            </span>
+          </div>
+        ) : (
+          <span className="text-text-muted text-sm">No live data</span>
+        )}
       </td>
       <td className="px-5 py-4">
-        <SparklineChart data={item.sparkline} color={color} />
+        {hasPrice ? (
+          <SparklineChart data={item.sparkline} color={color} />
+        ) : (
+          <span className="text-text-muted text-sm">—</span>
+        )}
       </td>
     </motion.tr>
   );
@@ -105,97 +140,83 @@ function MarketRow({ item, index }: { item: MarketItem; index: number }) {
 
 export default function MarketWatchPage() {
   const [query, setQuery] = useState("");
-  const [marketData, setMarketData] = useState<MarketItem[]>(MOCK_MARKET_DATA);
+  const [results, setResults] = useState<DisplayItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [usingMockData, setUsingMockData] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [hasSearched, setHasSearched] = useState(false);
 
-  const fetchMarketData = useCallback(async (searchQuery?: string) => {
+  const fetchSearch = useCallback(async (searchQuery: string) => {
     setIsLoading(true);
     setError(null);
     
-    const url = searchQuery
-      ? `${API_URL}/api/v1/market/search?q=${encodeURIComponent(searchQuery)}`
-      : `${API_URL}/api/v1/market/quotes?symbols=NIFTY,BANKNIFTY,RELIANCE,TCS,HDFCBANK,INFY,ICICIBANK,KOTAKBANK`;
-
     try {
-      const response = await fetch(url, {
-        method: "GET",
-        headers: { "Content-Type": "application/json" },
-        signal: AbortSignal.timeout(8000),
-      });
+      const response = await fetch(
+        `${API_URL}/api/v1/market/search?query=${encodeURIComponent(searchQuery)}`,
+        {
+          method: "GET",
+          headers: { "Content-Type": "application/json" },
+          signal: AbortSignal.timeout(10000),
+        }
+      );
 
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
 
       const data = await response.json();
-      
-      // Handle both search results and quotes format
-      let transformed: MarketItem[];
-      
-      if (Array.isArray(data)) {
-        // Search results format
-        transformed = data.map((quote: any) => ({
-          symbol: quote.symbol?.replace("NSE:", "") || quote.symbol,
-          name: quote.name || quote.symbol?.replace("NSE:", "") || "Unknown",
-          ltp: quote.ltp || quote.price || 0,
-          change: quote.change || 0,
-          changePercent: quote.change_percent || quote.pChange || 0,
-          sparkline: quote.history?.slice(-8) || Array(8).fill(quote.ltp || quote.price || 0).map((p, i) => p + (Math.random() - 0.5) * (p || 1) * 0.01),
-        }));
-      } else if (typeof data === "object") {
-        // Quotes format
-        transformed = Object.entries(data).map(([symbol, quote]: [string, any]) => ({
-          symbol: symbol.replace("NSE:", ""),
-          name: symbol.replace("NSE:", ""),
-          ltp: quote.ltp || quote.price || 0,
-          change: quote.change || 0,
-          changePercent: quote.change_percent || quote.pChange || 0,
-          sparkline: quote.history?.slice(-8) || Array(8).fill(quote.ltp || quote.price || 0).map((p, i) => p + (Math.random() - 0.5) * (p || 1) * 0.01),
-        }));
-      } else {
-        throw new Error("Unexpected data format");
-      }
+      const searchResults = data.results || [];
 
-      if (transformed.length > 0) {
-        setMarketData(transformed);
-        setUsingMockData(false);
-        setLastUpdated(new Date());
-      } else {
-        throw new Error("No data returned");
-      }
+      // Transform results with mock prices where available
+      const displayItems: DisplayItem[] = searchResults.map((item: SearchResult) => {
+        const mockPrice = MOCK_PRICES[item.symbol] || MOCK_PRICES[item.symbol.replace("NSE:", "")];
+        const hasMock = !!mockPrice;
+        
+        return {
+          ...item,
+          ltp: hasMock ? mockPrice.ltp : null,
+          change: hasMock ? mockPrice.change : null,
+          changePercent: hasMock ? mockPrice.changePercent : null,
+          sparkline: hasMock ? generateSparkline(mockPrice.ltp) : Array(8).fill(0),
+        };
+      });
+
+      setResults(displayItems);
+      setLastUpdated(new Date());
+      setHasSearched(true);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "Unknown error";
-      setError(`Backend unavailable: ${errorMessage}`);
-      setUsingMockData(true);
-      setMarketData(searchQuery ? [] : MOCK_MARKET_DATA);
+      setError(errorMessage);
+      setResults([]);
+      setHasSearched(true);
     } finally {
       setIsLoading(false);
     }
   }, []);
 
+  // Load default popular symbols on initial load
   useEffect(() => {
-    fetchMarketData();
-  }, [fetchMarketData]);
+    fetchSearch("NIFTY");
+  }, [fetchSearch]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     if (query.trim()) {
-      fetchMarketData(query.trim());
-    } else {
-      fetchMarketData();
+      fetchSearch(query.trim());
     }
   };
 
   const handleRefresh = () => {
-    fetchMarketData(query.trim() || undefined);
+    if (query.trim()) {
+      fetchSearch(query.trim());
+    } else {
+      fetchSearch("NIFTY");
+    }
   };
 
   const clearSearch = () => {
     setQuery("");
-    fetchMarketData();
+    fetchSearch("NIFTY");
   };
 
   return (
@@ -213,7 +234,7 @@ export default function MarketWatchPage() {
                 <TrendingUp className="w-8 h-8 text-neon-cyan" strokeWidth={2.5} />
                 Market Watch
               </h1>
-              <p className="text-text-secondary mt-1">Real-time quotes & market search via Fyers API v3</p>
+              <p className="text-text-secondary mt-1">Search & track symbols via Fyers API v3</p>
             </div>
             
             <motion.button
@@ -257,35 +278,35 @@ export default function MarketWatchPage() {
                 )}
               </div>
               <p className="text-xs text-text-muted text-center mt-2">
-                Press Enter to search • Fetches from Fyers API v3
+                Press Enter to search • Powered by Fyers Symbol Master
               </p>
             </form>
           </motion.div>
 
-          {/* Status Bar */}
+          {/* Status Bar - Only show error if fetch actually failed */}
           <div className="flex items-center justify-between flex-wrap gap-4">
             <div className="flex items-center gap-4">
-              {(error || usingMockData) && (
+              {error && hasSearched && (
                 <motion.span
                   initial={{ opacity: 0, scale: 0.9 }}
                   animate={{ opacity: 1, scale: 1 }}
                   className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-neon-red/10 border border-neon-red/30 text-neon-red text-sm glass"
                 >
                   <AlertCircle className="w-4 h-4" strokeWidth={2.5} />
-                  {error ? "Backend offline • Showing mock data" : "Offline mode • Mock data"}
+                  Error: {error}
                 </motion.span>
               )}
-              {!usingMockData && !error && (
+              {!error && hasSearched && (
                 <motion.span
                   initial={{ opacity: 0, scale: 0.9 }}
                   animate={{ opacity: 1, scale: 1 }}
                   className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-neon-green/10 border border-neon-green/30 text-neon-green text-sm glass"
                 >
                   <span className="w-2 h-2 rounded-full bg-neon-green animate-pulse-glow" />
-                  Live data from Fyers API
+                  {results.length} result{results.length !== 1 ? "s" : ""} found
                 </motion.span>
               )}
-              {lastUpdated && (
+              {lastUpdated && !isLoading && (
                 <span className="text-xs text-text-muted">
                   Updated: {lastUpdated.toLocaleTimeString()}
                 </span>
@@ -308,30 +329,29 @@ export default function MarketWatchPage() {
                     <th className="px-5 py-4 text-left">Symbol</th>
                     <th className="px-5 py-4 text-right">LTP</th>
                     <th className="px-5 py-4 text-right">Change</th>
-                    <th className="px-5 py-4 text-left">Sparkline (8 periods)</th>
+                    <th className="px-5 py-4 text-left">Sparkline</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {marketData.length === 0 && !isLoading ? (
-                    <tr>
-                      <td colSpan={4} className="px-5 py-12 text-center text-text-muted">
-                        <AlertCircle className="w-8 h-8 mx-auto mb-2 text-neon-red/50" strokeWidth={2} />
-                        <p>No results found for "{query}"</p>
-                        <p className="text-sm mt-1">Try a different symbol or clear search</p>
-                      </td>
-                    </tr>
-                  ) : (
-                    marketData.map((item, index) => <MarketRow key={item.symbol} item={item} index={index} />)
-                  )}
-                  {isLoading && (
+                  {isLoading ? (
                     <tr>
                       <td colSpan={4} className="px-5 py-12 text-center">
                         <div className="flex items-center justify-center gap-3 text-text-secondary">
                           <Loader2 className="w-6 h-6 animate-spin text-neon-cyan" strokeWidth={2.5} />
-                          <span>Fetching live data...</span>
+                          <span>Searching symbol master...</span>
                         </div>
                       </td>
                     </tr>
+                  ) : results.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="px-5 py-12 text-center text-text-muted">
+                        <AlertCircle className="w-8 h-8 mx-auto mb-2 text-neon-red/50" strokeWidth={2} />
+                        <p>No results found for "{query || "NIFTY"}"</p>
+                        <p className="text-sm mt-1">Try a different symbol (e.g., RELIANCE, SBIN, TCS)</p>
+                      </td>
+                    </tr>
+                  ) : (
+                    results.map((item, index) => <MarketRow key={item.symbol} item={item} index={index} />)
                   )}
                 </tbody>
               </table>
@@ -340,9 +360,9 @@ export default function MarketWatchPage() {
 
           {/* Footer */}
           <div className="text-center text-text-muted text-sm">
-            {usingMockData 
-              ? "⚠️ Showing mock data. Backend may be sleeping (Render free tier). Click Refresh to retry."
-              : "Data sourced from Fyers API v3 • Auto-refresh on window focus • WebSocket streaming coming soon"}
+            Data from Fyers Symbol Master • LTP/Change from mock data (WebSocket coming soon) •{" "}
+            <Sparkles className="inline w-4 h-4 text-neon-purple" strokeWidth={2} />
+            <span className="text-neon-purple ml-1">Smart ranking: Index → F&O → Equity → ETFs</span>
           </div>
         </main>
       </div>
