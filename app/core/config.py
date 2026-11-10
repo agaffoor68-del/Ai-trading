@@ -88,6 +88,14 @@ class Settings(BaseSettings):
         default="http://localhost:8000/api/v1/fyers/callback",
         description="Fyers OAuth2 redirect URI",
     )
+    FYERS_ACCESS_TOKEN: str = Field(
+        default="",
+        description="Fyers API access token (auto-updated after OAuth)",
+    )
+    FYERS_REFRESH_TOKEN: str = Field(
+        default="",
+        description="Fyers API refresh token (if available)",
+    )
     FYERS_SYMBOL_MASTER_BASE: str = Field(
         default="https://public.fyers.in/sym_details/",
         description="Base URL for Fyers Symbol Master CSV files",

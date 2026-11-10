@@ -27,14 +27,20 @@ class FyersAPIClient:
         self.access_token = access_token
         self.session: Optional[aiohttp.ClientSession] = None
     
+    def _get_headers(self) -> Dict[str, str]:
+        """Get headers with current access token from settings."""
+        token = self.access_token or settings.FYERS_ACCESS_TOKEN
+        if not token:
+            logger.warning("FYERS_ACCESS_TOKEN is empty!")
+        return {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        }
+    
     async def _get_session(self) -> aiohttp.ClientSession:
         if self.session is None or self.session.closed:
             self.session = aiohttp.ClientSession(
                 timeout=aiohttp.ClientTimeout(total=15),
-                headers={
-                    "Authorization": f"Bearer {self.access_token or settings.FYERS_ACCESS_TOKEN}",
-                    "Content-Type": "application/json",
-                }
             )
         return self.session
     
@@ -49,6 +55,11 @@ class FyersAPIClient:
         Fyers Quotes API: GET /api/v3/quotes?symbols=NSE:NIFTY50-INDEX,NSE:SBIN-EQ
         Returns: { "d": [ { "v": { "symbol": "NSE:NIFTY50-INDEX", "ltp": 24345.85, "ch": 124.35, "chp": 0.51 } } ] }
         """
+        # Check if token is available
+        if not settings.FYERS_ACCESS_TOKEN:
+            logger.error("FYERS_ACCESS_TOKEN not configured")
+            return {"error": "Fyers not authenticated. Please login."}
+        
         session = await self._get_session()
         
         # Fyers quotes endpoint expects symbols as comma-separated string
@@ -57,7 +68,7 @@ class FyersAPIClient:
         params = {"symbols": symbols_param}
         
         try:
-            async with session.get(url, params=params) as resp:
+            async with session.get(url, params=params, headers=self._get_headers()) as resp:
                 if resp.status != 200:
                     logger.error(f"Fyers quotes API error: HTTP {resp.status}")
                     return {}

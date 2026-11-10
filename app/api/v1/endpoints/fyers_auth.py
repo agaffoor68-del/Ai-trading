@@ -114,13 +114,17 @@ async def fyers_callback(request: Request):
             logger.error("Fyers token response: no access_token returned")
             return Response(content="No access token in Fyers response", status_code=400)
 
+        # Save token to settings (in-memory) - for persistence, save to DB/Redis
+        settings.FYERS_ACCESS_TOKEN = access_token
+        logger.info(f"Fyers access token saved to settings (length: {len(access_token)})")
+
         logger.info(f"Fyers OAuth2 successful for client: {settings.FYERS_CLIENT_ID[:4]}***")
         return {
             "status": "success",
             "access_token": access_token,
             "expires_in": token_response.get("expires_in", 86400),
             "token_type": token_response.get("token_type", "Bearer"),
-            "message": "Store this access token securely - required for all Fyers API calls",
+            "message": "Access token saved. Fyers API is now authenticated.",
         }
 
     except aiohttp.ClientError as e:

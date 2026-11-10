@@ -236,6 +236,17 @@ async def get_quotes(request: QuotesRequest):
     Batches requests to avoid timeout (max 50 symbols per request).
     """
     symbols = request.symbols
+    
+    # Check if Fyers is authenticated before proceeding
+    from app.core.config import settings
+    if not settings.FYERS_ACCESS_TOKEN:
+        logger.warning("Fyers quotes requested but FYERS_ACCESS_TOKEN is empty")
+        return {
+            "quotes": {}, 
+            "total": len(symbols), 
+            "error": "Fyers not authenticated. Please login via /api/v1/fyers/login"
+        }
+    
     try:
         from app.services.fyers_api import fyers_api_client
         from app.services.redis_ws import redis_tick_store
@@ -269,8 +280,22 @@ async def get_quotes(request: QuotesRequest):
                 
                 fyers_quotes = await fyers_api_client.get_quotes(batch)
                 
-                for symbol, quote in fyers_quotes.items():
-                    results[symbol] = quote
+                # Check if Fyers returned an error
+                if isinstance(fyers_quotes, dict) and fyers_quotes.get("error"):
+                    logger.warning(f"Fyers quotes error: {fyers_quotes['error']}")
+                    # Add error to all missing symbols
+                    for symbol in batch:
+                        results[symbol] = {
+                            "symbol": symbol,
+                            "ltp": None,
+                            "change": None,
+                            "change_percent": None,
+                            "source": "fyers_api_v3",
+                            "error": fyers_quotes["error"],
+                        }
+                else:
+                    for symbol, quote in fyers_quotes.items():
+                        results[symbol] = quote
         
         # Return all results (live + cached)
         response = {
