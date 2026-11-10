@@ -80,8 +80,8 @@ class Settings(BaseSettings):
         default=None,
         description="Fyers API client ID",
     )
-    FYERS_SECRET_KEY: Optional[str] = Field(
-        default=None,
+    FYERS_CLIENT_SECRET: str = Field(
+        default="",
         description="Fyers API secret key",
     )
     FYERS_REDIRECT_URI: Optional[str] = Field(

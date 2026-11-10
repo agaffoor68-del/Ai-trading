@@ -93,10 +93,13 @@ async def fyers_callback(request: Request):
             return Response(content="State parameter missing", status_code=400)
 
         # Exchange authorization code for access token
+        # Use exact redirect_uri from Fyers Dashboard
+        redirect_uri = "https://ai-trading-9qoa.onrender.com/api/v1/fyers/callback"
+        
         token_payload = {
             "client_id": settings.FYERS_CLIENT_ID,
             "client_secret": settings.FYERS_CLIENT_SECRET,
-            "redirect_uri": settings.FYERS_REDIRECT_URI,
+            "redirect_uri": redirect_uri,
             "grant_type": "authorization_code",
             "code": code,
         }
