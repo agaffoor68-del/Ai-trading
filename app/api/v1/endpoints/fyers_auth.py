@@ -129,13 +129,34 @@ async def fyers_callback(request: Request):
             ) as resp:
                 token_response = await resp.json()
                 status = resp.status
+                raw_response = await resp.text()
+
+        logger.info(f"Raw Fyers response: {raw_response}")
 
         if status != 200:
             logger.error(f"Fyers token exchange failed: {token_response}")
-            return Response(
-                content=f"Fyers token exchange failed: {token_response}",
-                status_code=400,
-            )
+            
+            # Check for specific -437 error: invalid auth code (single-use, expires quickly)
+            if token_response.get("code") == -437:
+                html_content = """<!DOCTYPE html>
+<html>
+<head>
+    <title>Fyers Login Failed</title>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; padding: 50px; }
+        .error-box { background: #f8d7da; border: 1px solid #f5c6cb; color: #721c24; padding: 20px; border-radius: 8; max-width: 500px; margin: 0 auto; }
+        .button { display: inline-block; margin-top: 20px; padding: 10px 20px; background: #dc3545; color: white; text-decoration: none; border-radius: 4; }
+    </style>
+</head>
+<body>
+    <div class="error-box">
+        <h2>Fyers Login Failed</h2>
+        <p>Auth code expired or already used. Please generate a new login link and try again immediately.</p>
+        <a href="/api/v1/fyers/login" class="button">Generate New Login Link</a>
+    </div>
+</body>
+</html>"""
+                return Response(content=html_content, status_code=400, media_type="text/html")
 
         access_token = token_response.get("access_token")
         refresh_token = token_response.get("refresh_token", "")
