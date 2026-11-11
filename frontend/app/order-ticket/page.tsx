@@ -9,8 +9,8 @@ import {
   ChevronRight,
   Plus,
   Minus,
-  Buy,
-  Sell,
+  ArrowUpRight,
+  ArrowDownRight,
   DollarSign,
   Layers,
   ShieldAlert,
@@ -171,7 +171,7 @@ export default function OrderTicketPage() {
                           : "border-glow-border text-text-secondary"
                       }`}
                     >
-                      <Buy className="w-3 h-3" strokeWidth={2} />
+                      <ArrowUpRight className="w-3 h-3" strokeWidth={2} />
                       BUY
                     </button>
                     <button
@@ -182,7 +182,7 @@ export default function OrderTicketPage() {
                           : "border-glow-border text-text-secondary"
                       }`}
                     >
-                      <Sell className="w-3 h-3" strokeWidth={2} />
+                      <ArrowDownRight className="w-3 h-3" strokeWidth={2} />
                       SELL
                     </button>
                   </div>
