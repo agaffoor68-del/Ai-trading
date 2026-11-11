@@ -455,7 +455,7 @@ function SummaryRow({ label, value, color, fontBold }: { label: string; value: s
   );
 }
 
-function StatCard({ label, value, icon: Icon, color }: { label: string; value: string; icon: React.ComponentType<{ className?: string; strokeWidth?: number }>; color: string }) {
+function StatCard({ label, value, icon: Icon, color }: { label: string; value: string; icon: React.ComponentType<any>; color: string }) {
   return (
     <div className="p-3 rounded-xl bg-card-bg/50 border border-glow-border">
       <div className="flex items-center justify-between">
