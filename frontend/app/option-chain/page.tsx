@@ -8,11 +8,11 @@ import {
   Search,
   RefreshCw,
   Loader2,
-  DropdownIndicator,
   Filter,
   DollarSign,
   Layers,
   AlertCircle,
+  ChevronDown,
 } from "lucide-react";
 import { Sidebar } from "@/components/Sidebar";
 import { Header } from "@/components/Header";
@@ -208,7 +208,7 @@ export default function OptionChainPage() {
                     </option>
                   ))}
                 </select>
-                <DropdownIndicator className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" strokeWidth={2} />
+                <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" strokeWidth={2} />
               </div>
 
               <div className="flex flex-col gap-2">
@@ -224,7 +224,7 @@ export default function OptionChainPage() {
                     </option>
                   ))}
                 </select>
-                <DropdownIndicator className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" strokeWidth={2} />
+                <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" strokeWidth={2} />
               </div>
 
               <div className="flex flex-col gap-2 w-full">
