@@ -213,7 +213,7 @@ export default function AdminPage() {
     try {
       // await api.reactivateUser(userId);
       await new Promise((resolve) => setTimeout(resolve, 800));
-      setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, isActive: true, subscriptionStatus: "active" })));
+      setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, isActive: true, subscriptionStatus: "active" } : u)));
       showToast(`Access reactivated for ${user.email}`, "success");
     } catch {
       showToast("Failed to reactivate access", "error");

@@ -501,4 +501,3 @@ function ToggleRow({ label, description, checked, onChange, icon: Icon }: {
 }
 
 // Import missing icons
-import { Mail, Layers } from "lucide-react";
