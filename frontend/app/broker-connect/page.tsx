@@ -67,12 +67,12 @@ export default function BrokerConnectPage() {
   const handleFyersConnect = async () => {
     try {
       setIsLoading(true);
-      const data = await api.getFyersLoginUrl();
-      if (data.authorization_url) {
-        window.location.href = data.authorization_url;
-      }
+      // Directly redirect to the Fyers login endpoint
+      // The backend will redirect to Fyers authorization URL
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://ai-trading-9qoa.onrender.com";
+      window.location.href = `${apiUrl}/api/v1/fyers/login`;
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : "Failed to get Fyers login URL";
+      const errorMessage = err instanceof Error ? err.message : "Failed to initiate Fyers login";
       alert(errorMessage);
       setIsLoading(false);
     }
