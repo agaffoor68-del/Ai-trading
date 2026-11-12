@@ -10,7 +10,7 @@ import os
 import traceback
 import hashlib
 import aiohttp
-from fastapi import APIRouter, Request, Response
+from fastapi import APIRouter, RedirectResponse, Request, Response
 
 from app.core.config import settings
 from app.services.fyers_token import save_fyers_token, get_fyers_token
@@ -53,7 +53,7 @@ async def fyers_login():
         state = os.getenv("FYERS_STATE", "trading_platform_state")
 
         # Fyers v3 authorization URL
-        auth_url = (
+        fyers_login_url = (
             f"{settings.FYERS_API_BASE}/v3/generate-authcode?"
             f"client_id={client_id}"
             f"&redirect_uri={redirect_uri}"
@@ -63,12 +63,7 @@ async def fyers_login():
 
         logger.info(f"Fyers auth URL generated for client: {client_id[:4]}***")
         logger.info(f"Redirect URI: {redirect_uri}")
-        return {
-            "authorization_url": auth_url,
-            "state": state,
-            "client_id": client_id[:4] + "***",
-            "message": "Complete the OAuth2 flow and exchange the code for an access token",
-        }
+        return RedirectResponse(url=fyers_login_url)
 
     except Exception as e:
         logger.error(f"Fyers login endpoint error: {str(e)}")
