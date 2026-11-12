@@ -9,6 +9,7 @@ import logging
 import os
 import aiohttp
 from fastapi import APIRouter, Request, Response
+from fastapi.responses import RedirectResponse
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +44,7 @@ async def fyers_login():
         )
 
         logger.info(f"Fyers auth URL generated for client: {client_id[:4]}***")
-        return {"authorization_url": auth_url, "state": state}
+        return RedirectResponse(url=auth_url)
 
     except Exception as e:
         logger.error(f"Fyers login endpoint error: {str(e)}")
