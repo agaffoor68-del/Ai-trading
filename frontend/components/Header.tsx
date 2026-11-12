@@ -1,19 +1,45 @@
 "use client";
 
+import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
 import { Wifi, Bell, User, Circle, ChevronDown } from "lucide-react";
+import { api } from "@/lib/api";
 
 interface BrokerStatus {
   label: string;
   connected: boolean;
 }
 
-const brokers: BrokerStatus[] = [
-  { label: "Fyers", connected: true },
-  { label: "Kotak", connected: true },
-];
-
 export function Header() {
+  const [brokers, setBrokers] = useState<BrokerStatus[]>([
+    { label: "Fyers", connected: false },
+    { label: "Kotak", connected: false },
+  ]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  const fetchStatus = useCallback(async () => {
+    try {
+      const data = await api.getBrokerStatus();
+      if (data) {
+        setBrokers([
+          { label: "Fyers", connected: data.fyers?.connected ?? false },
+          { label: "Kotak", connected: data.kotak?.connected ?? false },
+        ]);
+      }
+    } catch (err) {
+      console.warn("Failed to fetch broker status:", err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchStatus();
+    // Refresh every 30 seconds
+    const interval = setInterval(fetchStatus, 30000);
+    return () => clearInterval(interval);
+  }, [fetchStatus]);
+
   return (
     <motion.header
       initial={{ y: -80, opacity: 0 }}
@@ -41,7 +67,7 @@ export function Header() {
             >
               <motion.span
                 className={`w-2 h-2 rounded-full ${broker.connected ? "bg-neon-green" : "bg-neon-red"}`}
-                animate={{ boxShadow: broker.connected ? ["0 0 0 0 rgba(0, 255, 102, 0.7)", "0 0 0 8px rgba(0, 255, 102, 0)"] : undefined }}
+                animate={broker.connected ? { boxShadow: ["0 0 0 0 rgba(0, 255, 102, 0.7)", "0 0 0 8px rgba(0, 255, 102, 0)"] } : undefined}
                 transition={{ duration: 2, repeat: Infinity }}
               />
               <span className="text-xs font-medium text-white capitalize">{broker.label}</span>

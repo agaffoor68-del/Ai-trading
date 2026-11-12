@@ -19,10 +19,36 @@ from app.core.auth import (
 )
 from app.core.database import get_db
 from app.core.models import User
+from app.services.fyers_token import get_fyers_token_status
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["auth"])
+
+
+class BrokerStatusResponse(BaseModel):
+    fyers: dict
+    kotak: dict
+
+
+@router.get("/broker-status", response_model=BrokerStatusResponse)
+async def get_broker_status():
+    """
+    Get connection status for both Fyers and Kotak brokers.
+    """
+    # Check Fyers token status
+    fyers_status = get_fyers_token_status()
+    fyers_connected = fyers_status.get("valid", False)
+    
+    # Check Kotak session status
+    # For now, check if Kotak credentials are configured
+    kotak_connected = bool(settings.KOTAK_CONSUMER_KEY and settings.KOTAK_CONSUMER_SECRET)
+    
+    return {
+        "fyers": {"connected": fyers_connected},
+        "kotak": {"connected": kotak_connected},
+    }
 
 
 class UserRegisterRequest(BaseModel):
