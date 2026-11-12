@@ -88,11 +88,13 @@ async def fyers_callback(request: Request):
 
         if not code:
             logger.error("Fyers callback: authorization code missing")
-            return Response(content="Authorization code missing", status_code=400)
+            # Auto-redirect to login if code is missing
+            return RedirectResponse(url="/api/v1/fyers/login")
 
         if not state:
             logger.error("Fyers callback: state parameter missing")
-            return Response(content="State parameter missing", status_code=400)
+            # Auto-redirect to login if state is missing
+            return RedirectResponse(url="/api/v1/fyers/login")
 
         # Exchange authorization code for access token
         # Use exact redirect_uri from Fyers Dashboard
@@ -131,28 +133,94 @@ async def fyers_callback(request: Request):
 
         if status != 200:
             logger.error(f"Fyers token exchange failed: {token_response}")
+            # Log the exact Fyers error code and message for debugging
+            fyers_error_code = token_response.get("code")
+            fyers_error_message = token_response.get("message", "Unknown error")
+            logger.error(f"Fyers API error - Code: {fyers_error_code}, Message: {fyers_error_message}")
             
             # Check for specific -437 error: invalid auth code (single-use, expires quickly)
-            if token_response.get("code") == -437:
+            if fyers_error_code == -437:
                 html_content = """<!DOCTYPE html>
 <html>
 <head>
-    <title>Fyers Login Failed</title>
+    <title>Fyers Login - Session Expired</title>
     <style>
-        body { font-family: Arial, sans-serif; text-align: center; padding: 50px; }
-        .error-box { background: #f8d7da; border: 1px solid #f5c6cb; color: #721c24; padding: 20px; border-radius: 8; max-width: 500px; margin: 0 auto; }
-        .button { display: inline-block; margin-top: 20px; padding: 10px 20px; background: #dc3545; color: white; text-decoration: none; border-radius: 4; }
+        body { font-family: Arial, sans-serif; text-align: center; padding: 50px; background: #0a0a0a; color: #fff; }
+        .error-box { background: #1a1a1a; border: 1px solid #ff6b35; color: #fff; padding: 30px; border-radius: 12px; max-width: 500px; margin: 0 auto; box-shadow: 0 0 20px rgba(255, 107, 53, 0.2); }
+        .button { display: inline-block; margin-top: 20px; padding: 12px 24px; background: linear-gradient(135deg, #ff6b35, #f7931a); color: #000; text-decoration: none; border-radius: 8px; font-weight: 600; }
     </style>
+    <script>
+        // Auto-redirect after 5 seconds
+        setTimeout(() => {
+            window.location.href = '/api/v1/fyers/login';
+        }, 5000);
+    </script>
 </head>
 <body>
     <div class="error-box">
-        <h2>Fyers Login Failed</h2>
+        <h2>⚠️ Session Expired</h2>
         <p>Auth code expired or already used. Please generate a new login link and try again immediately.</p>
+        <p style="font-size: 0.9em; color: #888; margin-top: 10px;">Redirecting automatically in 5 seconds...</p>
         <a href="/api/v1/fyers/login" class="button">Generate New Login Link</a>
     </div>
 </body>
 </html>"""
                 return Response(content=html_content, status_code=400, media_type="text/html")
+            
+            # Check for -16 error: invalid appIdHash
+            if fyers_error_code == -16:
+                html_content = """<!DOCTYPE html>
+<html>
+<head>
+    <title>Fyers Login - Invalid Configuration</title>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; padding: 50px; background: #0a0a0a; color: #fff; }
+        .error-box { background: #1a1a1a; border: 1px solid #dc3545; color: #fff; padding: 30px; border-radius: 12px; max-width: 500px; margin: 0 auto; box-shadow: 0 0 20px rgba(220, 53, 69, 0.2); }
+        .button { display: inline-block; margin-top: 20px; padding: 12px 24px; background: #dc3545; color: #fff; text-decoration: none; border-radius: 8px; font-weight: 600; }
+    </style>
+    <script>
+        setTimeout(() => {
+            window.location.href = '/api/v1/fyers/login';
+        }, 5000);
+    </script>
+</head>
+<body>
+    <div class="error-box">
+        <h2>❌ Invalid Configuration</h2>
+        <p>App ID hash is invalid. Please check your Fyers Client ID and Secret.</p>
+        <p style="font-size: 0.9em; color: #888; margin-top: 10px;">Redirecting automatically in 5 seconds...</p>
+        <a href="/api/v1/fyers/login" class="button">Try Again</a>
+    </div>
+</body>
+</html>"""
+                return Response(content=html_content, status_code=400, media_type="text/html")
+            
+            # For any other error, show generic error page with auto-redirect
+            html_content = f"""<!DOCTYPE html>
+<html>
+<head>
+    <title>Fyers Login - Error</title>
+    <style>
+        body {{ font-family: Arial, sans-serif; text-align: center; padding: 50px; background: #0a0a0a; color: #fff; }}
+        .error-box {{ background: #1a1a1a; border: 1px solid #ff6b35; color: #fff; padding: 30px; border-radius: 12px; max-width: 500px; margin: 0 auto; box-shadow: 0 0 20px rgba(255, 107, 53, 0.2); }}
+        .button {{ display: inline-block; margin-top: 20px; padding: 12px 24px; background: linear-gradient(135deg, #ff6b35, #f7931a); color: #000; text-decoration: none; border-radius: 8px; font-weight: 600; }}
+    </style>
+    <script>
+        setTimeout(() => {{
+            window.location.href = '/api/v1/fyers/login';
+        }}, 5000);
+    </script>
+</head>
+<body>
+    <div class="error-box">
+        <h2>❌ Login Failed</h2>
+        <p>Error: {fyers_error_message} (Code: {fyers_error_code})</p>
+        <p style="font-size: 0.9em; color: #888; margin-top: 10px;">Redirecting automatically in 5 seconds...</p>
+        <a href="/api/v1/fyers/login" class="button">Try Again</a>
+    </div>
+</body>
+</html>"""
+            return Response(content=html_content, status_code=400, media_type="text/html")
 
         access_token = token_response.get("access_token")
         refresh_token = token_response.get("refresh_token", "")
