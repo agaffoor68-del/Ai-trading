@@ -129,7 +129,7 @@ export default function AdminPage() {
       // await api.revokeUser(userId);
       await new Promise((resolve) => setTimeout(resolve, 800));
       
-      setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, isActive: false, subscriptionStatus: "cancelled" })));
+      setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, isActive: false, subscriptionStatus: "cancelled" } : u)));
       showToast(`Access revoked for ${user.email}`, "success");
     } catch {
       showToast("Failed to revoke access", "error");
