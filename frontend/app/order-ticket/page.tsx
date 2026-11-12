@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { Sidebar } from "@/components/Sidebar";
 import { Header } from "@/components/Header";
+import { api, type OrderRequest, type OrderResponse } from "@/lib/api";
 
 const SYMBOLS = ["NIFTY 50", "BANKNIFTY", "SENSEX"];
 const STRIKES = ["ATM", "ITM-1", "ITM-2", "OTM-1", "OTM-2"];
@@ -69,15 +70,34 @@ export default function OrderTicketPage() {
   const estimatedCharges = useCallback(() => Math.round(estimatePremium() * 0.001), [estimatePremium]);
   const totalPremium = useCallback(() => estimatePremium(), [estimatePremium]);
 
-  const handleExecute = () => {
+  const handleExecute = async () => {
     setIsExecuting(true);
-    setToast({
-      message: `Order Placed Successfully (${form.mode} Mode)`,
-      type: "success",
-    });
-    setTimeout(() => {
+    try {
+      const orderData: OrderRequest = {
+        symbol: form.symbol,
+        quantity: form.quantity,
+        orderType: form.orderType,
+        tradeType: form.tradeType,
+        optionType: form.optionType,
+        strike: parseInt(form.strike.replace("ATM", "24350").replace("ITM-1", "24300").replace("ITM-2", "24250").replace("OTM-1", "24400").replace("OTM-2", "24450")),
+        expiry: form.expiry,
+        price: form.orderType === "LIMIT" ? parseFloat(form.price) : undefined,
+        stopLoss: parseFloat(form.stopLoss),
+        target: parseFloat(form.target),
+        mode: form.mode,
+      };
+
+      const response = await api.placeOrder(orderData);
+      setToast({
+        message: response.message || `Order Placed Successfully (${form.mode} Mode)`,
+        type: "success",
+      });
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Order placement failed";
+      setToast({ message: errorMessage, type: "error" });
+    } finally {
       setIsExecuting(false);
-    }, 1500);
+    }
   };
 
   const toggleMode = () => setForm((prev) => ({ ...prev, mode: prev.mode === "PAPER" ? "LIVE" : "PAPER" }));
