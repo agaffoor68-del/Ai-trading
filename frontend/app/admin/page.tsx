@@ -15,6 +15,7 @@ import {
   MoreHorizontal,
   Search,
   Plus,
+  LucideIcon,
 } from "lucide-react";
 import { Sidebar } from "@/components/Sidebar";
 import { Header } from "@/components/Header";
@@ -374,7 +375,7 @@ export default function AdminPage() {
   );
 }
 
-function StatCard({ label, value, icon: Icon, color }: { label: string; value: number; icon: React.ComponentType<{ className?: string; strokeWidth?: number }>; color: string }) {
+function StatCard({ label, value, icon: Icon, color }: { label: string; value: number; icon: LucideIcon; color: string }) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
