@@ -15,6 +15,7 @@ import {
   Layers,
   ShieldAlert,
   RefreshCw,
+  LucideIcon,
 } from "lucide-react";
 import { Sidebar } from "@/components/Sidebar";
 import { Header } from "@/components/Header";
@@ -455,7 +456,7 @@ function SummaryRow({ label, value, color, fontBold }: { label: string; value: s
   );
 }
 
-function StatCard({ label, value, icon: Icon, color }: { label: string; value: string; icon: React.ComponentType<any>; color: string }) {
+function StatCard({ label, value, icon: Icon, color }: { label: string; value: string; icon: LucideIcon; color: string }) {
   return (
     <div className="p-3 rounded-xl bg-card-bg/50 border border-glow-border">
       <div className="flex items-center justify-between">
