@@ -10,7 +10,8 @@ import os
 import traceback
 import hashlib
 import aiohttp
-from fastapi import APIRouter, RedirectResponse, Request, Response
+from fastapi import APIRouter, Request, Response
+from fastapi.responses import RedirectResponse
 
 from app.core.config import settings
 from app.services.fyers_token import save_fyers_token, get_fyers_token

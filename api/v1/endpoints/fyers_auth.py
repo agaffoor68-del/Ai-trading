@@ -13,7 +13,7 @@ from fastapi.responses import RedirectResponse
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/v1/fiers", tags=["fyers-auth"])
+router = APIRouter(prefix="/api/v1/fyers", tags=["fyers-auth"])
 
 
 @router.get("/login")
