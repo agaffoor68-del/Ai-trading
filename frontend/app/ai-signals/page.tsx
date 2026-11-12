@@ -1,159 +1,99 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
 import {
   Brain,
   TrendingUp,
   TrendingDown,
-  Play,
+  Activity,
   RefreshCw,
   Loader2,
-  BarChart3,
-  Activity,
-  ShieldAlert,
+  AlertCircle,
+  CheckCircle,
+  Shield,
+  Newspaper,
   ChevronRight,
 } from "lucide-react";
 import { Sidebar } from "@/components/Sidebar";
 import { Header } from "@/components/Header";
+import { api, type AISignal, type AISignalsResponse } from "@/lib/api";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const fetcher = (url: string) => fetch(url).then((res) => {
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+});
 
-interface AISignal {
-  symbol: string;
-  name: string;
-  action: "BUY CE" | "BUY PE" | "WAIT";
-  confidence: number;
-  reasoning: string;
-  entry: number;
-  target: number;
-  stopLoss: number;
-  expiry: string;
-  timestamp: string;
-}
-
-interface NewsItem {
-  headline: string;
-  sentiment: "Bullish" | "Bearish" | "Neutral";
-  source: string;
-  time: string;
-}
-
-const MOCK_SIGNALS: AISignal[] = [
-  {
-    symbol: "NIFTY",
-    name: "NIFTY 50",
-    action: "BUY CE",
-    confidence: 87,
-    reasoning: "Supertrend Bullish + RSI > 60 + VWAP Bounce + PCR < 1.0",
-    entry: 24345,
-    target: 24480,
-    stopLoss: 24290,
-    expiry: "28 Oct 2026",
-    timestamp: "14:32:15",
-  },
-  {
-    symbol: "BANKNIFTY",
-    name: "BANKNIFTY",
-    action: "BUY PE",
-    confidence: 82,
-    reasoning: "Resistance at 51950 + Bearish Engulfing + OI Buildup in Puts",
-    entry: 51890,
-    target: 51700,
-    stopLoss: 51980,
-    expiry: "28 Oct 2026",
-    timestamp: "14:31:42",
-  },
-  {
-    symbol: "SENSEX",
-    name: "SENSEX",
-    action: "WAIT",
-    confidence: 55,
-    reasoning: "Mixed signals: RSI neutral + Supertrend flat + Low volume",
-    entry: 79875,
-    target: 80000,
-    stopLoss: 79750,
-    expiry: "28 Oct 2026",
-    timestamp: "14:30:18",
-  },
-  {
-    symbol: "NIFTY",
-    name: "NIFTY 50 (Weekly)",
-    action: "BUY CE",
-    confidence: 91,
-    reasoning: "Golden Cross + Breakout above 24350 + High OI addition",
-    entry: 24345,
-    target: 24520,
-    stopLoss: 24270,
-    expiry: "04 Nov 2026",
-    timestamp: "14:29:03",
-  },
-];
-
-const MOCK_NEWS: NewsItem[] = [
-  {
-    headline: "Fed rate cut boosts IT sector, Nifty IT index up 2.3%",
-    sentiment: "Bullish",
-    source: "Economic Times",
-    time: "10 min ago",
-  },
-  {
-    headline: "RBI maintains repo rate, markets await policy guidance",
-    sentiment: "Neutral",
-    source: "Business Standard",
-    time: "45 min ago",
-  },
-  {
-    headline: "FII selling pressure continues in banking stocks",
-    sentiment: "Bearish",
-    source: "Moneycontrol",
-    time: "1 hour ago",
-  },
-  {
-    headline: "Auto stocks rally on strong festive season sales",
-    sentiment: "Bullish",
-    source: "CNBC TV18",
-    time: "2 hours ago",
-  },
+const MOCK_NEWS = [
+  { headline: "Fed rate cut boosts IT sector, Nifty IT index up 2.3%", sentiment: "Bullish" as const, source: "Economic Times", time: "10 min ago" },
+  { headline: "RBI maintains repo rate, markets await policy guidance", sentiment: "Neutral" as const, source: "Business Standard", time: "45 min ago" },
+  { headline: "FII selling pressure continues in banking stocks", sentiment: "Bearish" as const, source: "Moneycontrol", time: "1 hour ago" },
+  { headline: "Auto stocks rally on strong festive season sales", sentiment: "Bullish" as const, source: "CNBC TV18", time: "2 hours ago" },
 ];
 
 export default function AISignalsPage() {
   const [signals, setSignals] = useState<AISignal[]>([]);
-  const [news, setNews] = useState<NewsItem[]>([]);
-  const [isScanning, setIsScanning] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastScan, setLastScan] = useState<Date | null>(null);
 
   const fetchSignals = useCallback(async () => {
-    setIsScanning(true);
+    setIsLoading(true);
     setError(null);
     try {
-      const response = await fetch(`${API_URL}/api/v1/ai/signals`, {
-        method: "GET",
-        headers: { "Content-Type": "application/json" },
-        signal: AbortSignal.timeout(10000),
-      });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const data = await response.json();
+      const data = await api.getAISignals();
       setSignals(data.signals || []);
       setLastScan(new Date());
     } catch (err) {
       console.warn("AI signals fetch failed, using mock data:", err);
-      setSignals(MOCK_SIGNALS);
+      // Mock fallback
+      setSignals([
+        {
+          symbol: "NIFTY",
+          name: "NIFTY 50",
+          action: "BUY CE",
+          confidence: 87,
+          reasoning: "Supertrend Bullish + RSI > 60 + VWAP Bounce + PCR < 1.0",
+          entry: 24345,
+          target: 24480,
+          stopLoss: 24290,
+          expiry: "28 Oct 2026",
+          timestamp: "14:32:15",
+        },
+        {
+          symbol: "BANKNIFTY",
+          name: "BANKNIFTY",
+          action: "BUY PE",
+          confidence: 82,
+          reasoning: "Resistance at 51950 + Bearish Engulfing + OI Buildup in Puts",
+          entry: 51890,
+          target: 51700,
+          stopLoss: 51980,
+          expiry: "28 Oct 2026",
+          timestamp: "14:31:42",
+        },
+        {
+          symbol: "SENSEX",
+          name: "SENSEX",
+          action: "WAIT",
+          confidence: 55,
+          reasoning: "Mixed signals: RSI neutral + Supertrend flat + Low volume",
+          entry: 79875,
+          target: 80000,
+          stopLoss: 79750,
+          expiry: "28 Oct 2026",
+          timestamp: "14:30:18",
+        },
+      ]);
       setLastScan(new Date());
     } finally {
-      setIsScanning(false);
+      setIsLoading(false);
     }
   }, []);
 
   useEffect(() => {
     fetchSignals();
-    setNews(MOCK_NEWS);
   }, [fetchSignals]);
-
-  const handleScan = () => {
-    fetchSignals();
-  };
 
   const getActionColor = (action: string) => {
     switch (action) {
@@ -183,7 +123,7 @@ export default function AISignalsPage() {
       <div className="ml-64 min-h-screen flex flex-col">
         <Header />
 
-        <main className="flex-1 p-6 md:p-8 lg:p-10 pt-20 lg:pt-24 space-y-6">
+        <main className="flex-1 p-6 md:p-8 lg:p-10 pt-20 lg:pt-24 space-y-8 max-w-4xl mx-auto w-full">
           {/* Page Header */}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -194,18 +134,18 @@ export default function AISignalsPage() {
               </div>
             </div>
             <motion.button
-              onClick={handleScan}
-              disabled={isScanning}
+              onClick={fetchSignals}
+              disabled={isLoading}
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
               className="flex items-center gap-2 px-6 py-3 rounded-xl bg-card-bg border border-neon-cyan/30 hover:border-neon-cyan/50 text-white font-medium transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed glass shadow-[0_0_15px_rgba(0,240,255,0.1)]"
             >
-              {isScanning ? (
+              {isLoading ? (
                 <Loader2 className="w-5 h-5 animate-spin" strokeWidth={2.5} />
               ) : (
                 <Activity className="w-5 h-5" strokeWidth={2.5} />
               )}
-              <span>{isScanning ? "Scanning..." : "Scan for Signals"}</span>
+              <span>{isLoading ? "Scanning..." : "Scan for Signals"}</span>
             </motion.button>
           </div>
 
@@ -214,7 +154,7 @@ export default function AISignalsPage() {
             <div className="flex items-center gap-4">
               {error && (
                 <motion.span className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-neon-red/10 border border-neon-red/30 text-neon-red text-sm glass">
-                  <ShieldAlert className="w-4 h-4" strokeWidth={2.5} />
+                  <AlertCircle className="w-4 h-4" strokeWidth={2.5} />
                   {error}
                 </motion.span>
               )}
@@ -241,7 +181,6 @@ export default function AISignalsPage() {
           {/* Signal Cards Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             {signals.map((signal, index) => {
-              const isPositive = signal.action !== "WAIT";
               const actionColor = getActionColor(signal.action);
               return (
                 <motion.div
@@ -251,7 +190,6 @@ export default function AISignalsPage() {
                   transition={{ delay: index * 0.05 }}
                   className="glass rounded-2xl border border-glow-border p-5 hover:border-neon-cyan/40 transition-all duration-300 group relative overflow-hidden"
                 >
-                  {/* Glow accent for high confidence */}
                   {signal.confidence >= 80 && (
                     <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-neon-cyan to-transparent opacity-30 group-hover:opacity-60" />
                   )}
@@ -263,9 +201,9 @@ export default function AISignalsPage() {
                         {signal.expiry}
                       </span>
                     </div>
-                    <Badge className={`px-2.5 py-1 rounded text-[10px] font-bold ${actionColor}`}>
+                    <span className={`px-2.5 py-1 rounded text-[10px] font-bold ${actionColor}`}>
                       {signal.action}
-                    </Badge>
+                    </span>
                   </div>
 
                   {/* Confidence Score */}
@@ -294,9 +232,18 @@ export default function AISignalsPage() {
 
                   {/* Trade Levels */}
                   <div className="grid grid-cols-3 gap-3 mb-4">
-                    <LevelItem label="Entry" value={signal.entry.toLocaleString()} color="text-neon-cyan" />
-                    <LevelItem label="Target" value={signal.target.toLocaleString()} color="text-neon-green" />
-                    <LevelItem label="Stop Loss" value={signal.stopLoss.toLocaleString()} color="text-neon-red" />
+                    <div className="text-center">
+                      <span className="text-[10px] text-text-muted uppercase tracking-wider block mb-0.5">Entry</span>
+                      <span className="text-xs font-mono font-bold text-neon-cyan">{signal.entry.toLocaleString()}</span>
+                    </div>
+                    <div className="text-center">
+                      <span className="text-[10px] text-text-muted uppercase tracking-wider block mb-0.5">Target</span>
+                      <span className="text-xs font-mono font-bold text-neon-green">{signal.target.toLocaleString()}</span>
+                    </div>
+                    <div className="text-center">
+                      <span className="text-[10px] text-text-muted uppercase tracking-wider block mb-0.5">Stop Loss</span>
+                      <span className="text-xs font-mono font-bold text-neon-red">{signal.stopLoss.toLocaleString()}</span>
+                    </div>
                   </div>
 
                   {/* Execute Button */}
@@ -327,7 +274,7 @@ export default function AISignalsPage() {
           <div className="glass rounded-2xl border border-glow-border p-6">
             <div className="flex items-center justify-between mb-6">
               <div className="flex items-center gap-2">
-                <BarChart3 className="w-5 h-5 text-neon-cyan" strokeWidth={2.5} />
+                <Newspaper className="w-5 h-5 text-neon-cyan" strokeWidth={2.5} />
                 <h3 className="font-bold text-white">Market News & Sentiment</h3>
               </div>
               <span className="text-[10px] px-2 py-0.5 rounded bg-card-bg/50 border border-glow-border text-text-muted">
@@ -336,7 +283,7 @@ export default function AISignalsPage() {
             </div>
 
             <div className="space-y-3">
-              {news.map((item, index) => (
+              {MOCK_NEWS.map((item, index) => (
                 <motion.div
                   key={index}
                   initial={{ opacity: 0, x: -10 }}
@@ -362,25 +309,12 @@ export default function AISignalsPage() {
 
           {/* Footer */}
           <div className="text-center text-text-muted text-sm mt-4">
-            Powered by Grok AI • Signals refresh every 60 seconds •{" "}
+            Powered by Grok AI • Signals refresh every 30 seconds •{" "}
             <Brain className="inline w-4 h-4 text-neon-purple" strokeWidth={2} />
             <span className="text-neon-purple ml-1">ML-driven pattern recognition</span>
           </div>
         </main>
       </div>
-    </div>
-  );
-}
-
-function Badge({ className, children }: { className: string; children: React.ReactNode }) {
-  return <span className={className}>{children}</span>;
-}
-
-function LevelItem({ label, value, color }: { label: string; value: string; color: string }) {
-  return (
-    <div className="text-center">
-      <span className="text-[10px] text-text-muted uppercase tracking-wider block mb-0.5">{label}</span>
-      <span className={`text-xs font-mono font-bold ${color}`}>{value}</span>
     </div>
   );
 }

@@ -13,6 +13,7 @@ import {
   Info,
   Shield,
   RefreshCw,
+  RotateCcw,
 } from "lucide-react";
 import { Sidebar } from "@/components/Sidebar";
 import { Header } from "@/components/Header";
@@ -79,7 +80,7 @@ export default function BrokerConnectPage() {
 
   const handleKotakConnect = async () => {
     try {
-      const response = await fetch(`${api}/api/v1/kotak/login`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://ai-trading-9qoa.onrender.com"}/api/v1/kotak/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         signal: AbortSignal.timeout(10000),
@@ -241,12 +242,11 @@ export default function BrokerConnectPage() {
                 ) : (
                   <>
                     <ExternalLink className="w-5 h-5" strokeWidth={2.5} />
-                    Connect Fyers (Data)
+                    Login with Fyers
                   </>
                 )}
               </motion.button>
 
-              {/* Info Note */}
               <p className="mt-4 text-center text-xs text-text-muted">
                 Redirects to Fyers OAuth for token authorization. Required for market data & quotes.
               </p>
@@ -337,12 +337,11 @@ export default function BrokerConnectPage() {
                 ) : (
                   <>
                     <Shield className="w-5 h-5" strokeWidth={2.5} />
-                    Connect Kotak (Execution)
+                    Login with Kotak
                   </>
                 )}
               </motion.button>
 
-              {/* Info Note */}
               <p className="mt-4 text-center text-xs text-text-muted">
                 Uses TOTP + MPIN for secure login. Required for order placement & position management.
               </p>
