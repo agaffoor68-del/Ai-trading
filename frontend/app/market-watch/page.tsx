@@ -1,14 +1,14 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import useSWR from "swr";
+import { useState, useCallback, useEffect } from "react";
 import { motion } from "framer-motion";
 import { TrendingUp, TrendingDown, Search, RefreshCw, Loader2, X, AlertCircle, Sparkles, Wifi } from "lucide-react";
 import { Sidebar } from "@/components/Sidebar";
 import { Header } from "@/components/Header";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://ai-trading-9qoa.onrender.com";
 
-// Search result type from backend
 interface SearchResult {
   symbol: string;
   exchange: string;
@@ -18,7 +18,6 @@ interface SearchResult {
   lot_size: number | null;
 }
 
-// Quote response from backend
 interface QuoteData {
   ltp: number | null;
   change: number | null;
@@ -27,30 +26,13 @@ interface QuoteData {
   updated_at: string | null;
 }
 
-// Extended type for table display
 interface DisplayItem extends SearchResult {
   ltp: number | null;
   change: number | null;
   changePercent: number | null;
   sparkline: number[];
-  priceSource: "live" | "fetching";
+  priceSource: "live" | "fetching" | "none";
 }
-
-// Mock price data for fallback
-const MOCK_PRICES: Record<string, { ltp: number; change: number; changePercent: number }> = {
-  "NIFTY": { ltp: 24345.85, change: 124.35, changePercent: 0.51 },
-  "NIFTY 50": { ltp: 24345.85, change: 124.35, changePercent: 0.51 },
-  "BANKNIFTY": { ltp: 51890.20, change: -85.40, changePercent: -0.16 },
-  "RELIANCE": { ltp: 2845.60, change: 42.15, changePercent: 1.50 },
-  "TCS": { ltp: 4120.75, change: -12.30, changePercent: -0.30 },
-  "HDFC BANK": { ltp: 1678.45, change: 18.90, changePercent: 1.14 },
-  "INFOSYS": { ltp: 1845.30, change: -8.20, changePercent: -0.44 },
-  "ICICI BANK": { ltp: 1120.75, change: 15.30, changePercent: 1.38 },
-  "KOTAK BANK": { ltp: 1785.90, change: -5.10, changePercent: -0.28 },
-  "SBIN": { ltp: 785.40, change: 12.30, changePercent: 1.59 },
-  "ITC": { ltp: 485.20, change: -2.10, changePercent: -0.43 },
-  "AXIS BANK": { ltp: 1150.75, change: 8.90, changePercent: 0.78 },
-};
 
 function generateSparkline(basePrice: number): number[] {
   return Array(8).fill(0).map((_, i) => basePrice + (Math.random() - 0.5) * basePrice * 0.02);
@@ -160,50 +142,77 @@ function MarketRow({ item, index }: { item: DisplayItem; index: number }) {
   );
 }
 
+const fetcher = async (url: string) => {
+  const response = await fetch(url, {
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+  }
+  return response.json();
+};
+
+const quotesFetcher = async ([, symbols]: [string, string[]]) => {
+  if (symbols.length === 0) return {};
+  
+  const response = await fetch(`${API_URL}/api/v1/market/quotes`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ symbols }),
+    signal: AbortSignal.timeout(8000),
+  });
+  
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+  
+  const data = await response.json();
+  return data.quotes || {};
+};
+
 export default function MarketWatchPage() {
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState("NIFTY");
   const [results, setResults] = useState<DisplayItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [isLoadingQuotes, setIsLoadingQuotes] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
 
-  const fetchQuotes = useCallback(async (symbols: SearchResult[]): Promise<DisplayItem[]> => {
-    if (symbols.length === 0) return [];
+  // SWR for search - fetches on query change
+  const { data: searchData, error: searchError, isLoading: isSearchLoading, mutate: mutateSearch } = useSWR(
+    query.trim() ? `${API_URL}/api/v1/market/search?query=${encodeURIComponent(query.trim())}` : null,
+    fetcher,
+    {
+      revalidateOnFocus: false,
+      dedupingInterval: 2000,
+    }
+  );
 
-    setIsLoadingQuotes(true);
-    
-    // Take top 10 results for quotes
-    const topSymbols = symbols.slice(0, 10);
-    
-    // Build Fyers symbol format (NSE:SYMBOL-TYPE)
-    const fyersSymbols = topSymbols.map(s => {
-      const exchange = s.exchange === "NSE_FO" ? "NSE" : s.exchange === "NSE_CM" ? "NSE" : s.exchange;
-      return `${exchange}:${s.symbol}`;
-    });
+  // SWR for quotes - auto-refreshes every 3 seconds
+  const topSymbols = searchData?.results?.slice(0, 10) || [];
+  const fyersSymbols = topSymbols.map((s: SearchResult) => {
+    const exchange = s.exchange === "NSE_FO" ? "NSE" : s.exchange === "NSE_CM" ? "NSE" : s.exchange;
+    return `${exchange}:${s.symbol}`;
+  });
 
-    try {
-      const response = await fetch(`${API_URL}/api/v1/market/quotes`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ symbols: fyersSymbols }),
-        signal: AbortSignal.timeout(8000),
-      });
+  const { data: quotesData, isLoading: isQuotesLoading, error: quotesError } = useSWR(
+    fyersSymbols.length > 0 ? [`${API_URL}/api/v1/market/quotes`, fyersSymbols] : null,
+    quotesFetcher,
+    {
+      refreshInterval: 3000,
+      revalidateOnFocus: false,
+      dedupingInterval: 2000,
+      fallbackData: {},
+    }
+  );
 
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-
-      const data = await response.json();
-      const quotes = data.quotes || {};
-
-      // Merge quotes with search results
-      return topSymbols.map((item, idx) => {
-        const quote = quotes[fyersSymbols[idx]] || quotes[item.symbol] || quotes[item.fyers_token];
+  // Combine search results with quotes
+  useEffect(() => {
+    if (searchData?.results) {
+      const initialItems: DisplayItem[] = searchData.results.map((item: SearchResult, idx: number) => {
+        const quote = quotesData?.[fyersSymbols[idx]] || quotesData?.[item.symbol] || quotesData?.[item.fyers_token];
         
         if (quote && quote.ltp !== null && quote.ltp !== undefined) {
-          // Live data from Redis/Fyers
           return {
             ...item,
             ltp: quote.ltp,
@@ -213,7 +222,6 @@ export default function MarketWatchPage() {
             priceSource: "live" as const,
           };
         } else {
-          // No live data yet - show fetching state
           return {
             ...item,
             ltp: null,
@@ -224,111 +232,36 @@ export default function MarketWatchPage() {
           };
         }
       });
-    } catch (err) {
-      console.warn("Failed to fetch quotes:", err);
-      // Return fetching state on error
-      return topSymbols.map(item => ({
-        ...item,
-        ltp: null,
-        change: null,
-        changePercent: null,
-        sparkline: Array(8).fill(0),
-        priceSource: "fetching" as const,
-      }));
-    } finally {
-      setIsLoadingQuotes(false);
-    }
-  }, []);
-
-  const fetchSearch = useCallback(async (searchQuery: string) => {
-    setIsLoading(true);
-    setError(null);
-    
-    try {
-      const response = await fetch(
-        `${API_URL}/api/v1/market/search?query=${encodeURIComponent(searchQuery)}`,
-        {
-          method: "GET",
-          headers: { "Content-Type": "application/json" },
-          signal: AbortSignal.timeout(10000),
-        }
-      );
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      const searchResults = data.results || [];
-
-      // First, set results with mock/none prices immediately
-      const initialItems: DisplayItem[] = searchResults.map((item: SearchResult) => {
-        const mockPrice = MOCK_PRICES[item.symbol] || MOCK_PRICES[item.symbol.replace("NSE:", "")];
-        
-        if (mockPrice) {
-          return {
-            ...item,
-            ltp: mockPrice.ltp,
-            change: mockPrice.change,
-            changePercent: mockPrice.changePercent,
-            sparkline: generateSparkline(mockPrice.ltp),
-            priceSource: "mock" as const,
-          };
-        } else {
-          return {
-            ...item,
-            ltp: null,
-            change: null,
-            changePercent: null,
-            sparkline: Array(8).fill(0),
-            priceSource: "none" as const,
-          };
-        }
-      });
-
+      
       setResults(initialItems);
       setLastUpdated(new Date());
       setHasSearched(true);
+    }
+  }, [searchData, quotesData, fyersSymbols]);
 
-      // Then fetch real quotes in background
-      fetchQuotes(searchResults).then((liveItems: DisplayItem[]) => {
-        setResults(liveItems);
-        setLastUpdated(new Date());
-      });
-
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : "Unknown error";
-      setError(errorMessage);
+  useEffect(() => {
+    if (searchError) {
+      setError(searchError.message);
       setResults([]);
       setHasSearched(true);
-    } finally {
-      setIsLoading(false);
+    } else {
+      setError(null);
     }
-  }, [fetchQuotes]);
-
-  // Load default popular symbols on initial load
-  useEffect(() => {
-    fetchSearch("NIFTY");
-  }, [fetchSearch]);
+  }, [searchError]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     if (query.trim()) {
-      fetchSearch(query.trim());
+      mutateSearch();
     }
   };
 
   const handleRefresh = () => {
-    if (query.trim()) {
-      fetchSearch(query.trim());
-    } else {
-      fetchSearch("NIFTY");
-    }
+    mutateSearch();
   };
 
   const clearSearch = () => {
-    setQuery("");
-    fetchSearch("NIFTY");
+    setQuery("NIFTY");
   };
 
   return (
@@ -351,12 +284,12 @@ export default function MarketWatchPage() {
             
             <motion.button
               onClick={handleRefresh}
-              disabled={isLoading || isLoadingQuotes}
+              disabled={isSearchLoading || isQuotesLoading}
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
               className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-card-bg border border-glow-border hover:border-neon-cyan/50 text-white font-medium transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed glass"
             >
-              <RefreshCw className={`w-5 h-5 ${(isLoading || isLoadingQuotes) ? "animate-spin" : ""}`} strokeWidth={2.5} />
+              <RefreshCw className={`w-5 h-5 ${(isSearchLoading || isQuotesLoading) ? "animate-spin" : ""}`} strokeWidth={2.5} />
               <span>Refresh</span>
             </motion.button>
           </div>
@@ -377,7 +310,7 @@ export default function MarketWatchPage() {
                   placeholder="Search symbols... (e.g., NIFTY, SBIN, RELIANCE)"
                   className="w-full pl-12 pr-4 py-3.5 bg-card-bg border border-glow-border focus:border-neon-cyan focus:outline-none rounded-xl text-white placeholder-text-muted text-base"
                 />
-                {query && (
+                {query && query !== "NIFTY" && (
                   <motion.button
                     type="button"
                     onClick={clearSearch}
@@ -418,15 +351,15 @@ export default function MarketWatchPage() {
                   {results.length} result{results.length !== 1 ? "s" : ""} found
                 </motion.span>
               )}
-              {(isLoading || isLoadingQuotes) && (
+              {(isSearchLoading || isQuotesLoading) && (
                 <motion.span
                   className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-neon-orange/10 border border-neon-orange/30 text-neon-orange text-sm glass"
                 >
                   <Loader2 className="w-4 h-4 animate-spin" strokeWidth={2.5} />
-                  {isLoading ? "Searching..." : "Fetching quotes..."}
+                  {isSearchLoading ? "Searching..." : "Fetching quotes..."}
                 </motion.span>
               )}
-              {lastUpdated && !isLoading && !isLoadingQuotes && (
+              {lastUpdated && !isSearchLoading && !isQuotesLoading && (
                 <span className="text-xs text-text-muted">
                   Updated: {lastUpdated.toLocaleTimeString()}
                 </span>
@@ -453,7 +386,7 @@ export default function MarketWatchPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {isLoading ? (
+                  {isSearchLoading ? (
                     <tr>
                       <td colSpan={4} className="px-5 py-12 text-center">
                         <div className="flex items-center justify-center gap-3 text-text-secondary">
@@ -466,7 +399,7 @@ export default function MarketWatchPage() {
                     <tr>
                       <td colSpan={4} className="px-5 py-12 text-center text-text-muted">
                         <AlertCircle className="w-8 h-8 mx-auto mb-2 text-neon-red/50" strokeWidth={2} />
-                        <p>No results found for "{query || "NIFTY"}"</p>
+                        <p>No results found for "{query}"</p>
                         <p className="text-sm mt-1">Try a different symbol (e.g., RELIANCE, SBIN, TCS)</p>
                       </td>
                     </tr>

@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import useSWR from "swr";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import { motion } from "framer-motion";
 import {
   TrendingUp,
@@ -17,7 +18,7 @@ import {
 import { Sidebar } from "@/components/Sidebar";
 import { Header } from "@/components/Header";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://ai-trading-9qoa.onrender.com";
 
 interface OptionChainData {
   symbol: string;
@@ -43,103 +44,85 @@ interface OptionStrike {
 interface IndexInfo {
   label: string;
   value: string;
-  spot: number;
-  strikes: number[];
-  expiryList: string[];
 }
 
 const INDEXES: IndexInfo[] = [
-  {
-    label: "NIFTY",
-    value: "NIFTY",
-    spot: 24345.85,
-    strikes: [24200, 24250, 24300, 24350, 24400, 24450, 24500],
-    expiryList: ["28 Oct 2026", "04 Nov 2026", "11 Nov 2026", "25 Nov 2026", "30 Dec 2026"],
-  },
-  {
-    label: "BANKNIFTY",
-    value: "BANKNIFTY",
-    spot: 51890.20,
-    strikes: [51600, 51700, 51800, 51900, 52000, 52100, 52200],
-    expiryList: ["28 Oct 2026", "04 Nov 2026", "11 Nov 2026", "25 Nov 2026"],
-  },
-  {
-    label: "SENSEX",
-    value: "SENSEX",
-    spot: 79875.40,
-    strikes: [79500, 79600, 79700, 79800, 79900, 80000, 80100],
-    expiryList: ["28 Oct 2026", "04 Nov 2026", "11 Nov 2026", "25 Nov 2026"],
-  },
+  { label: "NIFTY", value: "NIFTY" },
+  { label: "BANKNIFTY", value: "BANKNIFTY" },
+  { label: "SENSEX", value: "SENSEX" },
 ];
 
-const CHANGE_STEP = 50;
-
-function generateMockChain(index: IndexInfo, expiry: string): OptionChainData {
-  const atmStrike = Math.round(index.spot / CHANGE_STEP) * CHANGE_STEP;
-  const strikes = index.strikes.map((strike) => {
-    const isATM = strike === atmStrike;
-    const distFromATM = Math.abs(strike - atmStrike);
-    const ceBase = Math.max(10, 300 - distFromATM * 2);
-    const peBase = Math.max(10, 300 - distFromATM * 2);
-    return {
-      strike,
-      isATM,
-      ceLtp: Number((ceBase + (Math.random() - 0.5) * 10).toFixed(2)),
-      ceChange: Number(((Math.random() - 0.5) * 20).toFixed(2)),
-      ceOI: Math.floor(Math.random() * 500000) + 100000,
-      ceOIChange: Number(((Math.random() - 0.5) * 30).toFixed(2)),
-      peLtp: Number((peBase + (Math.random() - 0.5) * 10).toFixed(2)),
-      peChange: Number(((Math.random() - 0.5) * 20).toFixed(2)),
-      peOI: Math.floor(Math.random() * 500000) + 100000,
-      peOIChange: Number(((Math.random() - 0.5) * 30).toFixed(2)),
-    };
+const fetcher = async (url: string) => {
+  const response = await fetch(url, {
+    signal: AbortSignal.timeout(10000),
   });
-  return { symbol: index.label, expiry, spot: index.spot, atmStrike, strikes };
-}
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+  }
+  return response.json();
+};
 
 export default function OptionChainPage() {
   const [selectedIndex, setSelectedIndex] = useState<IndexInfo>(INDEXES[0]);
-  const [selectedExpiry, setSelectedExpiry] = useState(selectedIndex.expiryList[0]);
-  const [chainData, setChainData] = useState<OptionChainData | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [selectedExpiry, setSelectedExpiry] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [expiryList, setExpiryList] = useState<string[]>([]);
 
-  const fetchOptionChain = useCallback(async (symbol: string, expiry: string) => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const response = await fetch(
-        `${API_URL}/api/v1/market/option-chain?symbol=${encodeURIComponent(symbol)}&expiry=${encodeURIComponent(expiry)}`,
-        {
-          method: "GET",
-          headers: { "Content-Type": "application/json" },
-          signal: AbortSignal.timeout(10000),
-        }
-      );
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const data = await response.json();
-      setChainData(data as OptionChainData);
-      setLastUpdated(new Date());
-    } catch (err) {
-      console.warn("Option chain fetch failed, using mock data:", err);
-      const indexInfo = INDEXES.find((i) => i.value === symbol) || INDEXES[0];
-      setChainData(generateMockChain(indexInfo, expiry));
-      setLastUpdated(new Date());
-    } finally {
-      setIsLoading(false);
+  // SWR for option chain - auto-refreshes every 5 seconds during market hours
+  const { data: chainData, error, isLoading, mutate } = useSWR(
+    selectedExpiry ? `${API_URL}/api/v1/market/option-chain?symbol=${encodeURIComponent(selectedIndex.value)}&expiry=${encodeURIComponent(selectedExpiry)}` : null,
+    fetcher,
+    {
+      refreshInterval: 5000,
+      revalidateOnFocus: false,
+      dedupingInterval: 3000,
     }
-  }, []);
+  );
+
+  // Fetch expiry list when index changes
+  useEffect(() => {
+    const fetchExpiries = async () => {
+      try {
+        const response = await fetch(`${API_URL}/api/v1/market/expiries?symbol=${encodeURIComponent(selectedIndex.value)}`, {
+          signal: AbortSignal.timeout(10000),
+        });
+        if (response.ok) {
+          const data = await response.json();
+          const expiries = data.expiries || [];
+          if (expiries.length > 0) {
+            setExpiryList(expiries);
+            setSelectedExpiry(expiries[0]);
+          }
+        }
+      } catch (err) {
+        console.warn("Failed to fetch expiries:", err);
+      }
+    };
+    
+    fetchExpiries();
+  }, [selectedIndex.value]);
 
   useEffect(() => {
-    fetchOptionChain(selectedIndex.value, selectedExpiry);
-  }, [selectedIndex.value, selectedExpiry, fetchOptionChain]);
+    if (chainData) {
+      setLastUpdated(new Date());
+    }
+  }, [chainData]);
+
+  useEffect(() => {
+    if (error) {
+      console.warn("Option chain fetch failed:", error);
+    }
+  }, [error]);
 
   const handleIndexChange = (value: string) => {
     const indexInfo = INDEXES.find((i) => i.value === value) || INDEXES[0];
     setSelectedIndex(indexInfo);
-    setSelectedExpiry(indexInfo.expiryList[0]);
+    // Expiry will be set by the useEffect above
+  };
+
+  const handleRefresh = () => {
+    mutate();
   };
 
   const filteredStrikes = useMemo(() => {
@@ -147,15 +130,10 @@ export default function OptionChainPage() {
     const strikes = chainData.strikes;
     if (!searchQuery.trim()) return strikes;
     const q = searchQuery.trim();
-    return strikes.filter((s) => s.strike.toString().includes(q));
+    return strikes.filter((s: OptionStrike) => s.strike.toString().includes(q));
   }, [chainData, searchQuery]);
 
-  const atmRow = useMemo(() => {
-    return chainData?.strikes.find((s) => s.isATM) ?? null;
-  }, [chainData]);
-
   const formatNumber = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
   const formatOI = (n: number) => n.toLocaleString();
 
   return (
@@ -177,7 +155,7 @@ export default function OptionChainPage() {
               </p>
             </div>
             <motion.button
-              onClick={() => fetchOptionChain(selectedIndex.value, selectedExpiry)}
+              onClick={handleRefresh}
               disabled={isLoading}
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
@@ -216,9 +194,10 @@ export default function OptionChainPage() {
                 <select
                   value={selectedExpiry}
                   onChange={(e) => setSelectedExpiry(e.target.value)}
-                  className="w-full pl-4 pr-10 py-3 bg-card-bg border border-glow-border focus:border-neon-cyan focus:outline-none rounded-xl text-white text-base cursor-pointer appearance-none"
+                  disabled={expiryList.length === 0}
+                  className="w-full pl-4 pr-10 py-3 bg-card-bg border border-glow-border focus:border-neon-cyan focus:outline-none rounded-xl text-white text-base cursor-pointer appearance-none disabled:opacity-50"
                 >
-                  {selectedIndex.expiryList.map((exp) => (
+                  {expiryList.map((exp) => (
                     <option key={exp} value={exp}>
                       {exp}
                     </option>
@@ -249,13 +228,13 @@ export default function OptionChainPage() {
               {error && (
                 <motion.span className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-neon-red/10 border border-neon-red/30 text-neon-red text-sm glass">
                   <AlertCircle className="w-4 h-4" strokeWidth={2.5} />
-                  {error}
+                  {error.message}
                 </motion.span>
               )}
-              {!error && (
+              {!error && chainData && (
                 <motion.span className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-neon-green/10 border border-neon-green/30 text-neon-green text-sm glass">
                   <span className="w-2 h-2 rounded-full bg-neon-green animate-pulse-glow" />
-                  {chainData ? chainData.strikes.length : 0} strikes loaded
+                  {chainData.strikes.length} strikes loaded
                 </motion.span>
               )}
               {isLoading && (
@@ -299,7 +278,7 @@ export default function OptionChainPage() {
                 <div className="flex items-center gap-3">
                   <span className="text-xs text-text-muted uppercase tracking-wider">PCR</span>
                   <span className="text-sm font-mono font-bold text-neon-purple">
-                    {(chainData.strikes.reduce((s, r) => s + r.peOI, 0) / chainData.strikes.reduce((s, r) => s + r.ceOI, 0)).toFixed(2)}
+                    {(chainData.strikes.reduce((s: number, r: OptionStrike) => s + r.peOI, 0) / chainData.strikes.reduce((s: number, r: OptionStrike) => s + r.ceOI, 0)).toFixed(2)}
                   </span>
                 </div>
               </div>
@@ -336,7 +315,7 @@ export default function OptionChainPage() {
                         </div>
                       </td>
                     </tr>
-                  ) : chainData ? filteredStrikes.length > 0 ? filteredStrikes.map((row, index) => {
+                  ) : chainData ? filteredStrikes.length > 0 ? filteredStrikes.map((row: OptionStrike, index: number) => {
                     const isPositiveCE = row.ceChange >= 0;
                     const isPositivePE = row.peChange >= 0;
                     const ceOIPositive = row.ceOIChange >= 0;
@@ -394,7 +373,7 @@ export default function OptionChainPage() {
                     <tr>
                       <td colSpan={9} className="px-4 py-16 text-center text-text-muted">
                         <AlertCircle className="w-8 h-8 mx-auto mb-2 text-neon-red/50" strokeWidth={2} />
-                        <p>No option chain data available</p>
+                        <p>Select an index and expiry to load option chain</p>
                       </td>
                     </tr>
                   )}
@@ -405,7 +384,7 @@ export default function OptionChainPage() {
 
           {/* Footer */}
           <div className="text-center text-text-muted text-sm">
-            Data from Fyers API v3 • Mock data fallback •{" "}
+            Data from Fyers API v3 •{" "}
             <Layers className="inline w-4 h-4 text-neon-purple" strokeWidth={2} />
             <span className="text-neon-purple ml-1">Professional trading terminal layout</span>
           </div>
