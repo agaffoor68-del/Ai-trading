@@ -19,6 +19,7 @@ import {
   Shield,
   ArrowUpRight,
   ArrowDownRight,
+  LucideIcon,
 } from "lucide-react";
 import { Sidebar } from "@/components/Sidebar";
 import { Header } from "@/components/Header";
@@ -382,7 +383,7 @@ export default function AnalyticsPage() {
   );
 }
 
-function KPICard({ label, value, icon: Icon, color, fontBold }: { label: string; value: string | number; icon: React.ComponentType<{ className?: string; strokeWidth?: number }>; color: string; fontBold?: boolean }) {
+function KPICard({ label, value, icon: Icon, color, fontBold }: { label: string; value: string | number; icon: LucideIcon; color: string; fontBold?: boolean }) {
   return (
     <div className="glass rounded-2xl border border-glow-border p-5">
       <div className="flex items-center justify-between">
