@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState } from "react";
 import { motion } from "framer-motion";
 import {
   RotateCcw,
@@ -17,7 +17,6 @@ import {
   Download,
   Settings,
   Zap,
-  TrendingUp as TrendingUpIcon,
   ArrowRight,
 } from "lucide-react";
 import { Sidebar } from "@/components/Sidebar";
@@ -92,7 +91,6 @@ export default function BacktestPage() {
     setResult(null);
     setProgress(0);
 
-    // Simulate backtest progress
     const interval = setInterval(() => {
       setProgress((prev) => {
         if (prev >= 90) {
@@ -104,14 +102,10 @@ export default function BacktestPage() {
     }, 200);
 
     try {
-      // Simulate API call
       await new Promise((resolve) => setTimeout(resolve, 3000));
       clearInterval(interval);
       setProgress(100);
-      
-      // Mock result
       setResult(MOCK_RESULT);
-      
       setTimeout(() => setProgress(0), 500);
     } catch {
       setError("Backtest failed. Please try again.");
@@ -292,7 +286,7 @@ export default function BacktestPage() {
               {/* Key Metrics */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
                 <MetricCard label="Total Trades" value={result.totalTrades} icon={FileText} color="text-neon-cyan" />
-                <MetricCard label="Win Rate" value={`${result.winRate}%`} icon={TrendingUpIcon} color={result.winRate >= 55 ? "text-neon-green" : "text-neon-red"} />
+                <MetricCard label="Win Rate" value={`${result.winRate}%`} icon={TrendingUp} color={result.winRate >= 55 ? "text-neon-green" : "text-neon-red"} />
                 <MetricCard label="Total PnL" value={formatPnL(result.totalPnL)} icon={Zap} color={result.totalPnL >= 0 ? "text-neon-green" : "text-neon-red"} fontBold />
                 <MetricCard label="Max Drawdown" value={`${result.maxDrawdown}%`} icon={TrendingDown} color="text-neon-red" />
                 <MetricCard label="Profit Factor" value={result.profitFactor.toFixed(2)} icon={BarChart2} color={result.profitFactor > 1 ? "text-neon-green" : "text-neon-red"} />
@@ -301,7 +295,7 @@ export default function BacktestPage() {
               {/* Additional Metrics */}
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <MetricCard label="Sharpe Ratio" value={result.sharpeRatio.toFixed(2)} icon={BarChart2} color="text-neon-purple" />
-                <MetricCard label="Avg Win" value={formatCurrency(result.avgWin)} icon={TrendingUpIcon} color="text-neon-green" />
+                <MetricCard label="Avg Win" value={formatCurrency(result.avgWin)} icon={TrendingUp} color="text-neon-green" />
                 <MetricCard label="Avg Loss" value={formatCurrency(result.avgLoss)} icon={TrendingDown} color="text-neon-red" />
                 <MetricCard label="Best / Worst" value={`${formatCurrency(result.bestTrade)} / ${formatCurrency(result.worstTrade)}`} icon={Zap} color="text-text-secondary" />
               </div>

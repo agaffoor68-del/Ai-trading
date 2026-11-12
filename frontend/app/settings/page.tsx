@@ -30,6 +30,21 @@ import {
   Box,
   CreditCard,
   Key as KeyIcon,
+  User as UserIcon,
+  RotateCcw,
+  Download,
+  Search,
+  X,
+  MoreHorizontal,
+  Trash2 as Trash2Icon,
+  Edit,
+  ShieldCheck,
+  ShieldAlert,
+  UserPlus,
+  Calendar,
+  ArrowRight,
+  ArrowLeft,
+  LucideIcon,
 } from "lucide-react";
 import { Sidebar } from "@/components/Sidebar";
 import { Header } from "@/components/Header";
@@ -69,7 +84,6 @@ export default function SettingsPage() {
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      // await api.saveSettings({ apiKeys, ...generalSettings });
       await new Promise((resolve) => setTimeout(resolve, 1000));
       showToast("Settings saved successfully", "success");
     } catch {
@@ -90,7 +104,6 @@ export default function SettingsPage() {
     }
     setTestResults((prev) => ({ ...prev, [key.id]: "testing" }));
     try {
-      // await api.testConnection(key.id, key.value);
       await new Promise((resolve) => setTimeout(resolve, 1500));
       setTestResults((prev) => ({ ...prev, [key.id]: "success" }));
       showToast(`${key.label} connection successful`, "success");
@@ -105,7 +118,7 @@ export default function SettingsPage() {
     showToast(`${label} copied to clipboard`, "success");
   };
 
-  const tabs: { id: Tab; label: string; icon: React.ComponentType<{ className?: string; strokeWidth?: number }> }[] = [
+  const tabs: { id: Tab; label: string; icon: LucideIcon }[] = [
     { id: "general", label: "General", icon: Settings },
     { id: "api-keys", label: "Broker API Keys", icon: Key },
     { id: "notifications", label: "Notifications", icon: Bell },
@@ -201,10 +214,7 @@ export default function SettingsPage() {
             {/* Tab Content */}
             <div className="p-6">
               {/* General Tab */}
-              {activeTab === "general" && (
-                <GeneralSettingsTab />
-              )}
-
+              {activeTab === "general" && <GeneralSettingsTab />}
               {/* API Keys Tab */}
               {activeTab === "api-keys" && (
                 <ApiKeysTab
@@ -217,11 +227,8 @@ export default function SettingsPage() {
                   copyToClipboard={copyToClipboard}
                 />
               )}
-
               {/* Notifications Tab */}
-              {activeTab === "notifications" && (
-                <NotificationsTab />
-              )}
+              {activeTab === "notifications" && <NotificationsTab />}
             </div>
           </motion.div>
         </main>
@@ -237,25 +244,25 @@ function GeneralSettingsTab() {
       
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <SettingGroup title="Trading Preferences" items={[
-          <SettingItem label="Default Order Type" type="select" options={["MARKET", "LIMIT", "SL-M", "SL-L"]} defaultValue="MARKET" />
-          <SettingItem label="Default Product Type" type="select" options={["MIS", "CNC", "NRML"]} defaultValue="MIS" />
-          <SettingItem label="Default Exchange" type="select" options={["NSE", "BSE", "NSE_FO"]} defaultValue="NSE" />
-          <SettingItem label="Chart Timeframe" type="select" options={["1m", "3m", "5m", "15m", "30m", "1h", "4h", "1d"]} defaultValue="15m" />
+          <SettingItem label="Default Order Type" type="select" options={["MARKET", "LIMIT", "SL-M", "SL-L"]} defaultValue="MARKET" />,
+          <SettingItem label="Default Product Type" type="select" options={["MIS", "CNC", "NRML"]} defaultValue="MIS" />,
+          <SettingItem label="Default Exchange" type="select" options={["NSE", "BSE", "NSE_FO"]} defaultValue="NSE" />,
+          <SettingItem label="Chart Timeframe" type="select" options={["1m", "3m", "5m", "15m", "30m", "1h", "4h", "1d"]} defaultValue="15m" />,
         ]} />
         
         <SettingGroup title="Display & Theme" items={[
-          <SettingItem label="Theme" type="select" options={["Dark (OLED)", "Dark", "Light", "System"]} defaultValue="Dark (OLED)" />
-          <SettingItem label="Color Scheme" type="select" options={["Neon (Default)", "Classic", "High Contrast"]} defaultValue="Neon (Default)" />
-          <SettingItem label="Show PnL in Header" type="toggle" defaultChecked={true} />
-          <SettingItem label="Compact Mode" type="toggle" defaultChecked={false} />
+          <SettingItem label="Theme" type="select" options={["Dark (OLED)", "Dark", "Light", "System"]} defaultValue="Dark (OLED)" />,
+          <SettingItem label="Color Scheme" type="select" options={["Neon (Default)", "Classic", "High Contrast"]} defaultValue="Neon (Default)" />,
+          <SettingItem label="Show PnL in Header" type="toggle" defaultChecked={true} />,
+          <SettingItem label="Compact Mode" type="toggle" defaultChecked={false} />,
         ]} />
       </div>
 
       <div className="pt-6 border-t border-glow-border">
         <h3 className="text-lg font-semibold text-white mb-4">Account</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <SettingItem label="Trading Name" type="input" placeholder="Enter display name" defaultValue="AlphaTrader" />
-          <SettingItem label="Email" type="input" placeholder="Email for notifications" defaultValue="trader@example.com" />
+          <SettingItem label="Trading Name" type="input" placeholder="Enter display name" defaultValue="AlphaTrader" />,
+          <SettingItem label="Email" type="input" placeholder="Email for notifications" defaultValue="trader@example.com" />,
         </div>
       </div>
     </div>
@@ -487,7 +494,7 @@ function SettingItem({ label, type, options, defaultValue, defaultChecked, place
   );
 }
 
-function SectionCard({ title, icon: Icon, iconColor, children }: { title: string; icon: React.ComponentType<{ className?: string; strokeWidth?: number }>; iconColor: string; children: React.ReactNode }) {
+function SectionCard({ title, icon: Icon, iconColor, children }: { title: string; icon: LucideIcon; iconColor: string; children: React.ReactNode }) {
   return (
     <div className="p-5 rounded-xl bg-card-bg/30 border border-glow-border/50">
       <h4 className="flex items-center gap-2 text-sm font-semibold text-white mb-4">
@@ -595,7 +602,7 @@ function NotificationToggle({ label, description, defaultChecked }: { label: str
   );
 }
 
-function ChannelToggle({ label, description, icon: Icon, defaultChecked }: { label: string; description: string; icon: React.ComponentType<{ className?: string; strokeWidth?: number }>; defaultChecked: boolean }) {
+function ChannelToggle({ label, description, icon: Icon, defaultChecked }: { label: string; description: string; icon: LucideIcon; defaultChecked: boolean }) {
   const [checked, setChecked] = useState(defaultChecked);
   return (
     <div className="flex items-center justify-between px-4 py-3 rounded-lg bg-true-black/50 border border-glow-border/50">
