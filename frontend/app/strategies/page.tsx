@@ -19,6 +19,7 @@ import {
   Minus,
   ArrowRight,
   ArrowLeft,
+  X,
 } from "lucide-react";
 import { Sidebar } from "@/components/Sidebar";
 import { Header } from "@/components/Header";
