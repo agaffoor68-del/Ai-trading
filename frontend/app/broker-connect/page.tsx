@@ -2,35 +2,38 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
-import { 
-  Link, 
-  Wifi, 
-  WifiOff, 
-  Shield, 
-  Database, 
-  Zap, 
+import {
+  Link,
+  Database,
+  Zap,
   ExternalLink,
   Loader2,
   CheckCircle,
   AlertCircle,
-  Info
+  Info,
+  Shield,
+  RefreshCw,
 } from "lucide-react";
 import { Sidebar } from "@/components/Sidebar";
 import { Header } from "@/components/Header";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+import { api } from "@/lib/api";
 
 interface BrokerStatus {
   fyers: {
     connected: boolean;
-    token_expires: string | null;
-    last_sync: string | null;
+    tokenExpiresAt: string | null;
   };
   kotak: {
     connected: boolean;
-    token_expires: string | null;
-    last_sync: string | null;
+    tokenExpiresAt: string | null;
   };
+}
+
+interface FyersLoginResponse {
+  authorization_url: string;
+  state: string;
+  client_id: string;
+  message: string;
 }
 
 export default function BrokerConnectPage() {
@@ -41,25 +44,15 @@ export default function BrokerConnectPage() {
   const fetchStatus = useCallback(async () => {
     try {
       setIsLoading(true);
-      const response = await fetch(`${API_URL}/api/v1/auth/broker-status`, {
-        headers: { "Content-Type": "application/json" },
-        signal: AbortSignal.timeout(8000),
-      });
-      
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-      
-      const data = await response.json();
+      const data = await api.getBrokerStatus();
       setStatus(data);
       setError(null);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "Failed to fetch broker status";
       setError(errorMessage);
-      // Set default disconnected state
       setStatus({
-        fyers: { connected: false, token_expires: null, last_sync: null },
-        kotak: { connected: false, token_expires: null, last_sync: null },
+        fyers: { connected: false, tokenExpiresAt: null },
+        kotak: { connected: false, tokenExpiresAt: null },
       });
     } finally {
       setIsLoading(false);
@@ -70,23 +63,33 @@ export default function BrokerConnectPage() {
     fetchStatus();
   }, [fetchStatus]);
 
-  const handleFyersConnect = () => {
-    window.location.href = `${API_URL}/api/v1/fyers/login`;
+  const handleFyersConnect = async () => {
+    try {
+      setIsLoading(true);
+      const data = await api.getFyersLoginUrl();
+      if (data.authorization_url) {
+        window.location.href = data.authorization_url;
+      }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Failed to get Fyers login URL";
+      alert(errorMessage);
+      setIsLoading(false);
+    }
   };
 
   const handleKotakConnect = async () => {
     try {
-      const response = await fetch(`${API_URL}/api/v1/kotak/login`, {
+      const response = await fetch(`${api}/api/v1/kotak/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         signal: AbortSignal.timeout(10000),
       });
-      
+
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
         throw new Error(errData.detail || `HTTP ${response.status}`);
       }
-      
+
       const data = await response.json();
       if (data.redirect_url) {
         window.location.href = data.redirect_url;
@@ -111,10 +114,9 @@ export default function BrokerConnectPage() {
   return (
     <div className="min-h-screen bg-true-black text-white">
       <Sidebar />
-      
       <div className="ml-64 min-h-screen flex flex-col">
         <Header />
-        
+
         <main className="flex-1 p-6 md:p-8 lg:p-10 pt-20 lg:pt-24 space-y-8 max-w-4xl mx-auto w-full">
           {/* Page Header */}
           <motion.div
@@ -161,9 +163,8 @@ export default function BrokerConnectPage() {
               transition={{ duration: 0.5, delay: 0.1 }}
               className="glass rounded-2xl border border-glow-border p-6 relative overflow-hidden group"
             >
-              {/* Background glow */}
               <div className="absolute -top-10 -right-10 w-40 h-40 rounded-full bg-neon-cyan/10 blur-3xl" />
-              
+
               <div className="relative z-10 flex items-start justify-between mb-6">
                 <div className="flex items-center gap-4">
                   <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-neon-cyan to-neon-purple flex items-center justify-center shadow-glow-cyan">
@@ -174,12 +175,12 @@ export default function BrokerConnectPage() {
                     <p className="text-sm text-text-muted">Market Data Provider</p>
                   </div>
                 </div>
-                
+
                 {/* Status Badge */}
                 <motion.div
                   className={`flex items-center gap-2 px-3 py-1.5 rounded-full font-medium text-sm ${
-                    status?.fyers.connected 
-                      ? "bg-neon-green/20 text-neon-green border border-neon-green/30" 
+                    status?.fyers.connected
+                      ? "bg-neon-green/20 text-neon-green border border-neon-green/30"
                       : "bg-neon-red/20 text-neon-red border border-neon-red/30"
                   } glass`}
                 >
@@ -206,11 +207,7 @@ export default function BrokerConnectPage() {
                 >
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-text-secondary">Token Expires</span>
-                    <span className="font-mono text-white">{formatTime(status.fyers.token_expires)}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-text-secondary">Last Sync</span>
-                    <span className="font-mono text-white">{formatTime(status.fyers.last_sync)}</span>
+                    <span className="font-mono text-white">{formatTime(status.fyers.tokenExpiresAt)}</span>
                   </div>
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-text-secondary">Data Source</span>
@@ -222,19 +219,24 @@ export default function BrokerConnectPage() {
               {/* Connect Button */}
               <motion.button
                 onClick={handleFyersConnect}
-                disabled={status?.fyers.connected}
+                disabled={status?.fyers.connected || isLoading}
                 whileHover={{ scale: 1.02, boxShadow: "0 0 20px rgba(0, 240, 255, 0.3)" }}
                 whileTap={{ scale: 0.98 }}
                 className={`w-full py-3.5 rounded-xl font-bold text-lg transition-all duration-300 flex items-center justify-center gap-2 ${
                   status?.fyers.connected
                     ? "bg-gradient-to-r from-neon-green to-neon-cyan text-true-black cursor-not-allowed opacity-60"
-                    : "bg-gradient-to-r from-neon-cyan to-neon-purple text-true-black shadow-glow-cyan hover:shadow-glow-cyan/50"
+                    : "bg-gradient-to-r from-neon-cyan to-neon-purple text-true-black shadow-glow-cyan hover:shadow-glow-cyan/50 disabled:opacity-50"
                 }`}
               >
                 {status?.fyers.connected ? (
                   <>
                     <CheckCircle className="w-5 h-5" strokeWidth={2.5} />
                     Fyers Connected
+                  </>
+                ) : isLoading ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin" strokeWidth={2.5} />
+                    Connecting...
                   </>
                 ) : (
                   <>
@@ -257,9 +259,8 @@ export default function BrokerConnectPage() {
               transition={{ duration: 0.5, delay: 0.2 }}
               className="glass rounded-2xl border border-glow-border p-6 relative overflow-hidden group"
             >
-              {/* Background glow */}
               <div className="absolute -top-10 -right-10 w-40 h-40 rounded-full bg-neon-orange/10 blur-3xl" />
-              
+
               <div className="relative z-10 flex items-start justify-between mb-6">
                 <div className="flex items-center gap-4">
                   <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-neon-orange to-neon-red flex items-center justify-center shadow-glow-orange">
@@ -270,12 +271,12 @@ export default function BrokerConnectPage() {
                     <p className="text-sm text-text-muted">Order Execution Broker</p>
                   </div>
                 </div>
-                
+
                 {/* Status Badge */}
                 <motion.div
                   className={`flex items-center gap-2 px-3 py-1.5 rounded-full font-medium text-sm ${
-                    status?.kotak.connected 
-                      ? "bg-neon-green/20 text-neon-green border border-neon-green/30" 
+                    status?.kotak.connected
+                      ? "bg-neon-green/20 text-neon-green border border-neon-green/30"
                       : "bg-neon-red/20 text-neon-red border border-neon-red/30"
                   } glass`}
                 >
@@ -302,11 +303,7 @@ export default function BrokerConnectPage() {
                 >
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-text-secondary">Token Expires</span>
-                    <span className="font-mono text-white">{formatTime(status.kotak.token_expires)}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-text-secondary">Last Sync</span>
-                    <span className="font-mono text-white">{formatTime(status.kotak.last_sync)}</span>
+                    <span className="font-mono text-white">{formatTime(status.kotak.tokenExpiresAt)}</span>
                   </div>
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-text-secondary">Execution</span>
@@ -366,12 +363,9 @@ export default function BrokerConnectPage() {
               <div>
                 <h3 className="font-semibold text-white mb-2">Admin Panel Configuration</h3>
                 <p className="text-text-secondary text-sm leading-relaxed">
-                  Broker credentials (Fyers Client ID/Secret, Kotak Consumer Key/TOTP/MPIN) are managed securely via the 
-                  <strong className="text-neon-purple">Admin Panel backend</strong>. 
+                  Broker credentials (Fyers Client ID/Secret, Kotak Consumer Key/TOTP/MPIN) are managed securely via the
+                  <strong className="text-neon-purple"> Admin Panel backend</strong>.
                   The frontend only initiates OAuth flows; sensitive credentials are never stored in the browser.
-                </p>
-                <p className="text-text-muted text-xs mt-2">
-                  Admin can configure credentials at: <code className="font-mono text-neon-cyan">{API_URL}/api/v1/admin/brokers</code>
                 </p>
               </div>
             </div>
@@ -391,7 +385,7 @@ export default function BrokerConnectPage() {
               whileTap={{ scale: 0.98 }}
               className="flex items-center gap-2 mx-auto px-6 py-2.5 rounded-xl bg-card-bg border border-glow-border hover:border-neon-cyan/50 text-white font-medium transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed glass"
             >
-              <Loader2 className={`w-5 h-5 ${isLoading ? "animate-spin" : ""}`} strokeWidth={2.5} />
+              <RefreshCw className={`w-5 h-5 ${isLoading ? "animate-spin" : ""}`} strokeWidth={2.5} />
               <span>Refresh Status</span>
             </motion.button>
           </motion.div>

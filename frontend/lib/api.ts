@@ -2,6 +2,24 @@ import type { SWRConfiguration } from "swr";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "https://ai-trading-9qoa.onrender.com";
 
+export interface BrokerStatus {
+  fyers: {
+    connected: boolean;
+    tokenExpiresAt: string | null;
+  };
+  kotak: {
+    connected: boolean;
+    tokenExpiresAt: string | null;
+  };
+}
+
+export interface FyersLoginResponse {
+  authorization_url: string;
+  state: string;
+  client_id: string;
+  message: string;
+}
+
 export interface QuoteRequest {
   symbols: string[];
 }
@@ -98,6 +116,19 @@ export interface PositionsResponse {
   positions: Position[];
 }
 
+export interface AdminUser {
+  id: string;
+  email: string;
+  name: string;
+  plan: string;
+  createdAt: string;
+  isActive: boolean;
+}
+
+export interface AdminUsersResponse {
+  users: AdminUser[];
+}
+
 async function fetcher<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(url, {
     ...options,
@@ -116,6 +147,15 @@ async function fetcher<T>(url: string, options?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  getBrokerStatus: () =>
+    fetcher<BrokerStatus>(`${API_BASE_URL}/api/v1/auth/broker-status`),
+
+  getFyersLoginUrl: () =>
+    fetcher<FyersLoginResponse>(`${API_BASE_URL}/api/v1/fyers/login`),
+
+  searchSymbols: (query: string) =>
+    fetcher<any>(`${API_BASE_URL}/api/v1/market/search?query=${encodeURIComponent(query)}`),
+
   getMarketQuotes: (symbols: string[]) =>
     fetcher<QuotesResponse>(`${API_BASE_URL}/api/v1/market/quotes`, {
       method: "POST",
@@ -138,7 +178,7 @@ export const api = {
     fetcher<PositionsResponse>(`${API_BASE_URL}/api/v1/execution/positions`),
 
   getAdminUsers: (token: string) =>
-    fetcher<any>(`${API_BASE_URL}/api/v1/admin/users`, {
+    fetcher<AdminUsersResponse>(`${API_BASE_URL}/api/v1/admin/users`, {
       headers: {
         Authorization: `Bearer ${token}`,
       },
