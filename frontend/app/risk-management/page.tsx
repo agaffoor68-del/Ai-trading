@@ -24,6 +24,7 @@ import {
   RefreshCw,
   Layers,
   Target,
+  LucideIcon,
 } from "lucide-react";
 import { Sidebar } from "@/components/Sidebar";
 import { Header } from "@/components/Header";
@@ -440,7 +441,7 @@ function SettingInput({ label, value, onChange, type, min, max, step, icon: Icon
   min?: number;
   max?: number;
   step?: number;
-  icon: React.ComponentType<{ className?: string; strokeWidth?: number }>;
+  icon: LucideIcon;
   color: string;
   help: string;
 }) {
