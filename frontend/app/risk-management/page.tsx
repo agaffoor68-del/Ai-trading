@@ -24,6 +24,7 @@ import {
   RefreshCw,
   Layers,
   Target,
+  Mail,
   LucideIcon,
 } from "lucide-react";
 import { Sidebar } from "@/components/Sidebar";
@@ -470,7 +471,7 @@ function ToggleRow({ label, description, checked, onChange, icon: Icon }: {
   description: string;
   checked: boolean;
   onChange: (v: boolean) => void;
-  icon: React.ComponentType<{ className?: string; strokeWidth?: number }>;
+  icon: LucideIcon;
 }) {
   return (
     <div className="flex items-center justify-between px-4 py-3 rounded-xl bg-card-bg/30 border border-glow-border/50">
