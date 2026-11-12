@@ -112,16 +112,16 @@ export default function OrderTicketPage() {
   return (
     <div className="min-h-screen bg-true-black text-white">
       <Sidebar />
-      <div className="ml-64 min-h-screen flex flex-col">
+      <div className="w-full lg:ml-64 min-h-screen flex flex-col">
         <Header />
 
-        <main className="flex-1 p-6 md:p-8 lg:p-10 pt-20 lg:pt-24">
+        <main className="flex-1 p-4 md:p-8 lg:p-10 pt-20 lg:pt-24">
           {/* Page Header */}
-          <div className="flex items-center justify-between mb-8">
+          <div className="flex items-center justify-between mb-8 flex-wrap gap-4">
             <div className="flex items-center gap-3">
               <Activity className="w-8 h-8 text-neon-cyan drop-shadow-[0_0_10px_rgba(0,240,255,0.6)]" strokeWidth={2.5} />
               <div>
-                <h1 className="text-3xl font-bold text-white tracking-tight">Order Execution</h1>
+                <h1 className="text-2xl md:text-3xl font-bold text-white tracking-tight">Order Execution</h1>
                 <p className="text-text-secondary">Institutional-grade order entry with risk preview</p>
               </div>
             </div>
@@ -152,13 +152,13 @@ export default function OrderTicketPage() {
             </motion.div>
           )}
 
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 md:gap-8">
             {/* Order Form */}
             <div className="lg:col-span-7 space-y-6">
               <motion.div
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="glass rounded-2xl border border-glow-border p-6"
+                className="glass rounded-2xl border border-glow-border p-4 md:p-6"
               >
                 {/* Mode & Trade Type */}
                 <div className="grid grid-cols-2 gap-4 mb-6">
@@ -252,7 +252,7 @@ export default function OrderTicketPage() {
                     </button>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                       <label className="text-[10px] text-text-muted uppercase tracking-wider block mb-2">Strike</label>
                       <select
@@ -353,7 +353,7 @@ export default function OrderTicketPage() {
                       <ShieldAlert className="w-3 h-3 text-neon-purple" strokeWidth={2} />
                       Risk Management (%)
                     </label>
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div className="flex items-end gap-1">
                         <input
                           type="number"
@@ -388,7 +388,7 @@ export default function OrderTicketPage() {
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.1 }}
-                className="glass rounded-2xl border border-glow-border p-6"
+                className="glass rounded-2xl border border-glow-border p-4 md:p-6"
               >
                 <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
                   <DollarSign className="w-5 h-5 text-neon-cyan" strokeWidth={2.5} />

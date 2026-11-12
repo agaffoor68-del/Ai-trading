@@ -340,21 +340,21 @@ export default function AdminPage() {
   return (
     <div className="min-h-screen bg-true-black text-white">
       <Sidebar />
-      <div className="ml-64 min-h-screen flex flex-col">
+      <div className="w-full lg:ml-64 min-h-screen flex flex-col">
         <Header />
 
-        <main className="flex-1 p-6 md:p-8 lg:p-10 pt-20 lg:pt-24 space-y-8 max-w-7xl mx-auto w-full">
+        <main className="flex-1 p-4 md:p-8 lg:p-10 pt-20 lg:pt-24 space-y-8 max-w-7xl mx-auto w-full">
           {/* Page Header */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5 }}
           >
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between flex-wrap gap-4">
               <div className="flex items-center gap-3">
                 <Shield className="w-8 h-8 text-neon-purple drop-shadow-[0_0_10px_rgba(168,85,247,0.6)]" strokeWidth={2.5} />
                 <div>
-                  <h1 className="text-3xl font-bold text-white tracking-tight">Admin Panel</h1>
+                  <h1 className="text-2xl md:text-3xl font-bold text-white tracking-tight">Admin Panel</h1>
                   <p className="text-text-secondary">User management, subscriptions, and platform configuration</p>
                 </div>
               </div>
@@ -395,7 +395,7 @@ export default function AdminPage() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1 }}
-            className="grid grid-cols-1 md:grid-cols-4 gap-4"
+            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4"
           >
             <StatCard label="Total Users" value={users.length} icon={Users} color="text-neon-cyan" />
             <StatCard label="Active Subscriptions" value={users.filter((u) => u.subscriptionStatus === "active").length} icon={ShieldCheck} color="text-neon-green" />
@@ -410,7 +410,7 @@ export default function AdminPage() {
             transition={{ delay: 0.2 }}
             className="glass rounded-2xl border border-glow-border overflow-hidden"
           >
-            <div className="px-6 py-4 border-b border-glow-border bg-card-bg/50 flex items-center justify-between">
+            <div className="px-4 md:px-6 py-4 border-b border-glow-border bg-card-bg/50 flex items-center justify-between flex-wrap gap-4">
               <div className="flex items-center gap-2">
                 <h2 className="text-lg font-semibold text-white">User Management</h2>
                 <span className="text-xs px-2 py-0.5 rounded bg-neon-cyan/20 text-neon-cyan font-medium">
@@ -424,24 +424,24 @@ export default function AdminPage() {
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder="Search users..."
-                  className="w-64 pl-10 pr-4 py-2 bg-card-bg border border-glow-border focus:border-neon-cyan focus:outline-none rounded-lg text-white placeholder-text-muted text-sm"
+                  className="w-full md:w-64 pl-10 pr-4 py-2 bg-card-bg border border-glow-border focus:border-neon-cyan focus:outline-none rounded-lg text-white placeholder-text-muted text-sm"
                 />
               </div>
             </div>
 
             <div className="overflow-x-auto">
-              <table className="w-full border-collapse" role="grid">
+              <table className="min-w-[1000px] w-full border-collapse" role="grid">
                 <thead>
                   <tr className="border-b border-glow-border bg-card-bg/50 text-text-muted text-xs font-medium uppercase tracking-wider">
-                    <th className="px-5 py-4 text-left">User</th>
-                    <th className="px-5 py-4 text-center">Role</th>
-                    <th className="px-5 py-4 text-center">Plan</th>
-                    <th className="px-5 py-4 text-center">Subscription</th>
-                    <th className="px-5 py-4 text-center">Expiry</th>
-                    <th className="px-5 py-4 text-center">Status</th>
-                    <th className="px-5 py-4 text-center">Last Login</th>
-                    <th className="px-5 py-4 text-center">API Calls</th>
-                    <th className="px-5 py-4 text-center">Actions</th>
+                    <th className="px-3 md:px-5 py-3 md:py-4 text-left">User</th>
+                    <th className="px-3 md:px-5 py-3 md:py-4 text-center">Role</th>
+                    <th className="px-3 md:px-5 py-3 md:py-4 text-center">Plan</th>
+                    <th className="px-3 md:px-5 py-3 md:py-4 text-center">Subscription</th>
+                    <th className="px-3 md:px-5 py-3 md:py-4 text-center">Expiry</th>
+                    <th className="px-3 md:px-5 py-3 md:py-4 text-center">Status</th>
+                    <th className="px-3 md:px-5 py-3 md:py-4 text-center">Last Login</th>
+                    <th className="px-3 md:px-5 py-3 md:py-4 text-center">API Calls</th>
+                    <th className="px-3 md:px-5 py-3 md:py-4 text-center">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -453,7 +453,7 @@ export default function AdminPage() {
                       transition={{ delay: index * 0.03 }}
                       className="border-b border-glow-border/50 hover:bg-card-bg/30 transition-colors"
                     >
-                      <td className="px-5 py-4">
+                      <td className="px-3 md:px-5 py-3 md:py-4">
                         <div className="flex items-center gap-3">
                           <div className={`w-8 h-8 rounded-full flex items-center justify-center ${getRoleColor(user.role).replace("text-", "bg-").replace(" border", "")}`}>
                             <User className="w-4 h-4" strokeWidth={2.5} style={{ color: "white" }} />
@@ -464,7 +464,7 @@ export default function AdminPage() {
                           </div>
                         </div>
                       </td>
-                      <td className="px-5 py-4 text-center">
+                      <td className="px-3 md:px-5 py-3 md:py-4 text-center">
                         <select
                           value={user.role}
                           onChange={(e) => { if (!editingUser) setUsers((prev) => prev.map((u) => u.id === user.id ? { ...u, role: e.target.value as any } : u)); }}
@@ -476,7 +476,7 @@ export default function AdminPage() {
                           ))}
                         </select>
                       </td>
-                      <td className="px-5 py-4 text-center">
+                      <td className="px-3 md:px-5 py-3 md:py-4 text-center">
                         <select
                           value={user.plan}
                           onChange={(e) => { if (!editingUser) setUsers((prev) => prev.map((u) => u.id === user.id ? { ...u, plan: e.target.value as any } : u)); }}
@@ -488,7 +488,7 @@ export default function AdminPage() {
                           ))}
                         </select>
                       </td>
-                      <td className="px-5 py-4 text-center">
+                      <td className="px-3 md:px-5 py-3 md:py-4 text-center">
                         <select
                           value={user.subscriptionStatus}
                           onChange={(e) => { if (!editingUser) setUsers((prev) => prev.map((u) => u.id === user.id ? { ...u, subscriptionStatus: e.target.value as any } : u)); }}
@@ -500,19 +500,19 @@ export default function AdminPage() {
                           ))}
                         </select>
                       </td>
-                      <td className="px-5 py-4 text-center font-mono text-text-secondary">
+                      <td className="px-3 md:px-5 py-3 md:py-4 text-center font-mono text-text-secondary">
                         {formatDate(user.expiryDate)}
                       </td>
-                      <td className="px-5 py-4 text-center">
+                      <td className="px-3 md:px-5 py-3 md:py-4 text-center">
                         <span className={`w-3 h-3 rounded-full ${user.isActive ? "bg-neon-green" : "bg-neon-red"}`} />
                       </td>
-                      <td className="px-5 py-4 text-center text-text-secondary text-sm">
+                      <td className="px-3 md:px-5 py-3 md:py-4 text-center text-text-secondary text-sm">
                         {user.lastLogin === "Never" ? "Never" : formatDateTime(user.lastLogin)}
                       </td>
-                      <td className="px-5 py-4 text-center font-mono text-text-secondary">
+                      <td className="px-3 md:px-5 py-3 md:py-4 text-center font-mono text-text-secondary">
                         {user.apiCallsToday.toLocaleString()}
                       </td>
-                      <td className="px-5 py-4 text-center">
+                      <td className="px-3 md:px-5 py-3 md:py-4 text-center">
                         <div className="flex items-center justify-center gap-1">
                           {editingUser?.id === user.id ? (
                             <>
@@ -631,7 +631,7 @@ export default function AdminPage() {
                   />
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="text-xs text-text-muted uppercase tracking-wider block mb-1">Plan</label>
                     <select
@@ -743,7 +743,7 @@ export default function AdminPage() {
                     className="w-full pl-4 py-3 bg-card-bg border border-glow-border focus:border-neon-cyan focus:outline-none rounded-xl text-white text-base"
                   />
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="text-xs text-text-muted uppercase tracking-wider block mb-1">Role</label>
                     <select
@@ -771,7 +771,7 @@ export default function AdminPage() {
                     <ChevronDown className="absolute right-4 top-9 -translate-y-1/2 w-4 h-4 text-text-muted" strokeWidth={2} />
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="text-xs text-text-muted uppercase tracking-wider block mb-1">Subscription</label>
                     <select
@@ -840,15 +840,15 @@ function StatCard({ label, value, icon: Icon, color }: { label: string; value: n
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      className="glass rounded-2xl border border-glow-border p-6"
+      className="glass rounded-2xl border border-glow-border p-4 md:p-6"
     >
       <div className="flex items-center justify-between">
         <div>
           <p className="text-xs text-text-muted uppercase tracking-wider">{label}</p>
-          <p className="text-3xl font-bold text-white mt-1">{value}</p>
+          <p className="text-2xl md:text-3xl font-bold text-white mt-1">{value}</p>
         </div>
-        <div className="w-14 h-14 rounded-xl flex items-center justify-center" style={{ backgroundColor: "rgba(255,255,255,0.03)" }}>
-          <Icon className="w-7 h-7" strokeWidth={2.5} style={{ color: "currentColor" }} />
+        <div className="w-12 h-12 md:w-14 md:h-14 rounded-xl flex items-center justify-center" style={{ backgroundColor: "rgba(255,255,255,0.03)" }}>
+          <Icon className="w-6 h-6 md:w-7 md:h-7" strokeWidth={2.5} style={{ color: "currentColor" }} />
         </div>
       </div>
     </motion.div>

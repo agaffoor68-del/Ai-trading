@@ -58,7 +58,7 @@ export function MarketWatch() {
       className="glass rounded-2xl border border-glow-border overflow-hidden h-full min-h-[400px] flex flex-col"
     >
       {/* Header */}
-      <div className="flex items-center justify-between px-5 py-4 border-b border-glow-border">
+      <div className="flex items-center justify-between px-3 md:px-5 py-3 md:py-4 border-b border-glow-border">
         <h3 className="font-semibold text-white flex items-center gap-2">
           <TrendingUp className="w-5 h-5 text-neon-cyan" strokeWidth={2.5} />
           Market Watch
@@ -82,7 +82,7 @@ export function MarketWatch() {
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: 0.4 + index * 0.08 }}
-              className="flex items-center justify-between px-3 py-3 rounded-xl hover:bg-card-bg transition-colors group cursor-pointer"
+              className="flex items-center justify-between px-3 py-2 md:px-3 md:py-3 rounded-xl hover:bg-card-bg transition-colors group cursor-pointer"
             >
               <div className="flex items-center gap-3 min-w-0 flex-1">
                 <div>

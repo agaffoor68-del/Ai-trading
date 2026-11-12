@@ -2,8 +2,9 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
-import { Wifi, Bell, User, Circle, ChevronDown } from "lucide-react";
+import { Wifi, Bell, User, Circle, ChevronDown, Menu, X } from "lucide-react";
 import { api } from "@/lib/api";
+import { useSidebar } from "./Sidebar";
 
 interface BrokerStatus {
   label: string;
@@ -11,6 +12,7 @@ interface BrokerStatus {
 }
 
 export function Header() {
+  const { isOpen, toggle } = useSidebar();
   const [brokers, setBrokers] = useState<BrokerStatus[]>([
     { label: "Fyers", connected: false },
     { label: "Kotak", connected: false },
@@ -45,16 +47,33 @@ export function Header() {
       initial={{ y: -80, opacity: 0 }}
       animate={{ y: 0, opacity: 1 }}
       transition={{ duration: 0.5, delay: 0.2 }}
-      className="fixed left-64 right-0 top-0 z-40 h-16 bg-true-black/80 backdrop-blur-md border-b border-glow-border glass flex items-center justify-between px-6"
+      className="fixed left-0 right-0 top-0 z-40 h-16 bg-true-black/80 backdrop-blur-md border-b border-glow-border glass flex items-center justify-between px-4 md:px-6 lg:ml-64"
     >
-      {/* Left: Title */}
-      <div>
-        <h1 className="text-2xl font-bold text-white tracking-tight">Dashboard</h1>
-        <p className="text-xs text-text-muted">Welcome back, Abdul</p>
+      {/* Left: Hamburger Menu + Title */}
+      <div className="flex items-center gap-4">
+        {/* Hamburger Menu - Mobile only */}
+        <motion.button
+          onClick={toggle}
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          className="lg:hidden p-2 rounded-xl bg-card-bg border border-glow-border hover:border-neon-cyan/50 hover:bg-card-bg/80 transition-all duration-300 glass"
+          aria-label={isOpen ? "Close sidebar" : "Open sidebar"}
+        >
+          {isOpen ? (
+            <X className="w-6 h-6 text-white" strokeWidth={2.5} />
+          ) : (
+            <Menu className="w-6 h-6 text-white" strokeWidth={2.5} />
+          )}
+        </motion.button>
+        
+        <div>
+          <h1 className="text-xl md:text-2xl font-bold text-white tracking-tight">Dashboard</h1>
+          <p className="hidden md:block text-xs text-text-muted">Welcome back, Abdul</p>
+        </div>
       </div>
 
       {/* Right: Actions */}
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-3 md:gap-4">
         {/* Broker Status */}
         <div className="hidden md:flex items-center gap-4 px-3 py-1.5 rounded-full bg-card-bg border border-glow-border glass">
           {brokers.map((broker) => (
@@ -83,10 +102,10 @@ export function Header() {
           initial={{ opacity: 0, x: 20 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ delay: 0.4 }}
-          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-neon-orange/20 to-neon-red/20 border border-neon-orange/30 glass shadow-glow-orange"
+          className="hidden sm:flex items-center gap-2 px-3 md:px-4 py-2 rounded-xl bg-gradient-to-r from-neon-orange/20 to-neon-red/20 border border-neon-orange/30 glass shadow-glow-orange"
         >
           <span className="text-xs text-text-muted">Daily PnL</span>
-          <span className="font-mono text-lg font-bold text-neon-orange text-glow-green">+₹12,450</span>
+          <span className="font-mono text-sm md:text-lg font-bold text-neon-orange text-glow-green">+₹12,450</span>
         </motion.div>
 
         {/* Notification Bell */}

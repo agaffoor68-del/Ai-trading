@@ -267,15 +267,14 @@ export default function MarketWatchPage() {
   return (
     <div className="min-h-screen bg-true-black text-white">
       <Sidebar />
-      
-      <div className="ml-64 min-h-screen flex flex-col">
+      <div className="w-full lg:ml-64 min-h-screen flex flex-col">
         <Header />
         
-        <main className="flex-1 p-6 md:p-8 lg:p-10 pt-20 lg:pt-24 space-y-6">
+        <main className="flex-1 p-4 md:p-8 lg:p-10 pt-20 lg:pt-24 space-y-6">
           {/* Page Header */}
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between flex-wrap gap-4">
             <div>
-              <h1 className="text-3xl font-bold text-white tracking-tight flex items-center gap-3">
+              <h1 className="text-2xl md:text-3xl font-bold text-white tracking-tight flex items-center gap-3">
                 <TrendingUp className="w-8 h-8 text-neon-cyan" strokeWidth={2.5} />
                 Market Watch
               </h1>
@@ -330,7 +329,7 @@ export default function MarketWatchPage() {
 
           {/* Status Bar */}
           <div className="flex items-center justify-between flex-wrap gap-4">
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-4 flex-wrap">
               {error && hasSearched && (
                 <motion.span
                   initial={{ opacity: 0, scale: 0.9 }}
@@ -376,13 +375,13 @@ export default function MarketWatchPage() {
           {/* Data Table */}
           <div className="glass rounded-2xl border border-glow-border overflow-hidden">
             <div className="overflow-x-auto">
-              <table className="w-full" role="grid">
+              <table className="min-w-[700px] w-full" role="grid">
                 <thead>
                   <tr className="border-b border-glow-border bg-card-bg/50 text-text-muted text-xs font-medium uppercase tracking-wider">
-                    <th className="px-5 py-4 text-left">Symbol</th>
-                    <th className="px-5 py-4 text-right">LTP</th>
-                    <th className="px-5 py-4 text-right">Change</th>
-                    <th className="px-5 py-4 text-left">Sparkline</th>
+                    <th className="px-3 md:px-5 py-3 md:py-4 text-left">Symbol</th>
+                    <th className="px-3 md:px-5 py-3 md:py-4 text-right">LTP</th>
+                    <th className="px-3 md:px-5 py-3 md:py-4 text-right">Change</th>
+                    <th className="px-3 md:px-5 py-3 md:py-4 text-left">Sparkline</th>
                   </tr>
                 </thead>
                 <tbody>

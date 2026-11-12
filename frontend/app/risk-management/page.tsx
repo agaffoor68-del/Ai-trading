@@ -107,25 +107,25 @@ export default function RiskManagementPage() {
   return (
     <div className="min-h-screen bg-true-black text-white">
       <Sidebar />
-      <div className="ml-64 min-h-screen flex flex-col">
+      <div className="w-full lg:ml-64 min-h-screen flex flex-col">
         <Header />
 
-        <main className="flex-1 p-6 md:p-8 lg:p-10 pt-20 lg:pt-24 space-y-8 max-w-5xl mx-auto w-full">
+        <main className="flex-1 p-4 md:p-8 lg:p-10 pt-20 lg:pt-24 space-y-8 max-w-5xl mx-auto w-full">
           {/* Page Header */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5 }}
-            className="flex items-center justify-between"
+            className="flex items-center justify-between flex-wrap gap-4"
           >
             <div className="flex items-center gap-3">
               <ShieldAlert className="w-8 h-8 text-neon-red drop-shadow-[0_0_10px_rgba(255,0,60,0.6)]" strokeWidth={2.5} />
               <div>
-                <h1 className="text-3xl font-bold text-white tracking-tight">Risk Management</h1>
+                <h1 className="text-2xl md:text-3xl font-bold text-white tracking-tight">Risk Management</h1>
                 <p className="text-text-secondary">Configure risk limits, position sizing, and emergency controls</p>
               </div>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
               <motion.button
                 onClick={handleReset}
                 whileHover={{ scale: 1.02 }}
@@ -172,26 +172,26 @@ export default function RiskManagementPage() {
           <motion.div
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
-            className={`relative glass rounded-2xl border-2 p-6 flex items-center justify-between ${
+            className={`relative glass rounded-2xl border-2 p-4 md:p-6 flex items-center justify-between flex-wrap gap-4 ${
               settings.killSwitchEnabled
                 ? "border-neon-red bg-neon-red/5 animate-pulse-glow"
                 : "border-glow-border"
             }`}
           >
-            <div className="flex items-center gap-4">
-              <div className={`w-14 h-14 rounded-xl flex items-center justify-center ${
+            <div className="flex items-center gap-4 flex-1 min-w-0">
+              <div className={`w-12 h-12 md:w-14 md:h-14 rounded-xl flex items-center justify-center flex-shrink-0 ${
                 settings.killSwitchEnabled
                   ? "bg-neon-red/20 text-neon-red animate-pulse"
                   : "bg-neon-green/20 text-neon-green"
               }`}>
                 {settings.killSwitchEnabled ? (
-                  <AlertTriangle className="w-7 h-7" strokeWidth={2.5} />
+                  <AlertTriangle className="w-6 h-6 md:w-7 md:h-7" strokeWidth={2.5} />
                 ) : (
-                  <Shield className="w-7 h-7" strokeWidth={2.5} />
+                  <Shield className="w-6 h-6 md:w-7 md:h-7" strokeWidth={2.5} />
                 )}
               </div>
-              <div>
-                <h2 className="text-xl font-bold text-white">{settings.killSwitchEnabled ? "KILL SWITCH ACTIVE" : "Kill Switch Armed"}</h2>
+              <div className="min-w-0">
+                <h2 className="text-lg md:text-xl font-bold text-white truncate">{settings.killSwitchEnabled ? "KILL SWITCH ACTIVE" : "Kill Switch Armed"}</h2>
                 <p className="text-text-secondary text-sm">
                   {settings.killSwitchEnabled
                     ? "All trading is halted. Positions will be squared off immediately."
@@ -204,7 +204,7 @@ export default function RiskManagementPage() {
               disabled={killSwitchConfirm}
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
-              className={`flex items-center gap-2 px-6 py-3 rounded-xl font-bold text-lg transition-all ${
+              className={`flex items-center gap-2 px-4 md:px-6 py-2 md:py-3 rounded-xl font-bold text-sm md:text-lg transition-all flex-shrink-0 ${
                 settings.killSwitchEnabled
                   ? "bg-gradient-to-r from-neon-green to-neon-cyan text-true-black"
                   : "bg-neon-red/10 border border-neon-red/30 text-neon-red hover:bg-neon-red/20"
@@ -212,17 +212,17 @@ export default function RiskManagementPage() {
             >
               {killSwitchConfirm ? (
                 <>
-                  <AlertTriangle className="w-5 h-5" strokeWidth={2.5} />
+                  <AlertTriangle className="w-4 h-4 md:w-5 md:h-5" strokeWidth={2.5} />
                   CONFIRM ACTIVATION
                 </>
               ) : settings.killSwitchEnabled ? (
                 <>
-                  <Unlock className="w-5 h-5" strokeWidth={2.5} />
+                  <Unlock className="w-4 h-4 md:w-5 md:h-5" strokeWidth={2.5} />
                   Deactivate
                 </>
               ) : (
                 <>
-                  <Lock className="w-5 h-5" strokeWidth={2.5} />
+                  <Lock className="w-4 h-4 md:w-5 md:h-5" strokeWidth={2.5} />
                   Activate Kill Switch
                 </>
               )}
@@ -279,14 +279,14 @@ export default function RiskManagementPage() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1 }}
-            className="glass rounded-2xl border border-glow-border p-6"
+            className="glass rounded-2xl border border-glow-border p-4 md:p-6"
           >
             <h2 className="text-lg font-semibold text-white mb-6 flex items-center gap-2">
               <Settings className="w-5 h-5 text-neon-cyan" strokeWidth={2.5} />
               Risk Limits
             </h2>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
               <SettingInput
                 label="Max Daily Loss (₹)"
                 value={settings.maxDailyLoss}
@@ -342,14 +342,14 @@ export default function RiskManagementPage() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.15 }}
-            className="glass rounded-2xl border border-glow-border p-6"
+            className="glass rounded-2xl border border-glow-border p-4 md:p-6"
           >
             <h2 className="text-lg font-semibold text-white mb-6 flex items-center gap-2">
               <Zap className="w-5 h-5 text-neon-orange" strokeWidth={2.5} />
               Default Trade Parameters
             </h2>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
               <SettingInput
                 label="Default Stop Loss (%)"
                 value={settings.defaultStopLoss}
@@ -376,7 +376,7 @@ export default function RiskManagementPage() {
               />
             </div>
 
-            <div className="mt-6 p-4 rounded-xl bg-neon-purple/5 border border-neon-purple/20 flex items-center justify-between">
+            <div className="mt-6 p-4 rounded-xl bg-neon-purple/5 border border-neon-purple/20 flex items-center justify-between flex-wrap gap-4">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-lg bg-neon-purple/20 flex items-center justify-center">
                   <Zap className="w-5 h-5 text-neon-purple" strokeWidth={2.5} />
@@ -397,7 +397,7 @@ export default function RiskManagementPage() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.2 }}
-            className="glass rounded-2xl border border-glow-border p-6"
+            className="glass rounded-2xl border border-glow-border p-4 md:p-6"
           >
             <h2 className="text-lg font-semibold text-white mb-6 flex items-center gap-2">
               <Bell className="w-5 h-5 text-neon-cyan" strokeWidth={2.5} />

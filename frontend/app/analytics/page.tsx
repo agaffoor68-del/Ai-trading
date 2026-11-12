@@ -86,25 +86,25 @@ export default function AnalyticsPage() {
   return (
     <div className="min-h-screen bg-true-black text-white">
       <Sidebar />
-      <div className="ml-64 min-h-screen flex flex-col">
+      <div className="w-full lg:ml-64 min-h-screen flex flex-col">
         <Header />
 
-        <main className="flex-1 p-6 md:p-8 lg:p-10 pt-20 lg:pt-24 space-y-8 max-w-7xl mx-auto w-full">
+        <main className="flex-1 p-4 md:p-8 lg:p-10 pt-20 lg:pt-24 space-y-8 max-w-7xl mx-auto w-full">
           {/* Page Header */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5 }}
-            className="flex items-center justify-between"
+            className="flex items-center justify-between flex-wrap gap-4"
           >
             <div className="flex items-center gap-3">
               <BarChart2 className="w-8 h-8 text-neon-purple drop-shadow-[0_0_10px_rgba(168,85,247,0.6)]" strokeWidth={2.5} />
               <div>
-                <h1 className="text-3xl font-bold text-white tracking-tight">Performance Analytics</h1>
+                <h1 className="text-2xl md:text-3xl font-bold text-white tracking-tight">Performance Analytics</h1>
                 <p className="text-text-secondary">Deep dive into strategy performance and risk metrics</p>
               </div>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
               <motion.button
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
@@ -141,7 +141,7 @@ export default function AnalyticsPage() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1 }}
-            className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4"
+            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4"
           >
             <KPICard label="Total PnL" value={formatPnL(totalPnL)} icon={DollarSign} color={totalPnL >= 0 ? "text-neon-green" : "text-neon-red"} fontBold />
             <KPICard label="Total Trades" value={totalTrades} icon={Activity} color="text-neon-cyan" />
@@ -158,7 +158,7 @@ export default function AnalyticsPage() {
             className="grid grid-cols-1 lg:grid-cols-2 gap-6"
           >
             {/* Daily PnL Chart */}
-            <motion.div className="glass rounded-2xl border border-glow-border p-6 h-96">
+            <motion.div className="glass rounded-2xl border border-glow-border p-4 md:p-6 h-96">
               <div className="flex items-center justify-between mb-6">
                 <h3 className="text-lg font-semibold text-white flex items-center gap-2">
                   <Activity className="w-5 h-5 text-neon-cyan" strokeWidth={2.5} />
@@ -193,7 +193,7 @@ export default function AnalyticsPage() {
             </motion.div>
 
             {/* Win Rate Donut + Strategy Allocation */}
-            <motion.div className="glass rounded-2xl border border-glow-border p-6 h-96 overflow-y-auto">
+            <motion.div className="glass rounded-2xl border border-glow-border p-4 md:p-6 h-96 overflow-y-auto">
               <h3 className="text-lg font-semibold text-white mb-6 flex items-center gap-2">
                 <PieChart className="w-5 h-5 text-neon-purple" strokeWidth={2.5} />
                 Win Rate Distribution
@@ -266,7 +266,7 @@ export default function AnalyticsPage() {
             transition={{ delay: 0.3 }}
             className="glass rounded-2xl border border-glow-border overflow-hidden"
           >
-            <div className="px-6 py-4 border-b border-glow-border bg-card-bg/50 flex items-center justify-between">
+            <div className="px-4 md:px-6 py-4 border-b border-glow-border bg-card-bg/50 flex items-center justify-between flex-wrap gap-4">
               <h2 className="text-lg font-semibold text-white flex items-center gap-2">
                 <Target className="w-5 h-5 text-neon-cyan" strokeWidth={2.5} />
                 Strategy Performance Breakdown
@@ -277,17 +277,17 @@ export default function AnalyticsPage() {
             </div>
 
             <div className="overflow-x-auto">
-              <table className="w-full border-collapse" role="grid">
+              <table className="min-w-[800px] w-full border-collapse" role="grid">
                 <thead>
                   <tr className="border-b border-glow-border bg-card-bg/50 text-text-muted text-xs font-medium uppercase tracking-wider">
-                    <th className="px-5 py-4 text-left">Strategy</th>
-                    <th className="px-5 py-4 text-center">Total PnL</th>
-                    <th className="px-5 py-4 text-center">Win Rate</th>
-                    <th className="px-5 py-4 text-center">Total Trades</th>
-                    <th className="px-5 py-4 text-center">Sharpe Ratio</th>
-                    <th className="px-5 py-4 text-center">Max Drawdown</th>
-                    <th className="px-5 py-4 text-center">Avg PnL/Trade</th>
-                    <th className="px-5 py-4 text-center">Status</th>
+                    <th className="px-3 md:px-5 py-3 md:py-4 text-left">Strategy</th>
+                    <th className="px-3 md:px-5 py-3 md:py-4 text-center">Total PnL</th>
+                    <th className="px-3 md:px-5 py-3 md:py-4 text-center">Win Rate</th>
+                    <th className="px-3 md:px-5 py-3 md:py-4 text-center">Total Trades</th>
+                    <th className="px-3 md:px-5 py-3 md:py-4 text-center">Sharpe Ratio</th>
+                    <th className="px-3 md:px-5 py-3 md:py-4 text-center">Max Drawdown</th>
+                    <th className="px-3 md:px-5 py-3 md:py-4 text-center">Avg PnL/Trade</th>
+                    <th className="px-3 md:px-5 py-3 md:py-4 text-center">Status</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -303,7 +303,7 @@ export default function AnalyticsPage() {
                         className={`border-b border-glow-border/50 hover:bg-card-bg/30 transition-colors ${selectedStrategy === strategy.id ? "bg-neon-purple/5" : ""}`}
                         onClick={() => setSelectedStrategy(selectedStrategy === strategy.id ? null : strategy.id)}
                       >
-                        <td className="px-5 py-4">
+                        <td className="px-3 md:px-5 py-3 md:py-4">
                           <div className="flex items-center gap-3">
                             <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${isPositive ? "bg-neon-green/20" : "bg-neon-red/20"}`}>
                               <Zap className={`w-4 h-4 ${isPositive ? "text-neon-green" : "text-neon-red"}`} strokeWidth={2.5} />
@@ -314,23 +314,23 @@ export default function AnalyticsPage() {
                             </div>
                           </div>
                         </td>
-                        <td className={`px-5 py-4 text-center font-mono font-bold ${isPositive ? "text-neon-green" : "text-neon-red"}`}>
+                        <td className={`px-3 md:px-5 py-3 md:py-4 text-center font-mono font-bold ${isPositive ? "text-neon-green" : "text-neon-red"}`}>
                           {formatPnL(strategy.totalPnL)}
                         </td>
-                        <td className={`px-5 py-4 text-center font-mono ${strategy.winRate >= 55 ? "text-neon-green" : strategy.winRate >= 50 ? "text-neon-orange" : "text-neon-red"}`}>
+                        <td className={`px-3 md:px-5 py-3 md:py-4 text-center font-mono ${strategy.winRate >= 55 ? "text-neon-green" : strategy.winRate >= 50 ? "text-neon-orange" : "text-neon-red"}`}>
                           {strategy.winRate}%
                         </td>
-                        <td className="px-5 py-4 text-center font-mono text-text-secondary">{strategy.totalTrades}</td>
-                        <td className={`px-5 py-4 text-center font-mono ${strategy.sharpeRatio >= 1.5 ? "text-neon-green" : strategy.sharpeRatio >= 1 ? "text-neon-orange" : "text-neon-red"}`}>
+                        <td className="px-3 md:px-5 py-3 md:py-4 text-center font-mono text-text-secondary">{strategy.totalTrades}</td>
+                        <td className={`px-3 md:px-5 py-3 md:py-4 text-center font-mono ${strategy.sharpeRatio >= 1.5 ? "text-neon-green" : strategy.sharpeRatio >= 1 ? "text-neon-orange" : "text-neon-red"}`}>
                           {strategy.sharpeRatio.toFixed(2)}
                         </td>
-                        <td className={`px-5 py-4 text-center font-mono ${strategy.maxDrawdown <= 10 ? "text-neon-green" : strategy.maxDrawdown <= 15 ? "text-neon-orange" : "text-neon-red"}`}>
+                        <td className={`px-3 md:px-5 py-3 md:py-4 text-center font-mono ${strategy.maxDrawdown <= 10 ? "text-neon-green" : strategy.maxDrawdown <= 15 ? "text-neon-orange" : "text-neon-red"}`}>
                           {strategy.maxDrawdown}%
                         </td>
-                        <td className={`px-5 py-4 text-center font-mono ${avgPnL >= 0 ? "text-neon-green" : "text-neon-red"}`}>
+                        <td className={`px-3 md:px-5 py-3 md:py-4 text-center font-mono ${avgPnL >= 0 ? "text-neon-green" : "text-neon-red"}`}>
                           {formatCurrency(avgPnL)}
                         </td>
-                        <td className="px-5 py-4 text-center">
+                        <td className="px-3 md:px-5 py-3 md:py-4 text-center">
                           <span className={`px-3 py-1 rounded-full text-xs font-medium ${strategy.totalPnL >= 0 && strategy.winRate >= 55 ? "bg-neon-green/20 text-neon-green border border-neon-green/30" : strategy.totalPnL < 0 ? "bg-neon-red/20 text-neon-red border border-neon-red/30" : "bg-neon-orange/20 text-neon-orange border border-neon-orange/30"}`}>
                             {strategy.totalPnL >= 0 && strategy.winRate >= 55 ? "Profitable" : strategy.totalPnL < 0 ? "Loss" : "Review"}
                           </span>
@@ -348,7 +348,7 @@ export default function AnalyticsPage() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.4 }}
-            className="grid grid-cols-1 md:grid-cols-3 gap-6"
+            className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6"
           >
             <RiskCard
               title="Risk Metrics"

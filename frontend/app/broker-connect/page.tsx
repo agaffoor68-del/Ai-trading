@@ -115,17 +115,17 @@ export default function BrokerConnectPage() {
   return (
     <div className="min-h-screen bg-true-black text-white">
       <Sidebar />
-      <div className="ml-64 min-h-screen flex flex-col">
+      <div className="w-full lg:ml-64 min-h-screen flex flex-col">
         <Header />
 
-        <main className="flex-1 p-6 md:p-8 lg:p-10 pt-20 lg:pt-24 space-y-8 max-w-4xl mx-auto w-full">
+        <main className="flex-1 p-4 md:p-8 lg:p-10 pt-20 lg:pt-24 space-y-8 max-w-4xl mx-auto w-full">
           {/* Page Header */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5 }}
           >
-            <h1 className="text-3xl font-bold text-white tracking-tight flex items-center gap-3">
+            <h1 className="text-2xl md:text-3xl font-bold text-white tracking-tight flex items-center gap-3">
               <Link className="w-8 h-8 text-neon-cyan" strokeWidth={2.5} />
               Broker Connect
             </h1>
@@ -156,23 +156,23 @@ export default function BrokerConnectPage() {
           )}
 
           {/* Broker Cards Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
             {/* Fyers Card */}
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5, delay: 0.1 }}
-              className="glass rounded-2xl border border-glow-border p-6 relative overflow-hidden group"
+              className="glass rounded-2xl border border-glow-border p-4 md:p-6 relative overflow-hidden group"
             >
               <div className="absolute -top-10 -right-10 w-40 h-40 rounded-full bg-neon-cyan/10 blur-3xl" />
 
-              <div className="relative z-10 flex items-start justify-between mb-6">
+              <div className="relative z-10 flex items-start justify-between mb-6 flex-wrap gap-4">
                 <div className="flex items-center gap-4">
-                  <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-neon-cyan to-neon-purple flex items-center justify-center shadow-glow-cyan">
-                    <Database className="w-7 h-7 text-true-black" strokeWidth={2.5} />
+                  <div className="w-12 h-12 md:w-14 md:h-14 rounded-xl bg-gradient-to-br from-neon-cyan to-neon-purple flex items-center justify-center shadow-glow-cyan">
+                    <Database className="w-6 h-6 md:w-7 md:h-7 text-true-black" strokeWidth={2.5} />
                   </div>
                   <div>
-                    <h2 className="text-xl font-bold text-white">Fyers API v3</h2>
+                    <h2 className="text-lg md:text-xl font-bold text-white">Fyers API v3</h2>
                     <p className="text-sm text-text-muted">Market Data Provider</p>
                   </div>
                 </div>
@@ -257,17 +257,17 @@ export default function BrokerConnectPage() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5, delay: 0.2 }}
-              className="glass rounded-2xl border border-glow-border p-6 relative overflow-hidden group"
+              className="glass rounded-2xl border border-glow-border p-4 md:p-6 relative overflow-hidden group"
             >
               <div className="absolute -top-10 -right-10 w-40 h-40 rounded-full bg-neon-orange/10 blur-3xl" />
 
-              <div className="relative z-10 flex items-start justify-between mb-6">
+              <div className="relative z-10 flex items-start justify-between mb-6 flex-wrap gap-4">
                 <div className="flex items-center gap-4">
-                  <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-neon-orange to-neon-red flex items-center justify-center shadow-glow-orange">
-                    <Zap className="w-7 h-7 text-true-black" strokeWidth={2.5} />
+                  <div className="w-12 h-12 md:w-14 md:h-14 rounded-xl bg-gradient-to-br from-neon-orange to-neon-red flex items-center justify-center shadow-glow-orange">
+                    <Zap className="w-6 h-6 md:w-7 md:h-7 text-true-black" strokeWidth={2.5} />
                   </div>
                   <div>
-                    <h2 className="text-xl font-bold text-white">Kotak Neo</h2>
+                    <h2 className="text-lg md:text-xl font-bold text-white">Kotak Neo</h2>
                     <p className="text-sm text-text-muted">Order Execution Broker</p>
                   </div>
                 </div>
@@ -353,7 +353,7 @@ export default function BrokerConnectPage() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, delay: 0.3 }}
-            className="glass rounded-2xl border border-neon-purple/30 bg-neon-purple/5 p-6"
+            className="glass rounded-2xl border border-neon-purple/30 bg-neon-purple/5 p-4 md:p-6"
           >
             <div className="flex items-start gap-4">
               <div className="w-10 h-10 rounded-xl bg-neon-purple/20 flex items-center justify-center flex-shrink-0">

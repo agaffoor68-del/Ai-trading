@@ -127,21 +127,21 @@ export default function SettingsPage() {
   return (
     <div className="min-h-screen bg-true-black text-white">
       <Sidebar />
-      <div className="ml-64 min-h-screen flex flex-col">
+      <div className="w-full lg:ml-64 min-h-screen flex flex-col">
         <Header />
 
-        <main className="flex-1 p-6 md:p-8 lg:p-10 pt-20 lg:pt-24 space-y-8 max-w-5xl mx-auto w-full">
+        <main className="flex-1 p-4 md:p-8 lg:p-10 pt-20 lg:pt-24 space-y-8 max-w-5xl mx-auto w-full">
           {/* Page Header */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5 }}
-            className="flex items-center justify-between"
+            className="flex items-center justify-between flex-wrap gap-4"
           >
             <div className="flex items-center gap-3">
               <Settings className="w-8 h-8 text-neon-purple drop-shadow-[0_0_10px_rgba(168,85,247,0.6)]" strokeWidth={2.5} />
               <div>
-                <h1 className="text-3xl font-bold text-white tracking-tight">Platform Settings</h1>
+                <h1 className="text-2xl md:text-3xl font-bold text-white tracking-tight">Platform Settings</h1>
                 <p className="text-text-secondary">Configure your trading platform preferences</p>
               </div>
             </div>
@@ -185,14 +185,14 @@ export default function SettingsPage() {
             className="glass rounded-2xl border border-glow-border overflow-hidden"
           >
             {/* Tab Navigation */}
-            <div className="flex border-b border-glow-border bg-card-bg/30">
+            <div className="flex border-b border-glow-border bg-card-bg/30 overflow-x-auto">
               {tabs.map((tab) => (
                 <motion.button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
                   whileHover={{ backgroundColor: "rgba(255,255,255,0.03)" }}
                   whileTap={{ scale: 0.98 }}
-                  className={`flex items-center gap-2 px-6 py-4 text-sm font-medium transition-colors relative ${
+                  className={`flex items-center gap-2 px-6 py-4 text-sm font-medium transition-colors relative whitespace-nowrap ${
                     activeTab === tab.id
                       ? "text-white border-b-2 border-neon-cyan"
                       : "text-text-muted hover:text-white"
@@ -212,7 +212,7 @@ export default function SettingsPage() {
             </div>
 
             {/* Tab Content */}
-            <div className="p-6">
+            <div className="p-4 md:p-6">
               {/* General Tab */}
               {activeTab === "general" && <GeneralSettingsTab />}
               {/* API Keys Tab */}

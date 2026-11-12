@@ -139,14 +139,14 @@ export default function OptionChainPage() {
   return (
     <div className="min-h-screen bg-true-black text-white">
       <Sidebar />
-      <div className="ml-64 min-h-screen flex flex-col">
+      <div className="w-full lg:ml-64 min-h-screen flex flex-col">
         <Header />
 
-        <main className="flex-1 p-6 md:p-8 lg:p-10 pt-20 lg:pt-24 space-y-6">
+        <main className="flex-1 p-4 md:p-8 lg:p-10 pt-20 lg:pt-24 space-y-6">
           {/* Page Header */}
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between flex-wrap gap-4">
             <div>
-              <h1 className="text-3xl font-bold text-white tracking-tight flex items-center gap-3">
+              <h1 className="text-2xl md:text-3xl font-bold text-white tracking-tight flex items-center gap-3">
                 <DollarSign className="w-8 h-8 text-neon-cyan" strokeWidth={2.5} />
                 Option Chain
               </h1>
@@ -224,7 +224,7 @@ export default function OptionChainPage() {
 
           {/* Status Bar */}
           <div className="flex items-center justify-between flex-wrap gap-4">
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-4 flex-wrap">
               {error && (
                 <motion.span className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-neon-red/10 border border-neon-red/30 text-neon-red text-sm glass">
                   <AlertCircle className="w-4 h-4" strokeWidth={2.5} />
@@ -288,7 +288,7 @@ export default function OptionChainPage() {
           {/* Option Chain Table */}
           <div className="flex-1 glass rounded-2xl border border-glow-border overflow-hidden">
             <div className="overflow-x-auto">
-              <table className="w-full border-collapse" role="grid">
+              <table className="min-w-[1000px] w-full border-collapse" role="grid">
                 <thead>
                   <tr className="border-b border-glow-border bg-card-bg sticky top-0 z-10 text-text-muted text-[10px] font-medium uppercase tracking-wider">
                     {/* Call side */}

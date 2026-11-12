@@ -77,20 +77,20 @@ export default function PositionsPage() {
   return (
     <div className="min-h-screen bg-true-black text-white">
       <Sidebar />
-      <div className="ml-64 min-h-screen flex flex-col">
+      <div className="w-full lg:ml-64 min-h-screen flex flex-col">
         <Header />
 
-        <main className="flex-1 p-6 md:p-8 lg:p-10 pt-20 lg:pt-24 space-y-6">
+        <main className="flex-1 p-4 md:p-8 lg:p-10 pt-20 lg:pt-24 space-y-6">
           {/* Page Header */}
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between flex-wrap gap-4">
             <div className="flex items-center gap-3">
               <Briefcase className="w-8 h-8 text-neon-cyan drop-shadow-[0_0_10px_rgba(0,240,255,0.6)]" strokeWidth={2.5} />
               <div>
-                <h1 className="text-3xl font-bold text-white tracking-tight">Positions</h1>
+                <h1 className="text-2xl md:text-3xl font-bold text-white tracking-tight">Positions</h1>
                 <p className="text-text-secondary">Real-time position tracking with PnL</p>
               </div>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
               <motion.button
                 onClick={handleSquareOffAll}
                 disabled={positions.length === 0 || isLoading}
@@ -164,18 +164,18 @@ export default function PositionsPage() {
               </div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full border-collapse" role="grid">
+                <table className="min-w-[800px] w-full border-collapse" role="grid">
                   <thead>
                     <tr className="border-b border-glow-border bg-card-bg/50 text-text-muted text-xs font-medium uppercase tracking-wider">
-                      <th className="px-5 py-4 text-left">Symbol</th>
-                      <th className="px-5 py-4 text-center">Type</th>
-                      <th className="px-5 py-4 text-right">Qty</th>
-                      <th className="px-5 py-4 text-right">Entry Price</th>
-                      <th className="px-5 py-4 text-right">Current Price</th>
-                      <th className="px-5 py-4 text-right">PnL</th>
-                      <th className="px-5 py-4 text-right">PnL %</th>
-                      <th className="px-5 py-4 text-center">Status</th>
-                      <th className="px-5 py-4 text-center">Action</th>
+                      <th className="px-3 md:px-5 py-3 md:py-4 text-left">Symbol</th>
+                      <th className="px-3 md:px-5 py-3 md:py-4 text-center">Type</th>
+                      <th className="px-3 md:px-5 py-3 md:py-4 text-right">Qty</th>
+                      <th className="px-3 md:px-5 py-3 md:py-4 text-right">Entry Price</th>
+                      <th className="px-3 md:px-5 py-3 md:py-4 text-right">Current Price</th>
+                      <th className="px-3 md:px-5 py-3 md:py-4 text-right">PnL</th>
+                      <th className="px-3 md:px-5 py-3 md:py-4 text-right">PnL %</th>
+                      <th className="px-3 md:px-5 py-3 md:py-4 text-center">Status</th>
+                      <th className="px-3 md:px-5 py-3 md:py-4 text-center">Action</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -189,7 +189,7 @@ export default function PositionsPage() {
                           transition={{ delay: index * 0.03 }}
                           className="border-b border-glow-border/50 hover:bg-card-bg/30 transition-colors"
                         >
-                          <td className="px-5 py-4">
+                          <td className="px-3 md:px-5 py-3 md:py-4">
                             <div className="flex items-center gap-3">
                               <span className="font-mono font-semibold text-white text-base">{position.symbol}</span>
                               <span className={`text-[10px] px-2 py-0.5 rounded font-medium ${position.side === "LONG" ? "bg-neon-green/20 text-neon-green" : "bg-neon-red/20 text-neon-red"}`}>
@@ -197,26 +197,26 @@ export default function PositionsPage() {
                               </span>
                             </div>
                           </td>
-                          <td className="px-5 py-4 text-center">
+                          <td className="px-3 md:px-5 py-3 md:py-4 text-center">
                             <span className={`text-sm font-mono ${position.symbol.includes("CE") || position.symbol.includes("CALL") ? "text-neon-green" : "text-neon-red"}`}>
                               {position.symbol.includes("PE") || position.symbol.includes("PUT") ? "PE" : "CE"}
                             </span>
                           </td>
-                          <td className="px-5 py-4 text-right font-mono text-white">{position.quantity.toLocaleString()}</td>
-                          <td className="px-5 py-4 text-right font-mono text-text-secondary">₹{position.avgPrice.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
-                          <td className="px-5 py-4 text-right font-mono text-neon-cyan">₹{position.ltp.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
-                          <td className={`px-5 py-4 text-right font-mono font-medium ${isPositive ? "text-neon-green" : "text-neon-red"}`}>
+                          <td className="px-3 md:px-5 py-3 md:py-4 text-right font-mono text-white">{position.quantity.toLocaleString()}</td>
+                          <td className="px-3 md:px-5 py-3 md:py-4 text-right font-mono text-text-secondary">₹{position.avgPrice.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                          <td className="px-3 md:px-5 py-3 md:py-4 text-right font-mono text-neon-cyan">₹{position.ltp.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                          <td className={`px-3 md:px-5 py-3 md:py-4 text-right font-mono font-medium ${isPositive ? "text-neon-green" : "text-neon-red"}`}>
                             {formatPnL(position.pnl)}
                           </td>
-                          <td className={`px-5 py-4 text-right font-mono font-medium ${isPositive ? "text-neon-green" : "text-neon-red"}`}>
+                          <td className={`px-3 md:px-5 py-3 md:py-4 text-right font-mono font-medium ${isPositive ? "text-neon-green" : "text-neon-red"}`}>
                             {formatPnLPercent(position.pnlPercent)}
                           </td>
-                          <td className="px-5 py-4 text-center">
+                          <td className="px-3 md:px-5 py-3 md:py-4 text-center">
                             <span className="px-3 py-1 rounded-full text-xs font-medium bg-neon-green/20 text-neon-green border border-neon-green/30">
                               Open
                             </span>
                           </td>
-                          <td className="px-5 py-4 text-center">
+                          <td className="px-3 md:px-5 py-3 md:py-4 text-center">
                             <motion.button
                               onClick={() => handleClosePosition(position)}
                               disabled={isLoading}
@@ -239,9 +239,9 @@ export default function PositionsPage() {
 
           {/* Summary Footer */}
           {positions.length > 0 && (
-            <div className="glass rounded-2xl border border-glow-border p-6">
+            <div className="glass rounded-2xl border border-glow-border p-4 md:p-6">
               <h3 className="font-semibold text-white mb-4">Portfolio Summary</h3>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
                 <div className="text-center">
                   <p className="text-xs text-text-muted uppercase tracking-wider">Total Positions</p>
                   <p className="text-2xl font-bold text-white mt-1">{positions.length}</p>

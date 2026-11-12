@@ -17,17 +17,17 @@ export function DashboardLayout() {
       <Sidebar />
       
       {/* Main Content */}
-      <div className="ml-64 min-h-screen flex flex-col">
+      <div className="w-full lg:ml-64 min-h-screen flex flex-col">
         {/* Header */}
         <Header />
         
         {/* Page Content */}
-        <main className="flex-1 p-6 md:p-8 lg:p-10 pt-20 lg:pt-24 space-y-6">
+        <main className="flex-1 p-4 md:p-8 lg:p-10 pt-20 lg:pt-24 space-y-6">
           {/* Hero Banner */}
           <HeroBanner />
           
           {/* Row 2: 3 Column Grid */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
             {/* Column 1: Market Watch */}
             <div className="lg:col-span-1">
               <MarketWatch />

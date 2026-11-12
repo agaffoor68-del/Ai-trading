@@ -121,16 +121,16 @@ export default function AISignalsPage() {
   return (
     <div className="min-h-screen bg-true-black text-white">
       <Sidebar />
-      <div className="ml-64 min-h-screen flex flex-col">
+      <div className="w-full lg:ml-64 min-h-screen flex flex-col">
         <Header />
 
-        <main className="flex-1 p-6 md:p-8 lg:p-10 pt-20 lg:pt-24 space-y-8 max-w-4xl mx-auto w-full">
+        <main className="flex-1 p-4 md:p-8 lg:p-10 pt-20 lg:pt-24 space-y-8 max-w-4xl mx-auto w-full">
           {/* Page Header */}
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between flex-wrap gap-4">
             <div className="flex items-center gap-3">
               <Brain className="w-9 h-9 text-neon-cyan drop-shadow-[0_0_10px_rgba(0,240,255,0.6)]" strokeWidth={2.5} />
               <div>
-                <h1 className="text-3xl font-bold text-white tracking-tight">Grok AI Radar</h1>
+                <h1 className="text-2xl md:text-3xl font-bold text-white tracking-tight">Grok AI Radar</h1>
                 <p className="text-text-secondary">AI-powered trading signals with confidence scoring and reasoning</p>
               </div>
             </div>
@@ -152,7 +152,7 @@ export default function AISignalsPage() {
 
           {/* Status Bar */}
           <div className="flex items-center justify-between flex-wrap gap-4">
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-4 flex-wrap">
               {error && (
                 <motion.span className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-neon-red/10 border border-neon-red/30 text-neon-red text-sm glass">
                   <AlertCircle className="w-4 h-4" strokeWidth={2.5} />
@@ -180,7 +180,7 @@ export default function AISignalsPage() {
           </div>
 
           {/* Signal Cards Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
             {signals.map((signal, index) => {
               const actionColor = getActionColor(signal.action);
               return (
@@ -189,7 +189,7 @@ export default function AISignalsPage() {
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: index * 0.05 }}
-                  className="glass rounded-2xl border border-glow-border p-5 hover:border-neon-cyan/40 transition-all duration-300 group relative overflow-hidden"
+                  className="glass rounded-2xl border border-glow-border p-4 md:p-5 hover:border-neon-cyan/40 transition-all duration-300 group relative overflow-hidden"
                 >
                   {signal.confidence >= 80 && (
                     <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-neon-cyan to-transparent opacity-30 group-hover:opacity-60" />
@@ -272,7 +272,7 @@ export default function AISignalsPage() {
           </div>
 
           {/* News & Sentiment Panel */}
-          <div className="glass rounded-2xl border border-glow-border p-6">
+          <div className="glass rounded-2xl border border-glow-border p-4 md:p-6">
             <div className="flex items-center justify-between mb-6">
               <div className="flex items-center gap-2">
                 <Newspaper className="w-5 h-5 text-neon-cyan" strokeWidth={2.5} />

@@ -178,21 +178,21 @@ export default function StrategiesPage() {
   return (
     <div className="min-h-screen bg-true-black text-white">
       <Sidebar />
-      <div className="ml-64 min-h-screen flex flex-col">
+      <div className="w-full lg:ml-64 min-h-screen flex flex-col">
         <Header />
 
-        <main className="flex-1 p-6 md:p-8 lg:p-10 pt-20 lg:pt-24 space-y-8 max-w-7xl mx-auto w-full">
+        <main className="flex-1 p-4 md:p-8 lg:p-10 pt-20 lg:pt-24 space-y-8 max-w-7xl mx-auto w-full">
           {/* Page Header */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5 }}
-            className="flex items-center justify-between"
+            className="flex items-center justify-between flex-wrap gap-4"
           >
             <div className="flex items-center gap-3">
               <GitBranch className="w-8 h-8 text-neon-purple drop-shadow-[0_0_10px_rgba(168,85,247,0.6)]" strokeWidth={2.5} />
               <div>
-                <h1 className="text-3xl font-bold text-white tracking-tight">Strategy Builder</h1>
+                <h1 className="text-2xl md:text-3xl font-bold text-white tracking-tight">Strategy Builder</h1>
                 <p className="text-text-secondary">Create and manage algorithmic trading strategies</p>
               </div>
             </div>
@@ -418,23 +418,23 @@ export default function StrategiesPage() {
             transition={{ delay: 0.2 }}
             className="glass rounded-2xl border border-glow-border overflow-hidden"
           >
-            <div className="px-6 py-4 border-b border-glow-border bg-card-bg/50 flex items-center justify-between">
+            <div className="px-4 md:px-6 py-4 border-b border-glow-border bg-card-bg/50 flex items-center justify-between flex-wrap gap-4">
               <h2 className="text-lg font-semibold text-white">Strategy Library</h2>
               <span className="text-xs px-2 py-0.5 rounded bg-neon-purple/20 text-neon-purple font-medium">{strategies.length} strategies</span>
             </div>
 
             <div className="overflow-x-auto">
-              <table className="w-full border-collapse" role="grid">
+              <table className="min-w-[800px] w-full border-collapse" role="grid">
                 <thead>
                   <tr className="border-b border-glow-border bg-card-bg/50 text-text-muted text-xs font-medium uppercase tracking-wider">
-                    <th className="px-5 py-4 text-left">Name</th>
-                    <th className="px-5 py-4 text-left">Description</th>
-                    <th className="px-5 py-4 text-center">Conditions</th>
-                    <th className="px-5 py-4 text-center">Timeframe</th>
-                    <th className="px-5 py-4 text-center">SL / TP</th>
-                    <th className="px-5 py-4 text-center">Status</th>
-                    <th className="px-5 py-4 text-center">Created</th>
-                    <th className="px-5 py-4 text-center">Actions</th>
+                    <th className="px-3 md:px-5 py-3 md:py-4 text-left">Name</th>
+                    <th className="px-3 md:px-5 py-3 md:py-4 text-left">Description</th>
+                    <th className="px-3 md:px-5 py-3 md:py-4 text-center">Conditions</th>
+                    <th className="px-3 md:px-5 py-3 md:py-4 text-center">Timeframe</th>
+                    <th className="px-3 md:px-5 py-3 md:py-4 text-center">SL / TP</th>
+                    <th className="px-3 md:px-5 py-3 md:py-4 text-center">Status</th>
+                    <th className="px-3 md:px-5 py-3 md:py-4 text-center">Created</th>
+                    <th className="px-3 md:px-5 py-3 md:py-4 text-center">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -446,7 +446,7 @@ export default function StrategiesPage() {
                       transition={{ delay: index * 0.03 }}
                       className="border-b border-glow-border/50 hover:bg-card-bg/30 transition-colors"
                     >
-                      <td className="px-5 py-4">
+                      <td className="px-3 md:px-5 py-3 md:py-4">
                         <div className="flex items-center gap-3">
                           <div className="w-8 h-8 rounded-lg bg-neon-purple/20 flex items-center justify-center">
                             <Zap className="w-4 h-4 text-neon-purple" strokeWidth={2.5} />
@@ -457,22 +457,22 @@ export default function StrategiesPage() {
                           </div>
                         </div>
                       </td>
-                      <td className="px-5 py-4 text-text-secondary text-sm max-w-xs truncate">{strategy.description}</td>
-                      <td className="px-5 py-4 text-center text-sm font-mono text-text-muted">{strategy.conditions.length}</td>
-                      <td className="px-5 py-4 text-center font-mono text-white">{strategy.timeframe}</td>
-                      <td className="px-5 py-4 text-center">
+                      <td className="px-3 md:px-5 py-3 md:py-4 text-text-secondary text-sm max-w-xs truncate">{strategy.description}</td>
+                      <td className="px-3 md:px-5 py-3 md:py-4 text-center text-sm font-mono text-text-muted">{strategy.conditions.length}</td>
+                      <td className="px-3 md:px-5 py-3 md:py-4 text-center font-mono text-white">{strategy.timeframe}</td>
+                      <td className="px-3 md:px-5 py-3 md:py-4 text-center">
                         <div className="flex items-center justify-center gap-2">
                           <span className="text-[10px] px-2 py-0.5 rounded bg-neon-red/20 text-neon-red font-mono">SL {strategy.stopLoss}%</span>
                           <span className="text-[10px] px-2 py-0.5 rounded bg-neon-green/20 text-neon-green font-mono">TP {strategy.target}%</span>
                         </div>
                       </td>
-                      <td className="px-5 py-4 text-center">
+                      <td className="px-3 md:px-5 py-3 md:py-4 text-center">
                         <span className={`px-3 py-1 rounded-full text-xs font-medium ${strategy.isActive ? "bg-neon-green/20 text-neon-green border border-neon-green/30" : "bg-neon-red/20 text-neon-red border border-neon-red/30"}`}>
                           {strategy.isActive ? "Active" : "Inactive"}
                         </span>
                       </td>
-                      <td className="px-5 py-4 text-center font-mono text-text-secondary">{strategy.createdAt}</td>
-                      <td className="px-5 py-4 text-center">
+                      <td className="px-3 md:px-5 py-3 md:py-4 text-center font-mono text-text-secondary">{strategy.createdAt}</td>
+                      <td className="px-3 md:px-5 py-3 md:py-4 text-center">
                         <div className="flex items-center justify-center gap-1">
                           <motion.button
                             onClick={() => handleEdit(strategy)}
