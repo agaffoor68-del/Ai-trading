@@ -22,7 +22,6 @@ import {
   Lock,
   Unlock,
   RefreshCw,
-  Mail,
   Layers,
   Target,
 } from "lucide-react";
