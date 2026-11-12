@@ -14,6 +14,7 @@ import {
   Shield,
   Newspaper,
   ChevronRight,
+  Play,
 } from "lucide-react";
 import { Sidebar } from "@/components/Sidebar";
 import { Header } from "@/components/Header";
