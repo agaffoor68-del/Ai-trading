@@ -81,21 +81,23 @@ async def fyers_callback(request: Request):
     """
     try:
         # Fyers sends query params, not form data
-        code = request.query_params.get("code")
+        # Fyers sends: ?s=ok&code=200&auth_code=eyJhbGci...
+        # We need to extract auth_code, not code
+        auth_code = request.query_params.get("auth_code")
         state = request.query_params.get("state")
         
-        logger.info(f"Fyers callback received - code: {'present' if code else 'missing'}, state: {'present' if state else 'missing'}")
-
-        if not code:
-            logger.error("Fyers callback: authorization code missing")
-            # Auto-redirect to login if code is missing
+        logger.info(f"Fyers callback received - auth_code: {'present' if auth_code else 'missing'}, state: {'present' if state else 'missing'}")
+        
+        if not auth_code:
+            logger.error("Fyers callback: auth_code missing")
+            # Auto-redirect to login if auth_code is missing
             return RedirectResponse(url="/api/v1/fyers/login")
 
         if not state:
             logger.error("Fyers callback: state parameter missing")
             # Auto-redirect to login if state is missing
             return RedirectResponse(url="/api/v1/fyers/login")
-
+        
         # Exchange authorization code for access token
         # Use exact redirect_uri from Fyers Dashboard
         redirect_uri = "https://ai-trading-9qoa.onrender.com/api/v1/fyers/callback"
@@ -113,12 +115,12 @@ async def fyers_callback(request: Request):
         token_payload = {
             "grant_type": "authorization_code",
             "appIdHash": app_id_hash,
-            "code": code,
+            "code": auth_code,  # Use auth_code instead of code
         }
         
         logger.info(f"Sending token exchange to Fyers: {settings.FYERS_API_BASE}/v3/validate-authcode")
-        logger.info(f"Payload: grant_type=authorization_code, appIdHash={app_id_hash[:20]}..., code={code[:10]}...")
-
+        logger.info(f"Payload: grant_type=authorization_code, appIdHash={app_id_hash[:20]}..., code={auth_code[:10]}...")
+        
         async with aiohttp.ClientSession() as session:
             async with session.post(
                 f"{settings.FYERS_API_BASE}/v3/validate-authcode",
