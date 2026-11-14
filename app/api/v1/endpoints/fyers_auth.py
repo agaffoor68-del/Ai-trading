@@ -10,7 +10,7 @@ import os
 import traceback
 import hashlib
 import aiohttp
-from fastapi import APIRouter, Request, Response
+from fastapi import APIRouter, Request, Response, HTTPException
 from fastapi.responses import RedirectResponse
 
 from app.core.config import settings
@@ -143,8 +143,8 @@ async def fyers_callback(request: Request):
         try:
             from fyers_apiv3 import fyersModel
         except ImportError:
-            logger.error("fyers_apiv3 SDK not installed")
-            return Response(content="Fyers SDK not available", status_code=500)
+            logger.error("fyers_apiv3 SDK not installed. Please add 'fyers-apiv3' to requirements.txt")
+            raise HTTPException(status_code=500, detail="Fyers SDK missing")
         
         # Create session using official SDK
         session = fyersModel.SessionModel(

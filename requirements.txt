@@ -30,3 +30,5 @@ bcrypt==4.0.1
 python-jose[cryptography]==3.5.0
 python-multipart==0.0.33
 email-validator==2.1.0.post1
+# Fyers API v3 Official SDK
+fyers-apiv3==3.2.1
