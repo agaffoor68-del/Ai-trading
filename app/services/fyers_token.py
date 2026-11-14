@@ -8,10 +8,12 @@ import json
 import logging
 import os
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
+IST = ZoneInfo("Asia/Kolkata")
 
 # Token storage file path
 TOKEN_FILE = Path("/workspace/projects/Ai-trading/var/fyers_token.json")
@@ -63,28 +65,63 @@ def get_fyers_token() -> Optional[str]:
         Access token string if valid, None if missing/expired
     """
     try:
-        if not TOKEN_FILE.exists():
-            logger.warning("Fyers token file does not exist")
-            return None
+        # First try file
+        if TOKEN_FILE.exists():
+            with open(TOKEN_FILE, "r") as f:
+                token_data = json.load(f)
+            
+            access_token = token_data.get("access_token", "")
+            if access_token:
+                # Check expiry - Fyers tokens expire daily at 6:30 AM IST
+                expires_at_str = token_data.get("expires_at")
+                if expires_at_str:
+                    expires_at = datetime.fromisoformat(expires_at_str)
+                    now = datetime.now(IST)
+                    
+                    # Check if token was issued before today's 6:30 AM
+                    today_630 = datetime.combine(now.date(), time(6, 30, tzinfo=IST))
+                    if now >= today_630 and expires_at < today_630:
+                        logger.warning("Fyers access token expired at 6:30 AM IST today")
+                        # Don't return None yet, try database
+                    elif datetime.now(IST) >= expires_at:
+                        logger.warning("Fyers access token has expired")
+                        # Don't return None yet, try database
+                    else:
+                        logger.info(f"Fyers token loaded from {TOKEN_FILE} (valid)")
+                        return access_token
+                else:
+                    # No expiry info, assume valid
+                    logger.info(f"Fyers token loaded from {TOKEN_FILE} (no expiry info)")
+                    return access_token
         
-        with open(TOKEN_FILE, "r") as f:
-            token_data = json.load(f)
+        # Fallback to database
+        logger.info("Trying database for Fyers token")
+        from app.api.v1.endpoints.fyers_auth import get_fyers_token_from_db
+        db_token = get_fyers_token_from_db()
+        if db_token:
+            access_token = db_token.get("access_token", "")
+            if access_token:
+                # Check expiry using created_at + expires_in
+                created_at_str = db_token.get("created_at")
+                expires_in = db_token.get("expires_in", 86400)
+                if created_at_str:
+                    created_at = datetime.fromisoformat(created_at_str)
+                    expires_at = created_at + timedelta(seconds=expires_in)
+                    now = datetime.now(IST)
+                    
+                    today_630 = datetime.combine(now.date(), time(6, 30, tzinfo=IST))
+                    if now >= today_630 and expires_at < today_630:
+                        logger.warning("Fyers database token expired at 6:30 AM IST today")
+                        return None
+                    elif now >= expires_at:
+                        logger.warning("Fyers database token has expired")
+                        return None
+                
+                logger.info("Fyers token loaded from database (valid)")
+                return access_token
         
-        access_token = token_data.get("access_token", "")
-        if not access_token:
-            logger.warning("Fyers token file exists but access_token is empty")
-            return None
-        
-        # Check expiry
-        expires_at_str = token_data.get("expires_at")
-        if expires_at_str:
-            expires_at = datetime.fromisoformat(expires_at_str)
-            if datetime.now() >= expires_at:
-                logger.warning("Fyers access token has expired")
-                return None
-        
-        logger.info(f"Fyers token loaded from {TOKEN_FILE} (valid)")
-        return access_token
+        logger.warning("Fyers token not found in file or database")
+        return None
         
     except Exception as e:
         logger.error(f"Failed to load Fyers token: {e}")
@@ -104,29 +141,66 @@ def clear_fyers_token() -> bool:
 def get_fyers_token_status() -> dict:
     """Get token status for debugging."""
     try:
-        if not TOKEN_FILE.exists():
-            return {"exists": False, "valid": False, "message": "Token file not found"}
+        # First try file
+        if TOKEN_FILE.exists():
+            with open(TOKEN_FILE, "r") as f:
+                token_data = json.load(f)
+            
+            access_token = token_data.get("access_token", "")
+            expires_at_str = token_data.get("expires_at")
+            
+            if access_token:
+                # Check expiry - Fyers tokens expire daily at 6:30 AM IST
+                if expires_at_str:
+                    expires_at = datetime.fromisoformat(expires_at_str)
+                    now = datetime.now(IST)
+                    
+                    # Check if token was issued before today's 6:30 AM
+                    today_630 = datetime.combine(now.date(), time(6, 30, tzinfo=IST))
+                    if now >= today_630 and expires_at < today_630:
+                        return {"exists": True, "valid": False, "message": "Token expired at 6:30 AM IST today", "expires_at": expires_at_str, "source": "file"}
+                    
+                    # Also check the actual expiry time
+                    if now >= expires_at:
+                        return {"exists": True, "valid": False, "message": "Token expired", "expires_at": expires_at_str, "source": "file"}
+                
+                return {
+                    "exists": True, 
+                    "valid": True, 
+                    "message": "Token valid", 
+                    "expires_at": expires_at_str,
+                    "token_preview": access_token[:10] + "..." if len(access_token) > 10 else access_token,
+                    "source": "file"
+                }
         
-        with open(TOKEN_FILE, "r") as f:
-            token_data = json.load(f)
+        # Fallback to database
+        from app.api.v1.endpoints.fyers_auth import get_fyers_token_from_db
+        db_token = get_fyers_token_from_db()
+        if db_token:
+            access_token = db_token.get("access_token", "")
+            if access_token:
+                created_at_str = db_token.get("created_at")
+                expires_in = db_token.get("expires_in", 86400)
+                if created_at_str:
+                    created_at = datetime.fromisoformat(created_at_str)
+                    expires_at = created_at + timedelta(seconds=expires_in)
+                    now = datetime.now(IST)
+                    
+                    today_630 = datetime.combine(now.date(), time(6, 30, tzinfo=IST))
+                    if now >= today_630 and expires_at < today_630:
+                        return {"exists": True, "valid": False, "message": "Token expired at 6:30 AM IST today", "expires_at": expires_at.isoformat(), "source": "database"}
+                    elif now >= expires_at:
+                        return {"exists": True, "valid": False, "message": "Token expired", "expires_at": expires_at.isoformat(), "source": "database"}
+                
+                return {
+                    "exists": True,
+                    "valid": True,
+                    "message": "Token valid",
+                    "expires_at": expires_at.isoformat() if created_at_str else None,
+                    "token_preview": access_token[:10] + "..." if len(access_token) > 10 else access_token,
+                    "source": "database"
+                }
         
-        access_token = token_data.get("access_token", "")
-        expires_at_str = token_data.get("expires_at")
-        
-        if not access_token:
-            return {"exists": True, "valid": False, "message": "Token file exists but empty"}
-        
-        if expires_at_str:
-            expires_at = datetime.fromisoformat(expires_at_str)
-            if datetime.now() >= expires_at:
-                return {"exists": True, "valid": False, "message": "Token expired", "expires_at": expires_at_str}
-        
-        return {
-            "exists": True, 
-            "valid": True, 
-            "message": "Token valid", 
-            "expires_at": expires_at_str,
-            "token_preview": access_token[:10] + "..." if len(access_token) > 10 else access_token
-        }
+        return {"exists": False, "valid": False, "message": "Token not found in file or database"}
     except Exception as e:
         return {"exists": True, "valid": False, "message": f"Error reading token: {e}"}

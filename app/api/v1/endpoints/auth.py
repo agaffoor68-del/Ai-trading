@@ -5,11 +5,12 @@ Login and user registration endpoints.
 """
 
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta, time
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
+from zoneinfo import ZoneInfo
 
 from app.core.auth import (
     authenticate_user,
@@ -25,6 +26,7 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["auth"])
+IST = ZoneInfo("Asia/Kolkata")
 
 
 class BrokerStatusResponse(BaseModel):
@@ -36,10 +38,26 @@ class BrokerStatusResponse(BaseModel):
 async def get_broker_status():
     """
     Get connection status for both Fyers and Kotak brokers.
+    
+    Fyers tokens expire daily at 6:30 AM IST.
     """
-    # Check Fyers token status
+    # Check Fyers token status with 6:30 AM expiry check
     fyers_status = get_fyers_token_status()
     fyers_connected = fyers_status.get("valid", False)
+    
+    # Additional check: Fyers tokens expire at 6:30 AM IST daily
+    if fyers_connected and fyers_status.get("expires_at"):
+        try:
+            expires_at = datetime.fromisoformat(fyers_status["expires_at"])
+            now = datetime.now(IST)
+            
+            # Check if token was issued before today's 6:30 AM
+            today_630 = datetime.combine(now.date(), time(6, 30, tzinfo=IST))
+            if now >= today_630 and expires_at < today_630:
+                fyers_connected = False
+                logger.warning("Fyers token expired at 6:30 AM IST today")
+        except Exception as e:
+            logger.warning(f"Could not parse token expiry: {e}")
     
     # Check Kotak session status
     # For now, check if Kotak credentials are configured

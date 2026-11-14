@@ -224,9 +224,13 @@ async def fyers_callback(request: Request):
         if not saved:
             logger.error("Failed to save Fyers token to database")
         
+        # Also save to file for fyers_token.py utility
+        from app.services.fyers_token import save_fyers_token
+        save_fyers_token(access_token, expires_in, refresh_token)
+        
         # Also update in-memory settings for immediate use
         settings.FYERS_ACCESS_TOKEN = access_token
-        logger.info(f"Fyers access token saved to database and settings (length: {len(access_token)})")
+        logger.info(f"Fyers access token saved to database, file, and settings (length: {len(access_token)})")
         
         logger.info(f"Fyers OAuth2 successful for client: {settings.FYERS_CLIENT_ID[:4]}***")
         return {
