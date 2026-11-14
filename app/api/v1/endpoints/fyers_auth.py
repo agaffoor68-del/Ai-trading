@@ -147,18 +147,15 @@ async def fyers_callback(request: Request):
             raise HTTPException(status_code=500, detail="Fyers SDK missing")
         
         # Generate correct appIdHash per Fyers spec:
-        # appIdHash = SHA-256(client_id + ":" + secret_key)
-        # Ensure client_id has -100 suffix and both values are stripped
+        # appIdHash = SHA-256(app_id + ":" + app_secret) - EXACT match required
         app_id = settings.FYERS_CLIENT_ID.strip()
         secret = settings.FYERS_CLIENT_SECRET.strip()
-        if not app_id.endswith("-100"):
-            app_id = app_id + "-100"
         app_id_hash = hashlib.sha256(f"{app_id}:{secret}".encode()).hexdigest()
-        logger.info(f"Generated appIdHash: {app_id_hash[:20]}... for app_id: {app_id[:4]}***")
+        logger.info(f"Generated appIdHash: {app_id_hash} for app_id: {app_id}")
         
         # Create session using official SDK with correct appIdHash
         session = fyersModel.SessionModel(
-            client_id=app_id,  # Use app_id with -100 suffix
+            client_id=app_id,
             secret_key=secret,
             redirect_uri=settings.FYERS_REDIRECT_URI,
             response_type="code",
