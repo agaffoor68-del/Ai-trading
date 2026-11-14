@@ -7,7 +7,7 @@ PostgreSQL only - no SQLite.
 
 from datetime import datetime
 from enum import Enum as PyEnum
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Boolean, Enum
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Boolean, Enum, Text
 from sqlalchemy.orm import relationship
 from app.core.database import Base
 from zoneinfo import ZoneInfo
@@ -60,3 +60,17 @@ class Subscription(Base):
 
     def __repr__(self):
         return f"<Subscription(id={self.id}, user_id={self.user_id}, plan={self.plan_type})>"
+
+
+class FyersToken(Base):
+    __tablename__ = "fyers_tokens"
+
+    id = Column(Integer, primary_key=True, index=True)
+    access_token = Column(Text, nullable=False)
+    refresh_token = Column(Text, nullable=True)
+    expires_in = Column(Integer, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(IST), nullable=False)
+    updated_at = Column(DateTime, default=lambda: datetime.now(IST), onupdate=lambda: datetime.now(IST), nullable=False)
+
+    def __repr__(self):
+        return f"<FyersToken(id={self.id}, expires_in={self.expires_in})>"

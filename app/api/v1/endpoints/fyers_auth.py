@@ -14,7 +14,8 @@ from fastapi import APIRouter, Request, Response
 from fastapi.responses import RedirectResponse
 
 from app.core.config import settings
-from app.services.fyers_token import save_fyers_token, get_fyers_token
+from app.core.database import SessionLocal
+from app.core.models import FyersToken
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,46 @@ router = APIRouter(tags=["fyers-auth"])
 def generate_app_id_hash(client_id: str, client_secret: str) -> str:
     """Generate SHA-256 hash of 'client_id:client_secret' for Fyers appIdHash."""
     return hashlib.sha256(f"{client_id}:{client_secret}".encode()).hexdigest()
+
+
+def save_fyers_token_to_db(access_token: str, expires_in: int, refresh_token: str = "") -> bool:
+    """Save Fyers access token to PostgreSQL database for persistence across restarts."""
+    try:
+        db = SessionLocal()
+        # Delete old tokens
+        db.query(FyersToken).delete()
+        # Create new token record
+        token_record = FyersToken(
+            access_token=access_token,
+            refresh_token=refresh_token,
+            expires_in=expires_in
+        )
+        db.add(token_record)
+        db.commit()
+        db.close()
+        return True
+    except Exception as e:
+        logger.error(f"Failed to save Fyers token to database: {str(e)}")
+        return False
+
+
+def get_fyers_token_from_db() -> dict:
+    """Get the latest Fyers token from database."""
+    try:
+        db = SessionLocal()
+        token = db.query(FyersToken).order_by(FyersToken.created_at.desc()).first()
+        db.close()
+        if token:
+            return {
+                "access_token": token.access_token,
+                "refresh_token": token.refresh_token,
+                "expires_in": token.expires_in,
+                "created_at": token.created_at.isoformat() if token.created_at else None
+            }
+        return {}
+    except Exception as e:
+        logger.error(f"Failed to get Fyers token from database: {str(e)}")
+        return {}
 
 
 @router.get("/login")
@@ -75,7 +116,7 @@ async def fyers_login():
 @router.get("/callback")
 async def fyers_callback(request: Request):
     """
-    Handle Fyers OAuth2 callback.
+    Handle Fyers OAuth2 callback using official fyers_apiv3 SDK.
     Exchanges authorization code for access token.
     Route: /api/v1/fyers/callback (matches Fyers Dashboard redirect URL)
     """
@@ -98,110 +139,110 @@ async def fyers_callback(request: Request):
             # Auto-redirect to login if state is missing
             return RedirectResponse(url="/api/v1/fyers/login")
         
-        # Exchange authorization code for access token
-        # Use exact redirect_uri from Fyers Dashboard
-        redirect_uri = "https://ai-trading-9qoa.onrender.com/api/v1/fyers/callback"
+        # Use official fyers_apiv3 SDK for token exchange
+        try:
+            from fyers_apiv3 import fyersModel
+        except ImportError:
+            logger.error("fyers_apiv3 SDK not installed")
+            return Response(content="Fyers SDK not available", status_code=500)
         
-        # Generate appIdHash as per Fyers v3 API spec
-        app_id = settings.FYERS_CLIENT_ID
-        app_secret = settings.FYERS_CLIENT_SECRET
-        app_id_hash = generate_app_id_hash(app_id, app_secret)
+        # Create session using official SDK
+        session = fyersModel.SessionModel(
+            client_id=settings.FYERS_CLIENT_ID,
+            secret_key=settings.FYERS_CLIENT_SECRET,
+            redirect_uri=settings.FYERS_REDIRECT_URI,
+            response_type="code",
+            grant_type="authorization_code"
+        )
         
-        logger.info(f"Fyers Client ID (full): {app_id}")
-        logger.info(f"Fyers Client ID suffix: {app_id[-4:] if len(app_id) > 4 else 'N/A'}")
-        logger.info(f"Generated appIdHash: {app_id_hash}")
-        logger.info(f"appIdHash (first 20): {app_id_hash[:20]}...")
+        # Set the auth_code received from Fyers
+        session.set_token(auth_code)
         
-        token_payload = {
-            "grant_type": "authorization_code",
-            "appIdHash": app_id_hash,
-            "code": auth_code,  # Use auth_code instead of code
-        }
+        # Generate token using official SDK (handles appIdHash internally)
+        response = session.generate_token()
         
-        logger.info(f"Sending token exchange to Fyers: {settings.FYERS_API_BASE}/v3/validate-authcode")
-        logger.info(f"Payload: grant_type=authorization_code, appIdHash={app_id_hash[:20]}..., code={auth_code[:10]}...")
+        logger.info(f"Fyers token response: {response}")
         
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                f"{settings.FYERS_API_BASE}/v3/validate-authcode",
-                json=token_payload,
-                timeout=aiohttp.ClientTimeout(total=30),
-            ) as resp:
-                token_response = await resp.json()
-                status = resp.status
-                raw_response = await resp.text()
-
-        logger.info(f"Raw Fyers response: {raw_response}")
-
-        if status != 200:
-            logger.error(f"Fyers token exchange failed: {token_response}")
-            # Log the exact Fyers error code and message for debugging
-            fyers_error_code = token_response.get("code")
-            fyers_error_message = token_response.get("message", "Unknown error")
-            logger.error(f"Fyers API error - Code: {fyers_error_code}, Message: {fyers_error_message}")
+        # Check for errors in response
+        if isinstance(response, dict) and response.get("code") != 200:
+            fyers_error_code = response.get("code")
+            fyers_error_message = response.get("message", "Unknown error")
+            logger.error(f"Fyers token exchange failed - Code: {fyers_error_code}, Message: {fyers_error_message}")
             
-            # Check for specific -437 error: invalid auth code (single-use, expires quickly)
+            # Handle specific error codes
             if fyers_error_code == -437:
-                html_content = """<!DOCTYPE html>
+                return _fyers_error_page(
+                    "Session Expired",
+                    "Auth code expired or already used. Please generate a new login link and try again immediately.",
+                    "⚠️"
+                )
+            elif fyers_error_code == -16:
+                return _fyers_error_page(
+                    "Invalid Configuration",
+                    "App ID hash is invalid. Please check your Fyers Client ID and Secret.",
+                    "❌"
+                )
+            else:
+                return _fyers_error_page(
+                    "Login Failed",
+                    f"Error: {fyers_error_message} (Code: {fyers_error_code})",
+                    "❌"
+                )
+        
+        # Extract access token from response
+        access_token = None
+        if isinstance(response, dict):
+            # Handle different response formats from SDK
+            if "access_token" in response:
+                access_token = response["access_token"]
+            elif "data" in response and isinstance(response["data"], dict):
+                access_token = response["data"].get("access_token")
+        
+        if not access_token:
+            logger.error(f"Fyers token response: no access_token returned. Response: {response}")
+            return _fyers_error_page(
+                "Login Failed",
+                "No access token in Fyers response. Please try again.",
+                "❌"
+            )
+        
+        refresh_token = response.get("refresh_token", "") if isinstance(response, dict) else ""
+        expires_in = response.get("expires_in", 86400) if isinstance(response, dict) else 86400
+        
+        # Save token to PostgreSQL database for persistence across restarts
+        saved = save_fyers_token_to_db(access_token, expires_in, refresh_token)
+        if not saved:
+            logger.error("Failed to save Fyers token to database")
+        
+        # Also update in-memory settings for immediate use
+        settings.FYERS_ACCESS_TOKEN = access_token
+        logger.info(f"Fyers access token saved to database and settings (length: {len(access_token)})")
+        
+        logger.info(f"Fyers OAuth2 successful for client: {settings.FYERS_CLIENT_ID[:4]}***")
+        return {
+            "status": "success",
+            "access_token": access_token,
+            "expires_in": expires_in,
+            "token_type": response.get("token_type", "Bearer") if isinstance(response, dict) else "Bearer",
+            "message": "Access token saved. Fyers API is now authenticated.",
+        }
+    
+    except aiohttp.ClientError as e:
+        logger.error(f"Fyers callback network error: {str(e)}")
+        logger.error(traceback.format_exc())
+        return Response(content="Network error while contacting Fyers API", status_code=502)
+    except Exception as e:
+        logger.error(f"Fyers callback unexpected error: {str(e)}")
+        logger.error(traceback.format_exc())
+        return Response(content="Internal server error in Fyers callback", status_code=500)
+
+
+def _fyers_error_page(title: str, message: str, icon: str) -> Response:
+    """Generate a user-friendly HTML error page with auto-redirect."""
+    html_content = f"""<!DOCTYPE html>
 <html>
 <head>
-    <title>Fyers Login - Session Expired</title>
-    <style>
-        body { font-family: Arial, sans-serif; text-align: center; padding: 50px; background: #0a0a0a; color: #fff; }
-        .error-box { background: #1a1a1a; border: 1px solid #ff6b35; color: #fff; padding: 30px; border-radius: 12px; max-width: 500px; margin: 0 auto; box-shadow: 0 0 20px rgba(255, 107, 53, 0.2); }
-        .button { display: inline-block; margin-top: 20px; padding: 12px 24px; background: linear-gradient(135deg, #ff6b35, #f7931a); color: #000; text-decoration: none; border-radius: 8px; font-weight: 600; }
-    </style>
-    <script>
-        // Auto-redirect after 5 seconds
-        setTimeout(() => {
-            window.location.href = '/api/v1/fyers/login';
-        }, 5000);
-    </script>
-</head>
-<body>
-    <div class="error-box">
-        <h2>⚠️ Session Expired</h2>
-        <p>Auth code expired or already used. Please generate a new login link and try again immediately.</p>
-        <p style="font-size: 0.9em; color: #888; margin-top: 10px;">Redirecting automatically in 5 seconds...</p>
-        <a href="/api/v1/fyers/login" class="button">Generate New Login Link</a>
-    </div>
-</body>
-</html>"""
-                return Response(content=html_content, status_code=400, media_type="text/html")
-            
-            # Check for -16 error: invalid appIdHash
-            if fyers_error_code == -16:
-                html_content = """<!DOCTYPE html>
-<html>
-<head>
-    <title>Fyers Login - Invalid Configuration</title>
-    <style>
-        body { font-family: Arial, sans-serif; text-align: center; padding: 50px; background: #0a0a0a; color: #fff; }
-        .error-box { background: #1a1a1a; border: 1px solid #dc3545; color: #fff; padding: 30px; border-radius: 12px; max-width: 500px; margin: 0 auto; box-shadow: 0 0 20px rgba(220, 53, 69, 0.2); }
-        .button { display: inline-block; margin-top: 20px; padding: 12px 24px; background: #dc3545; color: #fff; text-decoration: none; border-radius: 8px; font-weight: 600; }
-    </style>
-    <script>
-        setTimeout(() => {
-            window.location.href = '/api/v1/fyers/login';
-        }, 5000);
-    </script>
-</head>
-<body>
-    <div class="error-box">
-        <h2>❌ Invalid Configuration</h2>
-        <p>App ID hash is invalid. Please check your Fyers Client ID and Secret.</p>
-        <p style="font-size: 0.9em; color: #888; margin-top: 10px;">Redirecting automatically in 5 seconds...</p>
-        <a href="/api/v1/fyers/login" class="button">Try Again</a>
-    </div>
-</body>
-</html>"""
-                return Response(content=html_content, status_code=400, media_type="text/html")
-            
-            # For any other error, show generic error page with auto-redirect
-            html_content = f"""<!DOCTYPE html>
-<html>
-<head>
-    <title>Fyers Login - Error</title>
+    <title>Fyers Login - {title}</title>
     <style>
         body {{ font-family: Arial, sans-serif; text-align: center; padding: 50px; background: #0a0a0a; color: #fff; }}
         .error-box {{ background: #1a1a1a; border: 1px solid #ff6b35; color: #fff; padding: 30px; border-radius: 12px; max-width: 500px; margin: 0 auto; box-shadow: 0 0 20px rgba(255, 107, 53, 0.2); }}
@@ -215,60 +256,25 @@ async def fyers_callback(request: Request):
 </head>
 <body>
     <div class="error-box">
-        <h2>❌ Login Failed</h2>
-        <p>Error: {fyers_error_message} (Code: {fyers_error_code})</p>
+        <h2>{icon} {title}</h2>
+        <p>{message}</p>
         <p style="font-size: 0.9em; color: #888; margin-top: 10px;">Redirecting automatically in 5 seconds...</p>
         <a href="/api/v1/fyers/login" class="button">Try Again</a>
     </div>
 </body>
 </html>"""
-            return Response(content=html_content, status_code=400, media_type="text/html")
-
-        access_token = token_response.get("access_token")
-        refresh_token = token_response.get("refresh_token", "")
-        expires_in = token_response.get("expires_in", 86400)
-        
-        if not access_token:
-            logger.error("Fyers token response: no access_token returned")
-            return Response(content="No access token in Fyers response", status_code=400)
-
-        # Save token to persistent storage (JSON file)
-        saved = save_fyers_token(access_token, expires_in, refresh_token)
-        if not saved:
-            logger.error("Failed to save Fyers token to storage")
-        
-        # Also update in-memory settings for immediate use
-        settings.FYERS_ACCESS_TOKEN = access_token
-        logger.info(f"Fyers access token saved to storage and settings (length: {len(access_token)})")
-
-        logger.info(f"Fyers OAuth2 successful for client: {settings.FYERS_CLIENT_ID[:4]}***")
-        return {
-            "status": "success",
-            "access_token": access_token,
-            "expires_in": expires_in,
-            "token_type": token_response.get("token_type", "Bearer"),
-            "message": "Access token saved. Fyers API is now authenticated.",
-        }
-
-    except aiohttp.ClientError as e:
-        logger.error(f"Fyers callback network error: {str(e)}")
-        logger.error(traceback.format_exc())
-        return Response(content="Network error while contacting Fyers API", status_code=502)
-    except Exception as e:
-        logger.error(f"Fyers callback unexpected error: {str(e)}")
-        logger.error(traceback.format_exc())
-        return Response(content="Internal server error in Fyers callback", status_code=500)
+    return Response(content=html_content, status_code=400, media_type="text/html")
 
 
 @router.get("/token-status")
 async def fyers_token_status():
     """
-    Check current Fyers token status.
+    Check current Fyers token status from database.
     """
-    from app.services.fyers_token import get_fyers_token_status
-    
-    status = get_fyers_token_status()
-    return status
+    status = get_fyers_token_from_db()
+    if status:
+        return {"status": "success", "data": status}
+    return {"status": "error", "message": "No token found"}
 
 
 @router.post("/logout")
@@ -276,11 +282,13 @@ async def fyers_logout():
     """
     Clear Fyers token (logout).
     """
-    from app.services.fyers_token import clear_fyers_token
-    
-    cleared = clear_fyers_token()
-    if cleared:
+    try:
+        db = SessionLocal()
+        db.query(FyersToken).delete()
+        db.commit()
+        db.close()
         settings.FYERS_ACCESS_TOKEN = ""
         return {"status": "success", "message": "Fyers token cleared"}
-    
-    return {"status": "error", "message": "Failed to clear token"}
+    except Exception as e:
+        logger.error(f"Failed to clear Fyers token: {str(e)}")
+        return {"status": "error", "message": "Failed to clear token"}
