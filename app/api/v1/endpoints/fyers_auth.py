@@ -146,14 +146,27 @@ async def fyers_callback(request: Request):
             logger.error("fyers_apiv3 SDK not installed. Please add 'fyers-apiv3' to requirements.txt")
             raise HTTPException(status_code=500, detail="Fyers SDK missing")
         
-        # Create session using official SDK
+        # Generate correct appIdHash per Fyers spec:
+        # appIdHash = SHA-256(client_id + ":" + secret_key)
+        # Ensure client_id has -100 suffix and both values are stripped
+        app_id = settings.FYERS_CLIENT_ID.strip()
+        secret = settings.FYERS_CLIENT_SECRET.strip()
+        if not app_id.endswith("-100"):
+            app_id = app_id + "-100"
+        app_id_hash = hashlib.sha256(f"{app_id}:{secret}".encode()).hexdigest()
+        logger.info(f"Generated appIdHash: {app_id_hash[:20]}... for app_id: {app_id[:4]}***")
+        
+        # Create session using official SDK with correct appIdHash
         session = fyersModel.SessionModel(
-            client_id=settings.FYERS_CLIENT_ID,
-            secret_key=settings.FYERS_CLIENT_SECRET,
+            client_id=app_id,  # Use app_id with -100 suffix
+            secret_key=secret,
             redirect_uri=settings.FYERS_REDIRECT_URI,
             response_type="code",
             grant_type="authorization_code"
         )
+        
+        # Set the appIdHash manually (SDK may not generate it correctly)
+        session.appIdHash = app_id_hash
         
         # Set the auth_code received from Fyers
         session.set_token(auth_code)
