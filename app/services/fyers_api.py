@@ -19,6 +19,39 @@ IST = ZoneInfo("Asia/Kolkata")
 FYERS_API_BASE = "https://api.fyers.in/api/v3"
 FYERS_DATA_BASE = "https://api-t1.fyers.in/data"
 
+# Common display names -> exact Fyers tickers
+SYMBOL_ALIASES = {
+    "NIFTY": "NSE:NIFTY50-INDEX",
+    "NIFTY50": "NSE:NIFTY50-INDEX",
+    "NIFTY 50": "NSE:NIFTY50-INDEX",
+    "BANKNIFTY": "NSE:NIFTYBANK-INDEX",
+    "BANK NIFTY": "NSE:NIFTYBANK-INDEX",
+    "NIFTY BANK": "NSE:NIFTYBANK-INDEX",
+    "NIFTYBANK": "NSE:NIFTYBANK-INDEX",
+    "FINNIFTY": "NSE:FINNIFTY-INDEX",
+    "MIDCPNIFTY": "NSE:MIDCPNIFTY-INDEX",
+    "SENSEX": "BSE:SENSEX-INDEX",
+    "BANKEX": "BSE:BANKEX-INDEX",
+    "RELIANCE": "NSE:RELIANCE-EQ",
+    "TCS": "NSE:TCS-EQ",
+    "HDFC BANK": "NSE:HDFCBANK-EQ",
+    "HDFCBANK": "NSE:HDFCBANK-EQ",
+    "SBIN": "NSE:SBIN-EQ",
+    "INFY": "NSE:INFY-EQ",
+}
+
+
+def normalize_symbol(symbol: str) -> str:
+    """Map a display name (e.g. 'NIFTY 50') to a Fyers ticker. Exchange-prefixed symbols pass through."""
+    s = (symbol or "").strip()
+    if ":" in s:
+        return s
+    key = " ".join(s.upper().split())
+    if key in SYMBOL_ALIASES:
+        return SYMBOL_ALIASES[key]
+    # Unknown bare name: assume NSE equity
+    return f"NSE:{key.replace(' ', '')}-EQ" if key else s
+
 
 class FyersAPIClient:
     """
@@ -66,6 +99,7 @@ class FyersAPIClient:
         if not auth_header:
             return {"error": "Fyers not authenticated. Please login via /api/v1/fyers/login", "status": 401}
 
+        symbol = normalize_symbol(symbol)
         session = await self._get_session()
         params = {
             "symbol": symbol,
@@ -113,8 +147,8 @@ class FyersAPIClient:
         session = await self._get_session()
         
         # Fyers quotes endpoint expects symbols as comma-separated string
-        symbols_param = ",".join(symbols)
-        url = f"{FYERS_API_BASE}/quotes"
+        symbols_param = ",".join(normalize_symbol(x) for x in symbols)
+        url = f"{FYERS_DATA_BASE}/quotes"
         params = {"symbols": symbols_param}
         
         try:

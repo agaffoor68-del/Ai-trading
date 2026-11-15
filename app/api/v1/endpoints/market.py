@@ -43,7 +43,7 @@ INDEX_KEYWORDS = ["NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "SENSEX", "BAN
 # Exact match symbols for main indices (symbol_ticker format from Fyers)
 EXACT_INDEX_SYMBOLS = {
     "NIFTY": "NSE:NIFTY50-INDEX",
-    "BANKNIFTY": "NSE:BANKNIFTY-INDEX",
+    "BANKNIFTY": "NSE:NIFTYBANK-INDEX",
     "FINNIFTY": "NSE:FINNIFTY-INDEX",
     "MIDCPNIFTY": "NSE:MIDCPNIFTY-INDEX",
     "SENSEX": "BSE:SENSEX-INDEX",
@@ -358,10 +358,8 @@ async def get_candles(
             detail=f"Unsupported interval '{interval}'. Use one of: {', '.join(INTERVAL_TO_RESOLUTION)}",
         )
 
-    symbol = symbol.strip()
-    if ":" not in symbol:
-        # Accept shorthand like NIFTY/BANKNIFTY
-        symbol = EXACT_INDEX_SYMBOLS.get(symbol.upper(), symbol)
+    from app.services.fyers_api import normalize_symbol
+    symbol = normalize_symbol(symbol)
 
     now = int(datetime.now(IST).timestamp())
     result = await fyers_api_client.get_history(symbol, resolution, now - days * 86400, now)
@@ -461,7 +459,7 @@ async def get_option_chain(
         # Map symbol to index ticker
         index_symbol_map = {
             "NIFTY": "NSE:NIFTY50-INDEX",
-            "BANKNIFTY": "NSE:BANKNIFTY-INDEX",
+            "BANKNIFTY": "NSE:NIFTYBANK-INDEX",
             "FINNIFTY": "NSE:FINNIFTY-INDEX",
             "MIDCPNIFTY": "NSE:MIDCPNIFTY-INDEX",
         }
@@ -660,7 +658,7 @@ async def get_ai_signals(
         # Map to index tickers
         index_symbol_map = {
             "NIFTY": "NSE:NIFTY50-INDEX",
-            "BANKNIFTY": "NSE:BANKNIFTY-INDEX",
+            "BANKNIFTY": "NSE:NIFTYBANK-INDEX",
             "FINNIFTY": "NSE:FINNIFTY-INDEX",
             "MIDCPNIFTY": "NSE:MIDCPNIFTY-INDEX",
         }
