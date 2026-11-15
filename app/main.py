@@ -31,8 +31,9 @@ from app.api.v1.endpoints.auth import router as auth_router
 from app.api.v1.endpoints.admin import router as admin_router
 from app.services.symbol_master import SymbolMasterDownloader
 from app.services.redis_ws import redis_tick_store
-from app.services.fyers_websocket import FyersWebSocket
+from app.services.fyers_websocket import get_fyers_ws_manager, start_fyers_websocket, stop_fyers_websocket, get_fyers_ws_status
 from app.services.fyers_token import get_fyers_token
+from app.core.symbol_map import to_fyers
 
 import aiohttp
 
@@ -73,6 +74,7 @@ app.include_router(admin_router, prefix="/api/v1/admin", tags=["admin"])
 
 
 @app.get("/", tags=["root"])
+@app.head("/", tags=["root"])
 async def root():
     return {
         "message": "Autonomous Options Trading Platform - Phase 2",
@@ -89,6 +91,7 @@ async def root():
 
 
 @app.get("/health", tags=["root"])
+@app.head("/health", tags=["root"])
 async def health_check():
     try:
         db = SessionLocal()
@@ -105,8 +108,8 @@ async def health_check():
         return {"status": "unhealthy", "database": "disconnected"}, 500
 
 
-# Global Fyers WebSocket instance
-fyers_ws: FyersWebSocket | None = None
+# Global Fyers WebSocket manager (replaces old fyers_ws)
+fyers_ws_manager = None
 symbol_sync_task: asyncio.Task | None = None
 
 
@@ -129,7 +132,7 @@ def _should_sync_symbols() -> bool:
 
 
 async def sync_symbols_and_start_websocket():
-    global fyers_ws
+    global fyers_ws_manager
 
     try:
         # Skip if already loaded today
@@ -152,6 +155,12 @@ async def sync_symbols_and_start_websocket():
             logger.warning("No Fyers token - WebSocket not started. Will start after login.")
             return
 
+        # Get client_id from settings
+        client_id = settings.FYERS_CLIENT_ID
+        if not client_id:
+            logger.warning("FYERS_CLIENT_ID not configured - WebSocket not started")
+            return
+
         db = SessionLocal()
         try:
             symbols = db.query(Instrument.symbol).filter(
@@ -162,28 +171,21 @@ async def sync_symbols_and_start_websocket():
         finally:
             db.close()
 
-        fyers_ws = FyersWebSocket(access_token=token, symbols=symbol_list)
-
-        async def on_tick(tick):
-            if not fyers_ws._sample_tick_logged:
-                logger.info("Fyers sample tick: symbol=%s ltp=%s", tick["symbol"], tick["ltp"])
-                fyers_ws._sample_tick_logged = True
-            await redis_tick_store.write_tick(tick["symbol"], tick)
-
-        fyers_ws.on_tick(on_tick)
-        asyncio.create_task(fyers_ws.connect(), name="fyers-websocket")
-        logger.info("Fyers WebSocket background task started")
+        # Start WebSocket manager with official SDK
+        success = await start_fyers_websocket(client_id, token, symbol_list)
+        if success:
+            logger.info("Fyers WebSocket manager started (official SDK)")
+        else:
+            logger.warning("Fyers WebSocket manager failed to start - check token validity")
+            
     except Exception:
         logger.exception("Fyers WebSocket startup error")
 
 
 @app.get("/api/fyers/ws-status", tags=["market-data"])
+@app.head("/api/fyers/ws-status", tags=["market-data"])
 async def fyers_ws_status():
-    return {
-        "ws_connected": bool(fyers_ws and fyers_ws.is_connected),
-        "last_tick_time": fyers_ws.last_tick_time if fyers_ws else None,
-        "symbols_subscribed": len(fyers_ws.symbols) if fyers_ws else 0,
-    }
+    return get_fyers_ws_status()
 
 
 @app.get("/api/fyers/status", tags=["fyers-auth"])
@@ -348,7 +350,7 @@ async def startup_event():
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    global fyers_ws, symbol_sync_task
+    global fyers_ws_manager, symbol_sync_task
     logger.info(">>> Phase 2 Shutting Down <<<")
 
     if symbol_sync_task and not symbol_sync_task.done():
@@ -358,13 +360,9 @@ async def shutdown_event():
         except asyncio.CancelledError:
             pass
 
-    # Close Fyers WebSocket
-    if fyers_ws:
-        try:
-            await fyers_ws.disconnect()
-            logger.info("Fyers WebSocket disconnected")
-        except Exception as e:
-            logger.error(f"Error disconnecting Fyers WebSocket: {e}")
+    # Close Fyers WebSocket manager
+    await stop_fyers_websocket()
+    logger.info("Fyers WebSocket manager stopped")
     
     # Close Redis connection
     try:
