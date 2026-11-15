@@ -21,7 +21,7 @@ import {
 } from "lucide-react";
 import { Sidebar } from "@/components/Sidebar";
 import { Header } from "@/components/Header";
-import { connectFyers, isFyersNotConnected } from "@/lib/hooks";
+import { api, isFyersNotConnected } from "@/lib/api-client";
 
 interface FyersConnectResponse {
   auth_url: string;
@@ -95,7 +95,7 @@ export default function BrokerConnectPage() {
     setFyersSaving(true);
     setFyersError(null);
     try {
-      const response = await connectFyers(fyersClientId.trim(), fyersSecretKey.trim());
+      const response = await api.connectFyers(fyersClientId.trim(), fyersSecretKey.trim()) as { auth_url: string };
       
       // Redirect to Fyers OAuth
       window.location.href = response.auth_url;

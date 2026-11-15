@@ -2,9 +2,12 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
-import { Wifi, Bell, User, Circle, ChevronDown, Menu, X, Shield, AlertCircle, CheckCircle } from "lucide-react";
+import { Wifi, Bell, User, Circle, ChevronDown, Menu, X, Shield, AlertCircle, CheckCircle, LogOut, Crown, Settings } from "lucide-react";
 import { useFullStatus } from "@/lib/hooks";
+import { useMe } from "@/lib/hooks";
 import { useSidebar } from "./Sidebar";
+import { api } from "@/lib/api-client";
+import { useRouter } from "next/navigation";
 
 interface BrokerStatus {
   label: string;
@@ -16,16 +19,29 @@ interface BrokerStatus {
 export function Header() {
   const { isOpen, toggle } = useSidebar();
   const { status, isLoading, mutate } = useFullStatus();
+  const { user, isLoading: userLoading, mutate: mutateMe } = useMe();
   const { isMarketOpen, isTradingDay, timeToCloseMinutes } = status?.market || { isMarketOpen: false, isTradingDay: false, timeToCloseMinutes: 0 };
   const fyersConnected = status?.fyers?.connected && status?.fyers?.valid;
   const kotakConfigured = status?.kotak?.configured;
   const kotakConnected = status?.kotak?.connected;
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const router = useRouter();
 
   // Auto-refresh every 30 seconds
   useEffect(() => {
     const interval = setInterval(() => mutate(), 30000);
     return () => clearInterval(interval);
   }, [mutate]);
+
+  const handleLogout = async () => {
+    try {
+      await api.logout();
+      mutateMe();
+      router.push("/login");
+    } catch (err) {
+      console.error("Logout failed:", err);
+    }
+  };
 
   return (
     <motion.header
@@ -53,7 +69,9 @@ export function Header() {
         
         <div>
           <h1 className="text-xl md:text-2xl font-bold text-white tracking-tight">Dashboard</h1>
-          <p className="hidden md:block text-xs text-text-muted">Welcome back, Trader</p>
+          <p className="hidden md:block text-xs text-text-muted">
+            {user ? `Welcome back, ${user.email.split("@")[0]}` : "Welcome back, Trader"}
+          </p>
         </div>
       </div>
 
@@ -93,7 +111,7 @@ export function Header() {
             />
             <span className="text-xs font-medium text-white capitalize">Kotak</span>
             <span className={`text-[10px] font-medium ${kotakConnected ? "text-neon-green" : kotakConfigured ? "text-neon-orange" : "text-neon-red"}`}>
-              {kotakConnected ? "Connected" : kotakConfigured ? "Config'd" : "Offline"}
+              {kotakConnected ? "Connected" : kotakConfigured ? "Configured, not logged in" : "Not configured"}
             </span>
           </motion.div>
         </div>
@@ -144,23 +162,78 @@ export function Header() {
           </span>
         </motion.button>
 
-        {/* Profile Avatar */}
+        {/* Profile Avatar with Dropdown */}
         <motion.div
           initial={{ opacity: 0, x: 20 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ delay: 0.6 }}
           className="relative"
         >
-          <button className="flex items-center gap-2 p-1.5 pr-3 rounded-xl bg-card-bg border border-glow-border hover:border-neon-cyan/50 transition-all duration-300 glass">
-            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-neon-purple to-neon-cyan flex items-center justify-center">
-              <span className="text-true-black font-bold text-sm">T</span>
-            </div>
-            <div className="hidden md:block text-left">
-              <p className="text-sm font-medium text-white">Trader</p>
-              <p className="text-[11px] text-text-muted">Pro Plan</p>
-            </div>
-            <ChevronDown className="w-4 h-4 text-text-muted" strokeWidth={2.5} />
-          </button>
+          <div className="relative">
+            <button
+              onClick={() => setShowProfileMenu(!showProfileMenu)}
+              className="flex items-center gap-2 p-1.5 pr-3 rounded-xl bg-card-bg border border-glow-border hover:border-neon-cyan/50 transition-all duration-300 glass"
+            >
+              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-neon-purple to-neon-cyan flex items-center justify-center">
+                {user ? (
+                  <span className="text-true-black font-bold text-sm">
+                    {user.email.charAt(0).toUpperCase()}
+                  </span>
+                ) : (
+                  <span className="text-true-black font-bold text-sm">T</span>
+                )}
+              </div>
+              <div className="hidden md:block text-left">
+                <p className="text-sm font-medium text-white">
+                  {user ? user.email.split("@")[0] : "Trader"}
+                </p>
+                <p className="text-[11px] text-text-muted">
+                  {user?.role === "ADMIN" ? "Admin" : user?.subscription?.plan_type === "Pro" ? "Pro Plan" : "Free Plan"}
+                </p>
+              </div>
+              <ChevronDown className={`w-4 h-4 text-text-muted transition-transform ${showProfileMenu ? "rotate-180" : ""}`} strokeWidth={2.5} />
+            </button>
+
+            {/* Profile Dropdown */}
+            {showProfileMenu && (
+              <motion.div
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.2 }}
+                className="absolute right-0 mt-2 w-56 glass rounded-xl border border-glow-border py-2 shadow-xl z-50"
+              >
+                <div className="px-4 py-3 border-b border-glow-border">
+                  <p className="text-sm font-medium text-white">{user?.email || "Not logged in"}</p>
+                  <p className="text-xs text-text-muted">
+                    {user?.role === "ADMIN" ? (
+                      <span className="flex items-center gap-1 text-neon-purple">
+                        <Crown className="w-3 h-3" strokeWidth={2.5} />
+                        Admin
+                      </span>
+                    ) : (
+                      user?.subscription?.plan_type === "Pro" ? "Pro Plan" : "Free Plan"
+                    )}
+                  </p>
+                </div>
+                
+                <button
+                  onClick={() => { setShowProfileMenu(false); window.location.href = "/settings"; }}
+                  className="w-full flex items-center gap-3 px-4 py-2 text-white hover:bg-card-bg/50 transition-colors"
+                >
+                  <Settings className="w-4 h-4" strokeWidth={2.5} />
+                  Settings
+                </button>
+                
+                <button
+                  onClick={handleLogout}
+                  className="w-full flex items-center gap-3 px-4 py-2 text-neon-red hover:bg-neon-red/10 transition-colors"
+                >
+                  <LogOut className="w-4 h-4" strokeWidth={2.5} />
+                  Logout
+                </button>
+              </motion.div>
+            )}
+          </div>
         </motion.div>
       </div>
     </motion.header>

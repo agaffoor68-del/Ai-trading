@@ -187,6 +187,10 @@ class Settings(BaseSettings):
         default=False,
         description="Enable algorithmic execution",
     )
+    ALLOW_PUBLIC_SIGNUP: bool = Field(
+        default=False,
+        description="Allow public user registration (disabled - only admin creates users)",
+    )
 
     # -------------------------------------------------------------------------
     # 9. NOTIFICATIONS (OPTIONAL)

@@ -48,6 +48,8 @@ import {
 } from "lucide-react";
 import { Sidebar } from "@/components/Sidebar";
 import { Header } from "@/components/Header";
+import { useMe } from "@/lib/hooks";
+import { api } from "@/lib/api-client";
 
 type Tab = "general" | "api-keys" | "notifications";
 
@@ -218,6 +220,7 @@ function GeneralSettingsTab() {
 function BrokerConfigTab() {
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
   const [showToast, setShowToast] = useState(false);
+  const { user } = useMe();
 
   const showToastMsg = (message: string, type: "success" | "error") => {
     setToast({ message, type });
@@ -245,16 +248,12 @@ function BrokerConfigTab() {
     isConnected: false,
   });
 
-  // Load status on mount
   useEffect(() => {
     const loadStatus = async () => {
       try {
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://ai-trading-9qoa.onrender.com"}/api/fyers/status`);
-        if (response.ok) {
-          const data = await response.json();
-          setFyersConfig(prev => ({ ...prev, isConnected: data.fyers?.connected && data.fyers?.valid }));
-          setKotakConfig(prev => ({ ...prev, isConnected: data.kotak?.connected }));
-        }
+        const response = await api.getFyersStatus() as { fyers?: { connected: boolean; valid: boolean }; kotak?: { connected: boolean } };
+        setFyersConfig(prev => ({ ...prev, isConnected: (response.fyers?.connected && response.fyers?.valid) ?? false }));
+        setKotakConfig(prev => ({ ...prev, isConnected: response.kotak?.connected ?? false }));
       } catch (err) {
         console.warn("Failed to load broker status:", err);
       }
@@ -269,30 +268,14 @@ function BrokerConfigTab() {
     }
 
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://ai-trading-9qoa.onrender.com"}/api/v1/fyers/connect`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          client_id: fyersConfig.clientId.trim(),
-          client_secret: fyersConfig.clientSecret.trim(),
-        }),
-        signal: AbortSignal.timeout(10000),
-      });
-
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({ message: "Failed" }));
-        throw new Error(err.message || `HTTP ${response.status}`);
-      }
-
-      const data = await response.json();
-      window.location.href = data.auth_url;
+      const response = await api.connectFyers(fyersConfig.clientId.trim(), fyersConfig.clientSecret.trim()) as { auth_url: string };
+      window.location.href = response.auth_url;
     } catch (err) {
       showToastMsg(err instanceof Error ? err.message : "Failed to connect Fyers", "error");
     }
   };
 
-  const handleKotakSave = async () => {
-    // Kotak credentials saved to backend admin panel
+  const handleKotakSave = () => {
     showToastMsg("Kotak credentials should be configured in Admin Panel", "error");
   };
 
@@ -347,20 +330,35 @@ function BrokerConfigTab() {
                 Fyers Connected
               </motion.button>
             ) : (
-              <motion.button
-                onClick={handleFyersSaveAndConnect}
-                whileHover={{ scale: 1.02, boxShadow: "0 0 20px rgba(0, 240, 255, 0.3)" }}
-                whileTap={{ scale: 0.98 }}
-                className="flex-1 py-3 rounded-xl bg-gradient-to-r from-neon-cyan to-neon-purple text-true-black font-bold shadow-glow-cyan hover:shadow-glow-cyan/50 flex items-center justify-center gap-2"
-              >
-                <Save className="w-5 h-5" strokeWidth={2.5} />
-                Save & Connect to Fyers
-              </motion.button>
+              <>
+                {user?.role === "ADMIN" ? (
+                  <motion.button
+                    onClick={handleFyersSaveAndConnect}
+                    whileHover={{ scale: 1.02, boxShadow: "0 0 20px rgba(0, 240, 255, 0.3)" }}
+                    whileTap={{ scale: 0.98 }}
+                    className="flex-1 py-3 rounded-xl bg-gradient-to-r from-neon-cyan to-neon-purple text-true-black font-bold shadow-glow-cyan hover:shadow-glow-cyan/50 flex items-center justify-center gap-2"
+                  >
+                    <Save className="w-5 h-5" strokeWidth={2.5} />
+                    Save & Connect to Fyers
+                  </motion.button>
+                ) : (
+                  <motion.button
+                    disabled
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    className="flex-1 py-3 rounded-xl bg-gradient-to-r from-neon-cyan/50 to-neon-purple/50 text-true-black font-bold cursor-not-allowed opacity-60 flex items-center justify-center gap-2"
+                  >
+                    <Save className="w-5 h-5" strokeWidth={2.5} />
+                    Save & Connect to Fyers (Admin only)
+                  </motion.button>
+                )}
+              </>
             )}
           </div>
           
           <p className="mt-4 text-center text-xs text-text-muted">
             Clicking "Save & Connect" will store credentials securely and redirect to Fyers OAuth for authorization.
+            {user?.role !== "ADMIN" && " Only administrators can configure Fyers connection."}
           </p>
         </div>
       </SectionCard>
@@ -435,6 +433,7 @@ function BrokerConfigTab() {
           
           <p className="mt-4 text-center text-xs text-text-muted">
             Kotak Neo credentials are managed via the Admin Panel for security.
+            {kotakConfig.isConnected ? " Active session." : " No active session."}
           </p>
         </div>
       </SectionCard>
