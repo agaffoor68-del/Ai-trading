@@ -61,7 +61,9 @@ async def get_broker_status():
     
     # Check Kotak session status
     # For now, check if Kotak credentials are configured
-    kotak_connected = bool(settings.KOTAK_CONSUMER_KEY and settings.KOTAK_CONSUMER_SECRET)
+    kotak_key = getattr(settings, "KOTAK_CONSUMER_KEY", "")
+    kotak_secret = getattr(settings, "KOTAK_CONSUMER_SECRET", "")
+    kotak_connected = bool(kotak_key and kotak_secret)
     
     return {
         "fyers": {"connected": fyers_connected},

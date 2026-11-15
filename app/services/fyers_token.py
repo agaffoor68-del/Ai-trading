@@ -37,13 +37,13 @@ def save_fyers_token(access_token: str, expires_in: int = 86400, refresh_token: 
     try:
         ensure_token_dir()
         
-        expires_at = datetime.now() + timedelta(seconds=expires_in)
+        expires_at = datetime.now(IST) + timedelta(seconds=expires_in)
         
         token_data = {
             "access_token": access_token,
             "refresh_token": refresh_token,
             "expires_at": expires_at.isoformat(),
-            "created_at": datetime.now().isoformat(),
+            "created_at": datetime.now(IST).isoformat(),
             "expires_in": expires_in,
         }
         
@@ -76,6 +76,9 @@ def get_fyers_token() -> Optional[str]:
                 expires_at_str = token_data.get("expires_at")
                 if expires_at_str:
                     expires_at = datetime.fromisoformat(expires_at_str)
+                    # Ensure timezone-aware
+                    if expires_at.tzinfo is None:
+                        expires_at = expires_at.replace(tzinfo=IST)
                     now = datetime.now(IST)
                     
                     # Check if token was issued before today's 6:30 AM
@@ -83,7 +86,7 @@ def get_fyers_token() -> Optional[str]:
                     if now >= today_630 and expires_at < today_630:
                         logger.warning("Fyers access token expired at 6:30 AM IST today")
                         # Don't return None yet, try database
-                    elif datetime.now(IST) >= expires_at:
+                    elif now >= expires_at:
                         logger.warning("Fyers access token has expired")
                         # Don't return None yet, try database
                     else:
@@ -106,6 +109,9 @@ def get_fyers_token() -> Optional[str]:
                 expires_in = db_token.get("expires_in", 86400)
                 if created_at_str:
                     created_at = datetime.fromisoformat(created_at_str)
+                    # Ensure timezone-aware
+                    if created_at.tzinfo is None:
+                        created_at = created_at.replace(tzinfo=IST)
                     expires_at = created_at + timedelta(seconds=expires_in)
                     now = datetime.now(IST)
                     
@@ -153,6 +159,9 @@ def get_fyers_token_status() -> dict:
                 # Check expiry - Fyers tokens expire daily at 6:30 AM IST
                 if expires_at_str:
                     expires_at = datetime.fromisoformat(expires_at_str)
+                    # Ensure timezone-aware
+                    if expires_at.tzinfo is None:
+                        expires_at = expires_at.replace(tzinfo=IST)
                     now = datetime.now(IST)
                     
                     # Check if token was issued before today's 6:30 AM
@@ -183,6 +192,9 @@ def get_fyers_token_status() -> dict:
                 expires_in = db_token.get("expires_in", 86400)
                 if created_at_str:
                     created_at = datetime.fromisoformat(created_at_str)
+                    # Ensure timezone-aware
+                    if created_at.tzinfo is None:
+                        created_at = created_at.replace(tzinfo=IST)
                     expires_at = created_at + timedelta(seconds=expires_in)
                     now = datetime.now(IST)
                     

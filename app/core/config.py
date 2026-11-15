@@ -112,6 +112,10 @@ class Settings(BaseSettings):
         default=None,
         description="Kotak Neo consumer key",
     )
+    KOTAK_CONSUMER_SECRET: Optional[str] = Field(
+        default=None,
+        description="Kotak Neo consumer secret",
+    )
     KOTAK_TOTP_SECRET: Optional[str] = Field(
         default=None,
         description="Kotak Neo TOTP secret",
