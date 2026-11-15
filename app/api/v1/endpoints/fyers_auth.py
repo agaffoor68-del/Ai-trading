@@ -306,3 +306,110 @@ async def fyers_logout():
     except Exception as e:
         logger.error(f"Failed to clear Fyers token: {str(e)}")
         return {"status": "error", "message": "Failed to clear token"}
+
+
+@router.get("/status")
+async def fyers_status():
+    """
+    Validate Fyers token by calling Fyers profile API.
+    Returns real connection status with token expiry info.
+    """
+    from app.services.fyers_token import get_fyers_token
+    from app.services.fyers_api import fyers_api_client
+    from datetime import datetime, time
+    from zoneinfo import ZoneInfo
+    
+    IST = ZoneInfo("Asia/Kolkata")
+    
+    # Get token from storage
+    token = get_fyers_token()
+    
+    if not token:
+        return {
+            "connected": False,
+            "valid": False,
+            "message": "No Fyers token found. Please login.",
+            "token_expires_at": None,
+            "profile": None
+        }
+    
+    # Check token expiry (Fyers tokens expire at 6:30 AM IST daily)
+    try:
+        from app.services.fyers_token import get_fyers_token_status
+        token_status = get_fyers_token_status()
+        
+        if not token_status.get("valid", False):
+            return {
+                "connected": False,
+                "valid": False,
+                "message": token_status.get("message", "Token expired"),
+                "token_expires_at": token_status.get("expires_at"),
+                "profile": None
+            }
+    except Exception as e:
+        logger.warning(f"Could not check token expiry: {e}")
+    
+    # Validate token by calling Fyers profile API
+    try:
+        # Use the fyers_api_client to make a profile call
+        profile = await _get_fyers_profile(token)
+        
+        if profile:
+            return {
+                "connected": True,
+                "valid": True,
+                "message": "Fyers connected and token valid",
+                "token_expires_at": token_status.get("expires_at") if 'token_status' in locals() else None,
+                "profile": {
+                    "name": profile.get("name"),
+                    "email": profile.get("email"),
+                    "client_id": profile.get("fy_id") or profile.get("client_id"),
+                    "pan": profile.get("pan"),
+                }
+            }
+        else:
+            return {
+                "connected": False,
+                "valid": False,
+                "message": "Token validation failed - invalid response from Fyers",
+                "token_expires_at": None,
+                "profile": None
+            }
+    except Exception as e:
+        logger.error(f"Fyers profile validation failed: {e}")
+        return {
+            "connected": False,
+            "valid": False,
+            "message": f"Token validation error: {str(e)}",
+            "token_expires_at": None,
+            "profile": None
+        }
+
+
+async def _get_fyers_profile(access_token: str) -> dict:
+    """Call Fyers profile API to validate token."""
+    try:
+        client_id = settings.FYERS_CLIENT_ID
+        if not client_id:
+            return None
+            
+        auth_header = f"{client_id}:{access_token}"
+        url = f"{settings.FYERS_API_BASE}/v3/profile"
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                url,
+                headers={"Authorization": auth_header, "Content-Type": "application/json"},
+                timeout=aiohttp.ClientTimeout(total=10)
+            ) as resp:
+                if resp.status != 200:
+                    logger.warning(f"Fyers profile API returned {resp.status}")
+                    return None
+                data = await resp.json()
+                
+                if data.get("code") == 200 and data.get("data"):
+                    return data["data"]
+                return None
+    except Exception as e:
+        logger.error(f"Error calling Fyers profile API: {e}")
+        return None

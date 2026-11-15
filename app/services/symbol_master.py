@@ -28,11 +28,12 @@ SYMBOL_MASTER_FILES = {
     "NSE_FO": "NSE_FO.csv",
 }
 
-# Correct Fyers Symbol Master column names (headerless/positional)
-# Updated based on ACTUAL Fyers CSV format from logs (18 columns)
+# CORRECT Fyers Symbol Master column names based on actual Fyers CSV format
+# Fyers CSVs are headerless with 18 columns in this exact order:
+# fytoken,symbol_ticker,ISIN,lot_size,tick_size,trading_session,last_update_date,expiry_date,instrument_type,scrip_code,symbol,segment,strike_price,option_type,underlying_symbol,underlying_scrip_code,underlying_fytoken,reserved
 FYERS_COLUMNS = [
     "fytoken",              # 0: fytoken (numeric instrument ID)
-    "symbol_ticker",        # 1: symbol_ticker (e.g., NSE:SBIN-EQ)
+    "symbol_ticker",        # 1: symbol_ticker (e.g., NSE:SBIN-EQ) - PRIMARY KEY
     "ISIN",                 # 2: ISIN
     "lot_size",             # 3: lot_size
     "tick_size",            # 4: tick_size
@@ -105,6 +106,8 @@ class SymbolMasterDownloader:
             # DEBUG: Log unique values before cleaning
             logger.info(f"DEBUG {exchange} - instrument_type unique: {df['instrument_type'].unique()[:20]}")
             logger.info(f"DEBUG {exchange} - segment unique: {df['segment'].unique()[:20]}")
+            logger.info(f"DEBUG {exchange} - symbol_ticker sample: {df['symbol_ticker'].head(5).tolist()}")
+            logger.info(f"DEBUG {exchange} - symbol sample: {df['symbol'].head(5).tolist()}")
             
             # Strip whitespace from all string columns FIRST
             for col in df.select_dtypes(include=['object']).columns:
@@ -125,8 +128,6 @@ class SymbolMasterDownloader:
             df = df[df['symbol'].notna()]
             
             # For NSE_CM, keep EQ instruments; for NSE_FO, keep all FUT/OPT
-            # Since we're downloading specific files, we don't need to filter by exchange
-            # Fyers uses numerical codes: 10=EQ, 11=FUT, 12=OPT
             if exchange == "NSE_CM":
                 # Keep EQ (Equity) instruments - numerical code 10
                 df = df[df['instrument_type'].isin(['10', 'EQ', 'EQUITY', 'STK'])]
@@ -141,7 +142,7 @@ class SymbolMasterDownloader:
             # Log sample of filtered data
             if not df.empty:
                 logger.info(f"Sample filtered rows for {exchange}:")
-                logger.info(df[['fytoken', 'symbol', 'instrument_type', 'segment']].head(10).to_string())
+                logger.info(df[['fytoken', 'symbol_ticker', 'symbol', 'instrument_type', 'segment', 'expiry_date', 'strike_price', 'option_type']].head(10).to_string())
             
             if df.empty:
                 logger.warning(f"No valid instrument rows found for {exchange} after filtering")
@@ -154,20 +155,22 @@ class SymbolMasterDownloader:
                     if not row.get('symbol') or not row.get('fytoken'):
                         continue
                     
-                    # Parse symbol (use symbol_ticker if available and symbol is not descriptive)
+                    # Use symbol_ticker as the primary symbol (e.g., "NSE:NIFTY50-INDEX")
+                    symbol_ticker = row.get('symbol_ticker', '')
                     symbol = row['symbol']
-                    symbol_ticker = row.get('symbol_ticker')
-                    if symbol_ticker and ':' in symbol_ticker:
-                        symbol = symbol_ticker.split(':', 1)[1]
                     
-                    # Extract exchange from symbol_ticker (e.g., "NSE:SBIN-EQ" -> "NSE")
-                    parsed_exchange = exchange  # Default to the file's exchange
+                    # If symbol_ticker has exchange prefix, use it
                     if symbol_ticker and ':' in symbol_ticker:
-                        parsed_exchange = symbol_ticker.split(':', 1)[0]
+                        # symbol_ticker is like "NSE:SBIN-EQ" or "NSE:NIFTY50-INDEX"
+                        # This is the correct Fyers ticker format
+                        pass
+                    else:
+                        # Fallback: construct from exchange and symbol
+                        symbol_ticker = f"{exchange}:{symbol}"
                     
                     # Parse numeric fields
                     lot_size = int(row['lot_size']) if row['lot_size'] and row['lot_size'].isdigit() else None
-                    strike = float(row['strike_price']) if row['strike_price'] else None
+                    strike = float(row['strike_price']) if row['strike_price'] and row['strike_price'].replace('.', '').isdigit() else None
                     
                     # Parse expiry date
                     expiry = None
@@ -182,9 +185,9 @@ class SymbolMasterDownloader:
                     
                     instruments.append(
                         {
-                            "symbol": symbol,
-                            "name": row['symbol'],  # Use symbol as name since scrip_name is not in current format
-                            "exchange": parsed_exchange,
+                            "symbol": symbol_ticker,  # Use full Fyers ticker (e.g., NSE:NIFTY50-INDEX)
+                            "name": row['symbol'],    # Short name (e.g., SBIN-EQ, NIFTY50-INDEX)
+                            "exchange": exchange,     # NSE_CM or NSE_FO
                             "segment": row['segment'],
                             "lot_size": lot_size,
                             "tick_size": row['tick_size'],
@@ -207,6 +210,8 @@ class SymbolMasterDownloader:
             
         except Exception as e:
             logger.error(f"Failed to parse CSV for {exchange}: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             return []
 
     async def load_all(self):

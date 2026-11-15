@@ -13,6 +13,19 @@ export interface BrokerStatus {
   };
 }
 
+export interface FyersStatus {
+  connected: boolean;
+  valid: boolean;
+  message: string;
+  token_expires_at: string | null;
+  profile: {
+    name: string;
+    email: string;
+    client_id: string;
+    pan: string;
+  } | null;
+}
+
 export interface FyersLoginResponse {
   authorization_url: string;
   state: string;
@@ -147,6 +160,9 @@ export const api = {
   getBrokerStatus: () =>
     fetcher<BrokerStatus>(`${API_BASE_URL}/api/v1/auth/broker-status`),
 
+  getFyersStatus: () =>
+    fetcher<FyersStatus>(`${API_BASE_URL}/api/v1/fyers/status`),
+
   getFyersLoginUrl: () =>
     fetcher<FyersLoginResponse>(`${API_BASE_URL}/api/v1/fyers/login`),
 
@@ -193,7 +209,27 @@ export const swrConfig: SWRConfiguration = {
 };
 
 export function formatFyersSymbol(symbol: string, exchange = "NSE"): string {
-  return `${exchange}:${symbol}`;
+  // Map common names to Fyers format
+  const symbolMap: Record<string, string> = {
+    "NIFTY 50": "NSE:NIFTY50-INDEX",
+    "NIFTY": "NSE:NIFTY50-INDEX",
+    "BANKNIFTY": "NSE:NIFTYBANK-INDEX",
+    "SENSEX": "BSE:SENSEX-INDEX",
+    "FINNIFTY": "NSE:FINNIFTY-INDEX",
+    "MIDCPNIFTY": "NSE:MIDCPNIFTY-INDEX",
+  };
+  
+  if (symbolMap[symbol]) {
+    return symbolMap[symbol];
+  }
+  
+  // If already has exchange prefix, return as-is
+  if (symbol.includes(":")) {
+    return symbol;
+  }
+  
+  // Default: assume NSE equity
+  return `${exchange}:${symbol}-EQ`;
 }
 
 export function formatFyersOptionSymbol(

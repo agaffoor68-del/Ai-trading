@@ -420,6 +420,42 @@ async def get_quote(symbol: str):
         return {"symbol": symbol, "error": str(e)}
 
 
+@router.get("/expiries")
+async def get_expiries(
+    symbol: str = Query(..., description="Underlying symbol (e.g., NIFTY, BANKNIFTY)"),
+):
+    """
+    Get list of available expiry dates for a given index symbol.
+    Returns expiries in YYYY-MM-DD format sorted ascending.
+    """
+    try:
+        from app.core.database import SessionLocal, Instrument
+        from datetime import datetime
+        from sqlalchemy import func
+        
+        db = SessionLocal()
+        try:
+            symbol_upper = symbol.upper()
+            today = datetime.now(IST).date()
+            
+            # Get unique expiry dates for the symbol's options
+            expiries = db.query(Instrument.expiry).filter(
+                Instrument.symbol.ilike(f"%{symbol_upper}%"),
+                Instrument.expiry >= today,
+                Instrument.instrument_type.in_(["12", "OPT", "OPTION"]),
+            ).distinct().order_by(Instrument.expiry.asc()).all()
+            
+            expiry_list = [exp[0].strftime("%Y-%m-%d") for exp in expiries if exp[0]]
+            
+            return {"expiries": expiry_list}
+        finally:
+            db.close()
+    except Exception as e:
+        logger.error(f"Expiries error for {symbol}: {str(e)}")
+        from fastapi import HTTPException
+        raise HTTPException(status_code=500, detail=f"Failed to fetch expiries: {str(e)}")
+
+
 class OptionChainRequest(BaseModel):
     symbol: str  # e.g., "NIFTY", "BANKNIFTY"
     expiry: Optional[str] = None  # YYYY-MM-DD format, optional (uses nearest expiry)

@@ -30,6 +30,9 @@ from app.api.v1.endpoints.market import router as market_router
 from app.api.v1.endpoints.auth import router as auth_router
 from app.api.v1.endpoints.admin import router as admin_router
 from app.services.symbol_master import SymbolMasterDownloader
+from app.services.redis_ws import redis_tick_store
+from app.services.fyers_websocket import FyersWebSocket
+from app.services.fyers_token import get_fyers_token
 
 import aiohttp
 
@@ -49,6 +52,7 @@ app = FastAPI(
 
 origins = [
     "https://ai-trading-9fkt.vercel.app",
+    "https://ai-trading-9qoa.onrender.com",
     "http://localhost:3000",
     "http://127.0.0.1:3000"
 ]
@@ -75,7 +79,7 @@ async def root():
         "version": "2.0.0",
         "status": "running",
         "phase": 2,
-        "modules": ["core_setup", "fyers_auth", "redis_cache", "auth", "admin"],
+        "modules": ["core_setup", "fyers_auth", "redis_cache", "fyers_websocket", "auth", "admin"],
         "data_source": "Fyers API v3 ONLY",
         "execution": "Kotak Neo (Phase 2)",
         "ai": "Grok API (Phase 3)",
@@ -99,6 +103,10 @@ async def health_check():
     except Exception as e:
         logger.error(f"Health check error: {str(e)}")
         return {"status": "unhealthy", "database": "disconnected"}, 500
+
+
+# Global Fyers WebSocket instance
+fyers_ws: FyersWebSocket | None = None
 
 
 @app.on_event("startup")
@@ -131,7 +139,39 @@ async def startup_event():
     except Exception as e:
         logger.error(f"NTP sync error: {str(e)}")
 
-    # 4. Download and sync Fyers Symbol Master (NSE_CM.csv, NSE_FO.csv)
+    # 4. Connect to Redis
+    try:
+        logger.info("Connecting to Redis...")
+        redis_connected = await redis_tick_store.connect()
+        if redis_connected:
+            logger.info(f"Redis connected successfully at {redis_tick_store.host}:{redis_tick_store.port}")
+        else:
+            logger.error("CRITICAL: Redis connection failed - live ticks will not be cached!")
+            # Don't raise - allow startup to continue but log loudly
+    except Exception as e:
+        logger.error(f"CRITICAL: Redis connection error: {str(e)} - live ticks will not be cached!")
+
+    # 5. Validate/Load Fyers token
+    try:
+        token = get_fyers_token()
+        if token:
+            logger.info(f"Fyers token loaded from storage (length: {len(token)})")
+            # Validate token with Fyers profile API
+            try:
+                from app.services.fyers_api import fyers_api_client
+                profile = await fyers_api_client.get_profile(token)
+                if profile:
+                    logger.info(f"Fyers token validated - User: {profile.get('name', 'Unknown')}")
+                else:
+                    logger.warning("Fyers token validation failed - token may be expired")
+            except Exception as e:
+                logger.warning(f"Fyers token validation error: {str(e)}")
+        else:
+            logger.warning("No Fyers token found - market data will be unavailable until login")
+    except Exception as e:
+        logger.error(f"Fyers token load error: {str(e)}")
+
+    # 6. Download and sync Fyers Symbol Master (NSE_CM.csv, NSE_FO.csv)
     try:
         logger.info("Starting Fyers Symbol Master download...")
         downloader = SymbolMasterDownloader()
@@ -141,7 +181,43 @@ async def startup_event():
     except Exception as e:
         logger.error(f"Fyers Symbol Master download error: {str(e)}")
 
-    # 5. Log instrument count
+    # 7. Start Fyers WebSocket for live ticks (if token available)
+    global fyers_ws
+    try:
+        token = get_fyers_token()
+        if token:
+            logger.info("Starting Fyers WebSocket connection...")
+            # Get symbols from database for subscription
+            db = SessionLocal()
+            try:
+                # Get active index and major equity symbols for WebSocket subscription
+                from app.core.database import Instrument
+                symbols = db.query(Instrument.symbol).filter(
+                    Instrument.is_active == 1,
+                    Instrument.instrument_type.in_(["10", "13", "INDEX", "EQ", "EQUITY"])
+                ).limit(50).all()
+                symbol_list = [s[0] for s in symbols]
+                logger.info(f"Subscribing to {len(symbol_list)} symbols on Fyers WebSocket")
+            finally:
+                db.close()
+            
+            fyers_ws = FyersWebSocket(access_token=token, symbols=symbol_list)
+            
+            # Set up callback to write ticks to Redis
+            async def on_tick(tick):
+                await redis_tick_store.write_tick(tick["symbol"], tick)
+            
+            fyers_ws.on_tick(on_tick)
+            
+            # Start WebSocket in background
+            asyncio.create_task(fyers_ws.connect())
+            logger.info("Fyers WebSocket background task started")
+        else:
+            logger.warning("No Fyers token - WebSocket not started. Will start after login.")
+    except Exception as e:
+        logger.error(f"Fyers WebSocket startup error: {str(e)}")
+
+    # 8. Log instrument count
     db = SessionLocal()
     try:
         count = db.query(Instrument).count()
@@ -156,7 +232,23 @@ async def startup_event():
 
 @app.on_event("shutdown")
 async def shutdown_event():
+    global fyers_ws
     logger.info(">>> Phase 2 Shutting Down <<<")
+    
+    # Close Fyers WebSocket
+    if fyers_ws:
+        try:
+            await fyers_ws.disconnect()
+            logger.info("Fyers WebSocket disconnected")
+        except Exception as e:
+            logger.error(f"Error disconnecting Fyers WebSocket: {e}")
+    
+    # Close Redis connection
+    try:
+        await redis_tick_store.close()
+        logger.info("Redis connection closed")
+    except Exception as e:
+        logger.error(f"Error closing Redis: {e}")
 
 
 @app.get("/info", tags=["debug"])

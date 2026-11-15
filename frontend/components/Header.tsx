@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import { Wifi, Bell, User, Circle, ChevronDown, Menu, X } from "lucide-react";
 import { api } from "@/lib/api";
 import { useSidebar } from "./Sidebar";
+import { useMarketCalendar } from "@/lib/market-calendar";
 
 interface BrokerStatus {
   label: string;
@@ -18,6 +19,7 @@ export function Header() {
     { label: "Kotak", connected: false },
   ]);
   const [isLoading, setIsLoading] = useState(true);
+  const { isMarketOpen } = useMarketCalendar();
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -97,7 +99,20 @@ export function Header() {
           ))}
         </div>
 
-        {/* Daily PnL */}
+        {/* Market Status */}
+        <motion.div
+          className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full bg-card-bg border border-glow-border glass"
+          initial={{ opacity: 0, scale: 0.8 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ delay: 0.3 }}
+        >
+          <motion.span
+            className={`w-2 h-2 rounded-full ${isMarketOpen ? "bg-neon-green animate-pulse-glow" : "bg-neon-red"}`}
+          />
+          <span className="text-xs font-medium text-white">{isMarketOpen ? "Market Open" : "Market Closed"}</span>
+        </motion.div>
+
+        {/* Daily PnL - Only show if we have real data */}
         <motion.div
           initial={{ opacity: 0, x: 20 }}
           animate={{ opacity: 1, x: 0 }}
@@ -105,7 +120,7 @@ export function Header() {
           className="hidden sm:flex items-center gap-2 px-3 md:px-4 py-2 rounded-xl bg-gradient-to-r from-neon-orange/20 to-neon-red/20 border border-neon-orange/30 glass shadow-glow-orange"
         >
           <span className="text-xs text-text-muted">Daily PnL</span>
-          <span className="font-mono text-sm md:text-lg font-bold text-neon-orange text-glow-green">+₹12,450</span>
+          <span className="font-mono text-sm md:text-lg font-bold text-neon-orange text-glow-green">—</span>
         </motion.div>
 
         {/* Notification Bell */}
@@ -119,7 +134,7 @@ export function Header() {
         >
           <Bell className="w-5 h-5 text-text-secondary hover:text-white transition-colors" strokeWidth={2} />
           <span className="absolute -top-1 -right-1 w-4 h-4 bg-neon-red rounded-full flex items-center justify-center">
-            <span className="text-[10px] font-bold text-white">3</span>
+            <span className="text-[10px] font-bold text-white">0</span>
           </span>
         </motion.button>
 

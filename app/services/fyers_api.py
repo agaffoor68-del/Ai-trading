@@ -224,6 +224,36 @@ class FyersAPIClient:
             logger.error(f"Fyers quotes API error: {str(e)}")
             return {}
 
+    async def get_profile(self, access_token: str) -> dict:
+        """
+        Fetch user profile from Fyers API to validate token.
+        GET https://api.fyers.in/api/v3/profile
+        """
+        auth_header = f"{settings.FYERS_CLIENT_ID}:{access_token}"
+        if not settings.FYERS_CLIENT_ID:
+            return {}
+        
+        session = await self._get_session()
+        url = f"{settings.FYERS_API_BASE}/v3/profile"
+        
+        try:
+            async with session.get(
+                url, 
+                headers={"Authorization": auth_header, "Content-Type": "application/json"},
+                timeout=aiohttp.ClientTimeout(total=10)
+            ) as resp:
+                if resp.status != 200:
+                    logger.warning(f"Fyers profile API returned {resp.status}")
+                    return {}
+                data = await resp.json()
+                
+                if data.get("code") == 200 and data.get("data"):
+                    return data["data"]
+                return {}
+        except Exception as e:
+            logger.error(f"Fyers profile API error: {str(e)}")
+            return {}
+
 
 # Global client instance
 fyers_api_client = FyersAPIClient()
