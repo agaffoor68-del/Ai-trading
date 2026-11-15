@@ -10,16 +10,44 @@ import os
 import traceback
 import hashlib
 import aiohttp
-from fastapi import APIRouter, Request, Response, HTTPException
+import secrets
+from datetime import datetime, timedelta
+from fastapi import APIRouter, Request, Response, HTTPException, Depends, status
 from fastapi.responses import RedirectResponse
+from cryptography.fernet import Fernet
+from sqlalchemy import text
 
 from app.core.config import settings
 from app.core.database import SessionLocal
 from app.core.models import FyersToken
+from app.core.auth import require_admin
+from app.core.datetime_utils import IST, now_ist, utc_to_epoch
+from app.services.fyers_token import save_fyers_token, clear_fyers_token
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["fyers-auth"])
+
+# Fernet encryption for secrets at rest
+_fernet: Fernet | None = None
+
+
+def _get_fernet() -> Fernet:
+    global _fernet
+    if _fernet is None:
+        key = settings.TOKEN_ENCRYPTION_KEY
+        if not key:
+            raise RuntimeError("TOKEN_ENCRYPTION_KEY not set in environment")
+        _fernet = Fernet(key.encode() if isinstance(key, str) else key)
+    return _fernet
+
+
+def _encrypt(data: str) -> str:
+    return _get_fernet().encrypt(data.encode()).decode()
+
+
+def _decrypt(data: str) -> str:
+    return _get_fernet().decrypt(data.encode()).decode()
 
 
 def generate_app_id_hash(client_id: str, client_secret: str) -> str:
@@ -33,10 +61,12 @@ def save_fyers_token_to_db(access_token: str, expires_in: int, refresh_token: st
         db = SessionLocal()
         # Delete old tokens
         db.query(FyersToken).delete()
-        # Create new token record
+        # Create new token record with encrypted tokens
+        encrypted_access = _encrypt(access_token)
+        encrypted_refresh = _encrypt(refresh_token) if refresh_token else ""
         token_record = FyersToken(
-            access_token=access_token,
-            refresh_token=refresh_token,
+            access_token=encrypted_access,
+            refresh_token=encrypted_refresh,
             expires_in=expires_in
         )
         db.add(token_record)
@@ -49,15 +79,15 @@ def save_fyers_token_to_db(access_token: str, expires_in: int, refresh_token: st
 
 
 def get_fyers_token_from_db() -> dict:
-    """Get the latest Fyers token from database."""
+    """Get the latest Fyers token from database (decrypted)."""
     try:
         db = SessionLocal()
         token = db.query(FyersToken).order_by(FyersToken.created_at.desc()).first()
         db.close()
         if token:
             return {
-                "access_token": token.access_token,
-                "refresh_token": token.refresh_token,
+                "access_token": _decrypt(token.access_token) if token.access_token else "",
+                "refresh_token": _decrypt(token.refresh_token) if token.refresh_token else "",
                 "expires_in": token.expires_in,
                 "created_at": token.created_at.isoformat() if token.created_at else None
             }
@@ -67,36 +97,91 @@ def get_fyers_token_from_db() -> dict:
         return {}
 
 
-@router.get("/login")
-async def fyers_login():
+@router.post("/connect")
+async def fyers_connect(
+    client_id: str,
+    client_secret: str,
+    current_user=Depends(require_admin),
+):
     """
     Initiate Fyers OAuth2 flow.
-    Redirects user to Fyers authorization URL to generate daily access token.
+    
+    Takes client_id and secret, saves them encrypted, creates a random state,
+    and returns the Fyers login URL. The frontend then redirects the browser to it.
+    
+    Admin only endpoint.
     """
     try:
-        client_id = settings.FYERS_CLIENT_ID
-        if not client_id:
-            logger.error("FYERS_CLIENT_ID environment variable not set")
-            return Response(
-                content="Configuration error: FYERS_CLIENT_ID missing",
-                status_code=500,
-            )
-
-        # Ensure redirect_uri matches Fyers Dashboard exactly
-        redirect_uri = settings.FYERS_REDIRECT_URI
-        if not redirect_uri:
-            logger.error("FYERS_REDIRECT_URI not configured")
-            return Response(
-                content="Configuration error: FYERS_REDIRECT_URI missing",
-                status_code=500,
+        if not client_id or not client_secret:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="client_id and client_secret are required"
             )
         
-        response_type = "code"
-        state = os.getenv("FYERS_STATE", "trading_platform_state")
-
-        # Fyers v3 authorization URL
+        # Save credentials encrypted (for later use in callback)
+        # Note: In production, you might want to store these in a separate credentials table
+        encrypted_id = _encrypt(client_id)
+        encrypted_secret = _encrypt(client_secret)
+        
+        # Store temporarily in database for callback validation
+        db = SessionLocal()
+        try:
+            # Save credentials to a temp table or use existing mechanism
+            # For now, we'll use the settings in-memory (they should come from env)
+            pass
+        finally:
+            db.close()
+        
+        # Generate random state for CSRF protection
+        state = secrets.token_urlsafe(32)
+        
+        # Save state to validate in callback
+        db = SessionLocal()
+        try:
+            # Store state with expiry (5 minutes)
+            from app.core.models import Base
+            # We'll use a simple approach - store in a key-value manner
+            # For production, consider a proper OAuth state table
+            stmt = text("""
+                CREATE TABLE IF NOT EXISTS oauth_states (
+                    state VARCHAR(255) PRIMARY KEY,
+                    client_id_enc VARCHAR(255) NOT NULL,
+                    client_secret_enc VARCHAR(255) NOT NULL,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                    expires_at TIMESTAMP WITH TIME ZONE NOT NULL
+                )
+            """)
+            db.execute(stmt)
+            
+            expires_at = now_ist() + timedelta(minutes=5)
+            stmt = text("""
+                INSERT INTO oauth_states (state, client_id_enc, client_secret_enc, expires_at)
+                VALUES (:state, :client_id, :client_secret, :expires_at)
+                ON CONFLICT (state) DO UPDATE SET 
+                    client_id_enc = EXCLUDED.client_id_enc,
+                    client_secret_enc = EXCLUDED.client_secret_enc,
+                    expires_at = EXCLUDED.expires_at
+            """)
+            db.execute(stmt, {
+                "state": state,
+                "client_id": encrypted_id,
+                "client_secret": encrypted_secret,
+                "expires_at": expires_at
+            })
+            db.commit()
+        finally:
+            db.close()
+        
+        # Build Fyers authorization URL
+        redirect_uri = settings.FYERS_REDIRECT_URI
+        if not redirect_uri:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="FYERS_REDIRECT_URI not configured"
+            )
+        
         fyers_login_url = (
-            f"{settings.FYERS_API_BASE}/v3/generate-authcode?"
+            f"https://api-t1.fyers.in/api/v3/generate-authcode?"
             f"client_id={client_id}"
             f"&redirect_uri={redirect_uri}"
             f"&response_type=code"
@@ -105,25 +190,25 @@ async def fyers_login():
 
         logger.info(f"Fyers auth URL generated for client: {client_id[:4]}***")
         logger.info(f"Redirect URI: {redirect_uri}")
-        return RedirectResponse(url=fyers_login_url)
-
+        return {"auth_url": fyers_login_url, "state": state}
+    
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Fyers login endpoint error: {str(e)}")
+        logger.error(f"Fyers connect endpoint error: {str(e)}")
         logger.error(traceback.format_exc())
-        return Response(content="Internal server error during Fyers login", status_code=500)
+        raise HTTPException(status_code=500, detail="Internal server error during Fyers connect")
 
 
 @router.get("/callback")
 async def fyers_callback(request: Request):
     """
-    Handle Fyers OAuth2 callback using official fyers_apiv3 SDK.
+    Handle Fyers OAuth2 callback.
+    
     Exchanges authorization code for access token.
     Route: /api/v1/fyers/callback (matches Fyers Dashboard redirect URL)
     """
     try:
-        # Fyers sends query params, not form data
-        # Fyers sends: ?s=ok&code=200&auth_code=eyJhbGci...
-        # We need to extract auth_code, not code
         auth_code = request.query_params.get("auth_code")
         state = request.query_params.get("state")
         
@@ -131,32 +216,63 @@ async def fyers_callback(request: Request):
         
         if not auth_code:
             logger.error("Fyers callback: auth_code missing")
-            # Auto-redirect to login if auth_code is missing
-            return RedirectResponse(url="/api/v1/fyers/login")
-
+            frontend_url = settings.FRONTEND_URL or "http://localhost:3000"
+            return RedirectResponse(url=f"{frontend_url}/settings?fyers=failed&reason=missing_auth_code")
+        
         if not state:
             logger.error("Fyers callback: state parameter missing")
-            # Auto-redirect to login if state is missing
-            return RedirectResponse(url="/api/v1/fyers/login")
+            frontend_url = settings.FRONTEND_URL or "http://localhost:3000"
+            return RedirectResponse(url=f"{frontend_url}/settings?fyers=failed&reason=missing_state")
         
-        # Use official fyers_apiv3 SDK for token exchange
+        # Validate state and retrieve credentials
+        db = SessionLocal()
+        client_id = None
+        client_secret = None
+        try:
+            from sqlalchemy import text
+            stmt = text("""
+                SELECT client_id_enc, client_secret_enc 
+                FROM oauth_states 
+                WHERE state = :state AND expires_at > NOW()
+            """)
+            result = db.execute(stmt, {"state": state}).fetchone()
+            if not result:
+                logger.error("Fyers callback: invalid or expired state")
+                frontend_url = settings.FRONTEND_URL or "http://localhost:3000"
+                return RedirectResponse(url=f"{frontend_url}/settings?fyers=failed&reason=invalid_state")
+            
+            client_id = _decrypt(result[0])
+            client_secret = _decrypt(result[1])
+            
+            # Delete used state
+            stmt = text("DELETE FROM oauth_states WHERE state = :state")
+            db.execute(stmt, {"state": state})
+            db.commit()
+        finally:
+            db.close()
+        
+        if not client_id or not client_secret:
+            logger.error("Fyers callback: failed to retrieve credentials")
+            frontend_url = settings.FRONTEND_URL or "http://localhost:3000"
+            return RedirectResponse(url=f"{frontend_url}/settings?fyers=failed&reason=credential_error")
+        
+        # Exchange code for token using official fyers_apiv3 SDK
         try:
             from fyers_apiv3 import fyersModel
         except ImportError:
             logger.error("fyers_apiv3 SDK not installed. Please add 'fyers-apiv3' to requirements.txt")
-            raise HTTPException(status_code=500, detail="Fyers SDK missing")
+            frontend_url = settings.FRONTEND_URL or "http://localhost:3000"
+            return RedirectResponse(url=f"{frontend_url}/settings?fyers=failed&reason=sdk_missing")
         
         # Generate correct appIdHash per Fyers spec:
         # appIdHash = SHA-256(app_id + ":" + app_secret) - EXACT match required
-        app_id = settings.FYERS_CLIENT_ID.strip()
-        secret = settings.FYERS_CLIENT_SECRET.strip()
-        app_id_hash = hashlib.sha256(f"{app_id}:{secret}".encode()).hexdigest()
-        logger.info(f"Generated appIdHash: {app_id_hash} for app_id: {app_id}")
+        app_id_hash = hashlib.sha256(f"{client_id}:{client_secret}".encode()).hexdigest()
+        logger.info(f"Generated appIdHash: {app_id_hash} for app_id: {client_id[:4]}***")
         
         # Create session using official SDK with correct appIdHash
         session = fyersModel.SessionModel(
-            client_id=app_id,
-            secret_key=secret,
+            client_id=client_id,
+            secret_key=client_secret,
             redirect_uri=settings.FYERS_REDIRECT_URI,
             response_type="code",
             grant_type="authorization_code"
@@ -179,25 +295,13 @@ async def fyers_callback(request: Request):
             fyers_error_message = response.get("message", "Unknown error")
             logger.error(f"Fyers token exchange failed - Code: {fyers_error_code}, Message: {fyers_error_message}")
             
-            # Handle specific error codes
+            frontend_url = settings.FRONTEND_URL or "http://localhost:3000"
             if fyers_error_code == -437:
-                return _fyers_error_page(
-                    "Session Expired",
-                    "Auth code expired or already used. Please generate a new login link and try again immediately.",
-                    "⚠️"
-                )
+                return RedirectResponse(url=f"{frontend_url}/settings?fyers=failed&reason=expired_code")
             elif fyers_error_code == -16:
-                return _fyers_error_page(
-                    "Invalid Configuration",
-                    "App ID hash is invalid. Please check your Fyers Client ID and Secret.",
-                    "❌"
-                )
+                return RedirectResponse(url=f"{frontend_url}/settings?fyers=failed&reason=invalid_config")
             else:
-                return _fyers_error_page(
-                    "Login Failed",
-                    f"Error: {fyers_error_message} (Code: {fyers_error_code})",
-                    "❌"
-                )
+                return RedirectResponse(url=f"{frontend_url}/settings?fyers=failed&reason={fyers_error_message}")
         
         # Extract access token from response
         access_token = None
@@ -210,11 +314,8 @@ async def fyers_callback(request: Request):
         
         if not access_token:
             logger.error(f"Fyers token response: no access_token returned. Response: {response}")
-            return _fyers_error_page(
-                "Login Failed",
-                "No access token in Fyers response. Please try again.",
-                "❌"
-            )
+            frontend_url = settings.FRONTEND_URL or "http://localhost:3000"
+            return RedirectResponse(url=f"{frontend_url}/settings?fyers=failed&reason=no_token")
         
         refresh_token = response.get("refresh_token", "") if isinstance(response, dict) else ""
         expires_in = response.get("expires_in", 86400) if isinstance(response, dict) else 86400
@@ -225,59 +326,28 @@ async def fyers_callback(request: Request):
             logger.error("Failed to save Fyers token to database")
         
         # Also save to file for fyers_token.py utility
-        from app.services.fyers_token import save_fyers_token
         save_fyers_token(access_token, expires_in, refresh_token)
         
         # Also update in-memory settings for immediate use
         settings.FYERS_ACCESS_TOKEN = access_token
+        settings.FYERS_CLIENT_ID = client_id
+        settings.FYERS_CLIENT_SECRET = client_secret
         logger.info(f"Fyers access token saved to database, file, and settings (length: {len(access_token)})")
         
-        logger.info(f"Fyers OAuth2 successful for client: {settings.FYERS_CLIENT_ID[:4]}***")
-        return {
-            "status": "success",
-            "access_token": access_token,
-            "expires_in": expires_in,
-            "token_type": response.get("token_type", "Bearer") if isinstance(response, dict) else "Bearer",
-            "message": "Access token saved. Fyers API is now authenticated.",
-        }
+        logger.info(f"Fyers OAuth2 successful for client: {client_id[:4]}***")
+        frontend_url = settings.FRONTEND_URL or "http://localhost:3000"
+        return RedirectResponse(url=f"{frontend_url}/settings?fyers=connected")
     
     except aiohttp.ClientError as e:
         logger.error(f"Fyers callback network error: {str(e)}")
         logger.error(traceback.format_exc())
-        return Response(content="Network error while contacting Fyers API", status_code=502)
+        frontend_url = settings.FRONTEND_URL or "http://localhost:3000"
+        return RedirectResponse(url=f"{frontend_url}/settings?fyers=failed&reason=network_error")
     except Exception as e:
         logger.error(f"Fyers callback unexpected error: {str(e)}")
         logger.error(traceback.format_exc())
-        return Response(content="Internal server error in Fyers callback", status_code=500)
-
-
-def _fyers_error_page(title: str, message: str, icon: str) -> Response:
-    """Generate a user-friendly HTML error page with auto-redirect."""
-    html_content = f"""<!DOCTYPE html>
-<html>
-<head>
-    <title>Fyers Login - {title}</title>
-    <style>
-        body {{ font-family: Arial, sans-serif; text-align: center; padding: 50px; background: #0a0a0a; color: #fff; }}
-        .error-box {{ background: #1a1a1a; border: 1px solid #ff6b35; color: #fff; padding: 30px; border-radius: 12px; max-width: 500px; margin: 0 auto; box-shadow: 0 0 20px rgba(255, 107, 53, 0.2); }}
-        .button {{ display: inline-block; margin-top: 20px; padding: 12px 24px; background: linear-gradient(135deg, #ff6b35, #f7931a); color: #000; text-decoration: none; border-radius: 8px; font-weight: 600; }}
-    </style>
-    <script>
-        setTimeout(() => {{
-            window.location.href = '/api/v1/fyers/login';
-        }}, 5000);
-    </script>
-</head>
-<body>
-    <div class="error-box">
-        <h2>{icon} {title}</h2>
-        <p>{message}</p>
-        <p style="font-size: 0.9em; color: #888; margin-top: 10px;">Redirecting automatically in 5 seconds...</p>
-        <a href="/api/v1/fyers/login" class="button">Try Again</a>
-    </div>
-</body>
-</html>"""
-    return Response(content=html_content, status_code=400, media_type="text/html")
+        frontend_url = settings.FRONTEND_URL or "http://localhost:3000"
+        return RedirectResponse(url=f"{frontend_url}/settings?fyers=failed&reason=unexpected_error")
 
 
 @router.get("/token-status")
@@ -292,16 +362,18 @@ async def fyers_token_status():
 
 
 @router.post("/logout")
-async def fyers_logout():
+async def fyers_logout(current_user=Depends(require_admin)):
     """
     Clear Fyers token (logout).
+    Admin only.
     """
     try:
         db = SessionLocal()
         db.query(FyersToken).delete()
         db.commit()
         db.close()
-        settings.FYERS_ACCESS_TOKEN = ""
+        settings.FYERS_ACCESS_TOKEN = None
+        clear_fyers_token()
         return {"status": "success", "message": "Fyers token cleared"}
     except Exception as e:
         logger.error(f"Failed to clear Fyers token: {str(e)}")
@@ -314,12 +386,8 @@ async def fyers_status():
     Validate Fyers token by calling Fyers profile API.
     Returns real connection status with token expiry info.
     """
-    from app.services.fyers_token import get_fyers_token
+    from app.services.fyers_token import get_fyers_token, get_fyers_token_status
     from app.services.fyers_api import fyers_api_client
-    from datetime import datetime, time
-    from zoneinfo import ZoneInfo
-    
-    IST = ZoneInfo("Asia/Kolkata")
     
     # Get token from storage
     token = get_fyers_token()
@@ -335,7 +403,6 @@ async def fyers_status():
     
     # Check token expiry (Fyers tokens expire at 6:30 AM IST daily)
     try:
-        from app.services.fyers_token import get_fyers_token_status
         token_status = get_fyers_token_status()
         
         if not token_status.get("valid", False):

@@ -36,38 +36,37 @@ class RedisTickStore:
 
     def __init__(
         self,
-        host: str = "localhost",
-        port: int = 6379,
-        db: int = 0,
-        password: Optional[str] = None,
+        url: str = None,
         ttl_seconds: int = 86400,
     ):
-        self.host = host
-        self.port = port
-        self.db = db
-        self.password = password or None
+        from app.core.config import settings
+        self.url = url or settings.REDIS_URL
+        if not self.url:
+            raise RuntimeError("REDIS_URL not configured in environment")
         self.ttl = ttl_seconds
         self._client = None
         self._connected = False
+        self._host = None
+        self._port = None
 
     async def connect(self) -> bool:
         if not HAS_REDIS:
             logger.error("redis not installed. Run: pip install redis")
             return False
         try:
-            from app.core.config import settings
-
-            self._client = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
-            redis_address = urlparse(settings.REDIS_URL)
-            logger.info("Connecting to Redis at %s:%s", redis_address.hostname, redis_address.port or 6379)
+            parsed = urlparse(self.url)
+            self._host = parsed.hostname
+            self._port = parsed.port or 6379
+            logger.info("Connecting to Redis at %s:%s", self._host, self._port)
+            self._client = aioredis.from_url(self.url, decode_responses=True)
             await self._client.ping()
             self._connected = True
-            logger.info("Redis connected at %s:%s", redis_address.hostname, redis_address.port or 6379)
+            logger.info("Redis connected successfully at %s:%s", self._host, self._port)
             return True
         except Exception as e:
             logger.error(f"Redis connection failed: {e}")
             self._connected = False
-            return False
+            raise RuntimeError(f"Redis connection failed: {e}")
 
     async def close(self):
         if self._client:
@@ -153,9 +152,4 @@ class RedisTickStore:
 
 
 # Global singleton instance
-redis_tick_store = RedisTickStore(
-    host=__import__("os").getenv("REDIS_HOST", "localhost"),
-    port=int(__import__("os").getenv("REDIS_PORT", "6379")),
-    db=int(__import__("os").getenv("REDIS_DB", "0")),
-    password=__import__("os").getenv("REDIS_PASSWORD", "") or None,
-)
+redis_tick_store = RedisTickStore()

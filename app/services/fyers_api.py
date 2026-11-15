@@ -12,72 +12,18 @@ import aiohttp
 
 from app.core.config import settings
 from app.services.fyers_token import get_fyers_token
+from app.core.symbol_map import to_fyers
 
 logger = logging.getLogger(__name__)
 IST = ZoneInfo("Asia/Kolkata")
 
-FYERS_API_BASE = "https://api.fyers.in/api/v3"
+FYERS_API_BASE = "https://api-t1.fyers.in/api"
 FYERS_DATA_BASE = "https://api-t1.fyers.in/data"
-
-# Common display names -> exact Fyers tickers
-SYMBOL_ALIASES = {
-    "NIFTY": "NSE:NIFTY50-INDEX",
-    "NIFTY50": "NSE:NIFTY50-INDEX",
-    "NIFTY 50": "NSE:NIFTY50-INDEX",
-    "BANKNIFTY": "NSE:NIFTYBANK-INDEX",
-    "BANK NIFTY": "NSE:NIFTYBANK-INDEX",
-    "NIFTY BANK": "NSE:NIFTYBANK-INDEX",
-    "NIFTYBANK": "NSE:NIFTYBANK-INDEX",
-    "FINNIFTY": "NSE:FINNIFTY-INDEX",
-    "MIDCPNIFTY": "NSE:MIDCPNIFTY-INDEX",
-    "SENSEX": "BSE:SENSEX-INDEX",
-    "BANKEX": "BSE:BANKEX-INDEX",
-    "RELIANCE": "NSE:RELIANCE-EQ",
-    "TCS": "NSE:TCS-EQ",
-    "HDFC BANK": "NSE:HDFCBANK-EQ",
-    "HDFCBANK": "NSE:HDFCBANK-EQ",
-    "SBIN": "NSE:SBIN-EQ",
-    "INFY": "NSE:INFY-EQ",
-}
 
 
 def normalize_symbol(symbol: str) -> str:
     """Map a display name (e.g. 'NIFTY 50') to a Fyers ticker. Exchange-prefixed symbols pass through."""
-    s = (symbol or "").strip()
-    if ":" in s:
-        return s
-    key = " ".join(s.upper().split())
-    if key in SYMBOL_ALIASES:
-        return SYMBOL_ALIASES[key]
-    # Unknown bare name: assume NSE equity
-    return f"NSE:{key.replace(' ', '')}-EQ" if key else s
-
-
-def map_to_fyers_symbol(symbol: str) -> str:
-    """
-    Map user-friendly symbol names to exact Fyers ticker format.
-    
-    Args:
-        symbol: User-friendly symbol (e.g., "NIFTY 50", "BANKNIFTY", "SENSEX")
-        
-    Returns:
-        Exact Fyers ticker format (e.g., "NSE:NIFTY50-INDEX", "NSE:NIFTYBANK-INDEX", "BSE:SENSEX-INDEX")
-    """
-    if not symbol:
-        return symbol
-    
-    symbol_upper = symbol.upper().strip()
-    
-    # Handle specific index mappings
-    if symbol_upper == "NIFTY 50":
-        return "NSE:NIFTY50-INDEX"
-    elif symbol_upper == "BANKNIFTY":
-        return "NSE:NIFTYBANK-INDEX"
-    elif symbol_upper == "SENSEX":
-        return "BSE:SENSEX-INDEX"
-    
-    # For other symbols, use the existing normalize_symbol function
-    return normalize_symbol(symbol)
+    return to_fyers(symbol)
 
 
 class FyersAPIClient:
@@ -161,68 +107,90 @@ class FyersAPIClient:
         """
         Fetch live quotes for multiple symbols from Fyers API v3.
         
-        Fyers Quotes API: POST /api/v3/quotes with body {"symbols": "NSE:NIFTY50-INDEX,NSE:SBIN-EQ"}
+        Fyers Quotes API: GET /api/v3/quotes?symbols=NSE:NIFTY50-INDEX,NSE:SBIN-EQ
         Authorization: client_id:access_token
+        Max 50 symbols per call.
         Returns: { "d": [ { "v": { "symbol": "NSE:NIFTY50-INDEX", "ltp": 24345.85, "ch": 124.35, "chp": 0.51 } } ] }
         """
         # Check if token is available
         auth_header = self._get_auth_header()
         if not auth_header:
             logger.error("Fyers authentication not configured")
-            return {"error": "Fyers not authenticated. Please login via /api/v1/fyers/login"}
+            return {"error": "Fyers not authenticated. Please login via /api/v1/fyers/connect"}
         
         session = await self._get_session()
         
-        # Fyers quotes endpoint expects symbols as comma-separated string in POST body
-        symbols_param = ",".join(normalize_symbol(x) for x in symbols)
-        url = f"{FYERS_DATA_BASE}/quotes"
-        payload = {"symbols": symbols_param}
+        # Normalize all symbols
+        fyers_symbols = [normalize_symbol(s) for s in symbols]
         
-        try:
-            async with session.post(url, json=payload, headers={"Authorization": auth_header, "Content-Type": "application/json"}) as resp:
-                if resp.status != 200:
-                    error_text = await resp.text()
-                    logger.error(f"Fyers quotes API error: HTTP {resp.status} - {error_text}")
-                    if resp.status == 401:
-                        return {"error": "Fyers token expired or invalid. Please re-login."}
-                    return {}
-                
-                data = await resp.json()
-                
-                if data.get("code") != 200:
-                    logger.error(f"Fyers quotes error code: {data.get('code')} - {data.get('message')}")
-                    if data.get("code") == 401:
-                        return {"error": "Fyers token expired or invalid. Please re-login."}
-                    return {}
-                
-                result = {}
-                for item in data.get("d", []):
-                    v = item.get("v", {})
-                    symbol = v.get("symbol")
-                    if symbol:
-                        result[symbol] = {
-                            "symbol": symbol,
-                            "ltp": v.get("ltp"),
-                            "change": v.get("ch"),
-                            "change_percent": v.get("chp"),
-                            "open": v.get("open"),
-                            "high": v.get("high"),
-                            "low": v.get("low"),
-                            "close": v.get("close"),
-                            "volume": v.get("volume"),
-                            "source": "fyers_api_v3",
-                            "updated_at": datetime.now(IST).isoformat(),
-                        }
-                
-                logger.info(f"Fetched quotes for {len(result)} symbols from Fyers API")
-                return result
-                
-        except asyncio.TimeoutError:
-            logger.error("Fyers quotes API timeout")
-            return {}
-        except Exception as e:
-            logger.error(f"Fyers quotes API error: {str(e)}")
-            return {}
+        # Batch in chunks of 50
+        all_results = {}
+        batch_size = 50
+        
+        for i in range(0, len(fyers_symbols), batch_size):
+            batch = fyers_symbols[i:i + batch_size]
+            symbols_param = ",".join(batch)
+            url = f"{FYERS_DATA_BASE}/quotes"
+            params = {"symbols": symbols_param}
+            
+            try:
+                async with session.get(
+                    url, 
+                    params=params, 
+                    headers={"Authorization": auth_header, "Content-Type": "application/json"},
+                    timeout=aiohttp.ClientTimeout(total=15)
+                ) as resp:
+                    if resp.status != 200:
+                        error_text = await resp.text()
+                        logger.error(f"Fyers quotes API error: HTTP {resp.status} - {error_text}")
+                        if resp.status == 401:
+                            return {"error": "Fyers token expired or invalid. Please re-login."}
+                        # Continue with other batches
+                        continue
+                    
+                    data = await resp.json()
+                    
+                    if data.get("code") != 200:
+                        logger.error(f"Fyers quotes error code: {data.get('code')} - {data.get('message')}")
+                        if data.get("code") == 401:
+                            return {"error": "Fyers token expired or invalid. Please re-login."}
+                        # Continue with other batches
+                        continue
+                    
+                    for item in data.get("d", []):
+                        v = item.get("v", {})
+                        symbol = v.get("symbol")
+                        if symbol:
+                            all_results[symbol] = {
+                                "symbol": symbol,
+                                "ltp": v.get("ltp"),
+                                "change": v.get("ch"),
+                                "change_percent": v.get("chp"),
+                                "open": v.get("open"),
+                                "high": v.get("high"),
+                                "low": v.get("low"),
+                                "close": v.get("close"),
+                                "volume": v.get("volume"),
+                                "source": "fyers_api_v3",
+                                "updated_at": datetime.now(IST).isoformat(),
+                            }
+                    
+                    logger.info(f"Fetched quotes for {len(batch)} symbols from Fyers API")
+                    
+            except asyncio.TimeoutError:
+                logger.error("Fyers quotes API timeout")
+                continue
+            except aiohttp.ClientError as e:
+                logger.error(f"Fyers quotes network error: {e}")
+                continue
+            except Exception as e:
+                logger.error(f"Fyers quotes API error: {str(e)}")
+                continue
+        
+        if not all_results and fyers_symbols:
+            return {"error": "Failed to fetch quotes from Fyers"}
+        
+        return all_results
 
     async def get_profile(self, access_token: str) -> dict:
         """

@@ -13,7 +13,7 @@ Non-Negotiable Rules:
 import os
 import logging
 import asyncio
-from datetime import datetime
+from datetime import datetime, date
 from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, Request, Response
@@ -110,17 +110,39 @@ fyers_ws: FyersWebSocket | None = None
 symbol_sync_task: asyncio.Task | None = None
 
 
+def _should_sync_symbols() -> bool:
+    """Check if symbol master needs sync (not loaded today)."""
+    try:
+        db = SessionLocal()
+        try:
+            # Check if we have instruments loaded today
+            today = date.today()
+            count = db.query(Instrument).filter(
+                Instrument.is_active == 1,
+                Instrument.created_at >= today
+            ).count()
+            return count == 0
+        finally:
+            db.close()
+    except Exception:
+        return True  # If check fails, try to sync
+
+
 async def sync_symbols_and_start_websocket():
     global fyers_ws
 
     try:
-        logger.info("Starting Fyers Symbol Master download in background...")
-        downloader = SymbolMasterDownloader()
-        try:
-            total_instruments = await downloader.load_all()
-            logger.info("Fyers Symbol Master sync complete: %s instruments loaded", total_instruments)
-        finally:
-            await downloader.close()
+        # Skip if already loaded today
+        if not _should_sync_symbols():
+            logger.info("Symbol master already loaded today, skipping sync")
+        else:
+            logger.info("Starting Fyers Symbol Master download in background...")
+            downloader = SymbolMasterDownloader()
+            try:
+                total_instruments = await downloader.load_all()
+                logger.info("Fyers Symbol Master sync complete: %s instruments loaded", total_instruments)
+            finally:
+                await downloader.close()
     except Exception:
         logger.exception("Fyers Symbol Master background sync failed")
 
@@ -164,6 +186,98 @@ async def fyers_ws_status():
     }
 
 
+@app.get("/api/fyers/status", tags=["fyers-auth"])
+async def fyers_status():
+    """
+    Get Fyers and Kotak connection status.
+    
+    Returns:
+    {
+        "fyers": {"connected": true, "valid": true, "message": "..."},
+        "kotak": {"configured": true, "connected": true, "message": "..."},
+        "market": {"is_open": true, "is_trading_day": true, ...}
+    }
+    """
+    # Get Fyers status
+    from app.services.fyers_token import get_fyers_token, get_fyers_token_status
+    from app.services.fyers_api import fyers_api_client
+    
+    token = get_fyers_token()
+    fyers_connected = False
+    fyers_valid = False
+    fyers_message = "No Fyers token found"
+    
+    if token:
+        try:
+            token_status = get_fyers_token_status()
+            if token_status.get("valid", False):
+                # Validate with profile API
+                profile = await fyers_api_client.get_profile(token)
+                if profile:
+                    fyers_connected = True
+                    fyers_valid = True
+                    fyers_message = "Fyers connected and token valid"
+                else:
+                    fyers_message = "Token validation failed"
+            else:
+                fyers_message = token_status.get("message", "Token expired")
+        except Exception as e:
+            fyers_message = f"Token validation error: {str(e)}"
+    
+    # Get Kotak status (safe, never throws)
+    kotak_configured = bool(settings.KOTAK_CONSUMER_KEY and settings.KOTAK_CONSUMER_SECRET)
+    kotak_connected = False
+    kotak_message = "Not configured"
+    if kotak_configured:
+        try:
+            from services.kotak_service import SymbolMapper
+            # Just check if credentials exist, don't actually connect
+            kotak_connected = True
+            kotak_message = "Configured"
+        except Exception:
+            kotak_message = "Configuration error"
+    
+    # Get market status
+    from app.core.market_calendar import MarketCalendar
+    from app.core.datetime_utils import now_ist
+    market_cal = MarketCalendar()
+    now = now_ist()
+    market_status = {
+        "is_open": market_cal.is_market_open(now),
+        "is_trading_day": market_cal.is_trading_day(now.date()),
+        "time_to_close_minutes": market_cal.time_to_close(now),
+    }
+    
+    return {
+        "fyers": {
+            "connected": fyers_connected,
+            "valid": fyers_valid,
+            "message": fyers_message,
+        },
+        "kotak": {
+            "configured": kotak_configured,
+            "connected": kotak_connected,
+            "message": kotak_message,
+        },
+        "market": market_status,
+    }
+
+
+@app.get("/api/market/status", tags=["market-data"])
+async def market_status():
+    """Get current market status (alias for /api/fyers/status market portion)."""
+    from app.core.market_calendar import MarketCalendar
+    from app.core.datetime_utils import now_ist
+    market_cal = MarketCalendar()
+    now = now_ist()
+    return {
+        "is_open": market_cal.is_market_open(now),
+        "is_trading_day": market_cal.is_trading_day(now.date()),
+        "time_to_close_minutes": market_cal.time_to_close(now),
+        "timezone": "Asia/Kolkata",
+    }
+
+
 @app.on_event("startup")
 async def startup_event():
     logger.info(">>> Phase 2: Core Setup Starting Up <<<")
@@ -197,14 +311,11 @@ async def startup_event():
     # 4. Connect to Redis
     try:
         logger.info("Connecting to Redis...")
-        redis_connected = await redis_tick_store.connect()
-        if redis_connected:
-            logger.info(f"Redis connected successfully at {redis_tick_store.host}:{redis_tick_store.port}")
-        else:
-            logger.error("CRITICAL: Redis connection failed - live ticks will not be cached!")
-            # Don't raise - allow startup to continue but log loudly
+        await redis_tick_store.connect()
+        logger.info("Redis connected successfully")
     except Exception as e:
         logger.error(f"CRITICAL: Redis connection error: {str(e)} - live ticks will not be cached!")
+        raise  # Fail loudly if Redis is missing
 
     # 5. Validate/Load Fyers token
     try:

@@ -80,20 +80,20 @@ class Settings(BaseSettings):
         default=None,
         description="Fyers API client ID",
     )
-    FYERS_CLIENT_SECRET: str = Field(
-        default="",
+    FYERS_CLIENT_SECRET: Optional[str] = Field(
+        default=None,
         description="Fyers API secret key",
     )
     FYERS_REDIRECT_URI: Optional[str] = Field(
-        default="http://localhost:8000/api/v1/fyers/callback",
+        default=None,
         description="Fyers OAuth2 redirect URI",
     )
-    FYERS_ACCESS_TOKEN: str = Field(
-        default="",
+    FYERS_ACCESS_TOKEN: Optional[str] = Field(
+        default=None,
         description="Fyers API access token (auto-updated after OAuth)",
     )
-    FYERS_REFRESH_TOKEN: str = Field(
-        default="",
+    FYERS_REFRESH_TOKEN: Optional[str] = Field(
+        default=None,
         description="Fyers API refresh token (if available)",
     )
     FYERS_API_BASE: str = Field(
@@ -132,8 +132,8 @@ class Settings(BaseSettings):
         default=None,
         description="Kotak Neo UCC",
     )
-    KOTAK_ENVIRONMENT: str = Field(
-        default="prod",
+    KOTAK_ENVIRONMENT: Optional[str] = Field(
+        default=None,
         description="Kotak Neo environment: prod or sandbox",
     )
 
@@ -145,29 +145,31 @@ class Settings(BaseSettings):
         description="xAI Grok API key (starts with xai-)",
     )
     XAI_MODEL: Optional[str] = Field(
-        default="grok-beta",
+        default=None,
         description="xAI Grok model name",
     )
 
     # -------------------------------------------------------------------------
     # 7. URLS & CORS (CRITICAL FOR DEPLOYMENT)
     # -------------------------------------------------------------------------
-    BACKEND_URL: str = Field(
-        default="http://localhost:8000",
+    BACKEND_URL: Optional[str] = Field(
+        default=None,
         description="Backend base URL",
     )
-    FRONTEND_URL: str = Field(
-        default="http://localhost:3000",
+    FRONTEND_URL: Optional[str] = Field(
+        default=None,
         description="Frontend base URL",
     )
-    ALLOWED_ORIGINS: str = Field(
-        default="http://localhost:3000,http://127.0.0.1:3000",
+    ALLOWED_ORIGINS: Optional[str] = Field(
+        default=None,
         description="CORS allowed origins (comma-separated)",
     )
 
     @property
     def cors_origins_list(self) -> List[str]:
         """Parse ALLOWED_ORIGINS into a list for CORSMiddleware."""
+        if not self.ALLOWED_ORIGINS:
+            return []
         return [origin.strip() for origin in self.ALLOWED_ORIGINS.split(",") if origin.strip()]
 
     # -------------------------------------------------------------------------
@@ -196,6 +198,14 @@ class Settings(BaseSettings):
     TELEGRAM_CHAT_ID: Optional[str] = Field(
         default=None,
         description="Telegram chat ID",
+    )
+
+    # -------------------------------------------------------------------------
+    # 10. ENCRYPTION
+    # -------------------------------------------------------------------------
+    TOKEN_ENCRYPTION_KEY: Optional[str] = Field(
+        default=None,
+        description="Fernet encryption key for secrets (32 url-safe base64 bytes)",
     )
 
     # -------------------------------------------------------------------------

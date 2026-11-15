@@ -10,10 +10,10 @@ import os
 from pathlib import Path
 from datetime import datetime, timedelta, time
 from typing import Optional
-from zoneinfo import ZoneInfo
+
+from app.core.datetime_utils import IST, now_ist, to_ist, utc_to_epoch
 
 logger = logging.getLogger(__name__)
-IST = ZoneInfo("Asia/Kolkata")
 
 # Token storage file path
 TOKEN_FILE = Path("/workspace/projects/Ai-trading/var/fyers_token.json")
@@ -37,13 +37,14 @@ def save_fyers_token(access_token: str, expires_in: int = 86400, refresh_token: 
     try:
         ensure_token_dir()
         
-        expires_at = datetime.now(IST) + timedelta(seconds=expires_in)
+        created_at = now_ist()
+        expires_at = created_at + timedelta(seconds=expires_in)
         
         token_data = {
             "access_token": access_token,
             "refresh_token": refresh_token,
             "expires_at": expires_at.isoformat(),
-            "created_at": datetime.now(IST).isoformat(),
+            "created_at": created_at.isoformat(),
             "expires_in": expires_in,
         }
         
@@ -79,7 +80,9 @@ def get_fyers_token() -> Optional[str]:
                     # Ensure timezone-aware
                     if expires_at.tzinfo is None:
                         expires_at = expires_at.replace(tzinfo=IST)
-                    now = datetime.now(IST)
+                    else:
+                        expires_at = expires_at.astimezone(IST)
+                    now = now_ist()
                     
                     # Check if token was issued before today's 6:30 AM
                     today_630 = datetime.combine(now.date(), time(6, 30, tzinfo=IST))
@@ -112,8 +115,10 @@ def get_fyers_token() -> Optional[str]:
                     # Ensure timezone-aware
                     if created_at.tzinfo is None:
                         created_at = created_at.replace(tzinfo=IST)
+                    else:
+                        created_at = created_at.astimezone(IST)
                     expires_at = created_at + timedelta(seconds=expires_in)
-                    now = datetime.now(IST)
+                    now = now_ist()
                     
                     today_630 = datetime.combine(now.date(), time(6, 30, tzinfo=IST))
                     if now >= today_630 and expires_at < today_630:
@@ -162,7 +167,9 @@ def get_fyers_token_status() -> dict:
                     # Ensure timezone-aware
                     if expires_at.tzinfo is None:
                         expires_at = expires_at.replace(tzinfo=IST)
-                    now = datetime.now(IST)
+                    else:
+                        expires_at = expires_at.astimezone(IST)
+                    now = now_ist()
                     
                     # Check if token was issued before today's 6:30 AM
                     today_630 = datetime.combine(now.date(), time(6, 30, tzinfo=IST))
@@ -195,8 +202,10 @@ def get_fyers_token_status() -> dict:
                     # Ensure timezone-aware
                     if created_at.tzinfo is None:
                         created_at = created_at.replace(tzinfo=IST)
+                    else:
+                        created_at = created_at.astimezone(IST)
                     expires_at = created_at + timedelta(seconds=expires_in)
-                    now = datetime.now(IST)
+                    now = now_ist()
                     
                     today_630 = datetime.combine(now.date(), time(6, 30, tzinfo=IST))
                     if now >= today_630 and expires_at < today_630:

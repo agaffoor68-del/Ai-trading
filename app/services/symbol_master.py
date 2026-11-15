@@ -10,7 +10,7 @@ Non-Negotiable Rule: Fyers API v3 is the ONLY data source.
 import asyncio
 import io
 import logging
-from datetime import datetime
+from datetime import datetime, date
 from zoneinfo import ZoneInfo
 
 import aiohttp
@@ -30,7 +30,7 @@ SYMBOL_MASTER_FILES = {
 
 # CORRECT Fyers Symbol Master column names based on actual Fyers CSV format
 # Fyers CSVs are headerless with 18 columns in this exact order:
-# fytoken,symbol_ticker,ISIN,lot_size,tick_size,trading_session,last_update_date,expiry_date,instrument_type,scrip_code,symbol,segment,strike_price,option_type,underlying_symbol,underlying_scrip_code,underlying_fytoken,reserved
+# fytoken, symbol_ticker, ISIN, lot_size, tick_size, trading_session, last_update_date, expiry_date, instrument_type, scrip_code, symbol, segment, strike_price, option_type, underlying_symbol, underlying_scrip_code, underlying_fytoken, reserved
 FYERS_COLUMNS = [
     "fytoken",              # 0: fytoken (numeric instrument ID)
     "symbol_ticker",        # 1: symbol_ticker (e.g., NSE:SBIN-EQ) - PRIMARY KEY
@@ -172,7 +172,7 @@ class SymbolMasterDownloader:
                     lot_size = int(row['lot_size']) if row['lot_size'] and row['lot_size'].isdigit() else None
                     strike = float(row['strike_price']) if row['strike_price'] and row['strike_price'].replace('.', '').isdigit() else None
                     
-                    # Parse expiry date
+                    # Parse expiry date - handle multiple formats
                     expiry = None
                     if row['expiry_date']:
                         try:

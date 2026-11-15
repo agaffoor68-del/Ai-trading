@@ -6,12 +6,13 @@ from zoneinfo import ZoneInfo
 
 import aiohttp
 import pandas as pd
+import websockets
 
 from app.core.database import Instrument
 
 logger = logging.getLogger(__name__)
 IST = ZoneInfo("Asia/Kolkata")
-FWS_URL = "wss://api.fyers.in/apiws/v3/"
+FWS_URL = "wss://api-t1.fyers.in/socket/v3/"
 
 
 class FyersWebSocket:
@@ -29,8 +30,6 @@ class FyersWebSocket:
         self._stopped = False
 
     async def connect(self):
-        import websockets
-
         backoff_seconds = 1
         while not self._stopped:
             try:

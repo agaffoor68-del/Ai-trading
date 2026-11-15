@@ -7,15 +7,17 @@ Endpoints for symbol search, quotes, and historical data via Fyers.
 
 import logging
 from typing import List, Optional
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, Query, HTTPException, status
 from pydantic import BaseModel
 from datetime import datetime, time
 from zoneinfo import ZoneInfo
 
 from app.core.config import settings
+from app.core.symbol_map import to_fyers
+from app.core.datetime_utils import IST, now_ist
+from app.core.market_calendar import MarketCalendar
 
 logger = logging.getLogger(__name__)
-IST = ZoneInfo("Asia/Kolkata")
 
 router = APIRouter(tags=["market-data"])
 
@@ -24,83 +26,176 @@ class QuotesRequest(BaseModel):
     symbols: List[str]
 
 
-# ETF/Unwanted suffixes to deprioritize (unless explicitly searched)
-ETF_EXCLUSION_PATTERNS = ["BEES", "ADD", "EW", "ETF", "NIFTYBEES", "NIFTYADD"]
-
-# Noise patterns to EXCLUDE unless explicitly searched (filters obscure indices)
-NOISE_PATTERNS = [
-    "AQL", "GS", "ALPHA", "500", "200", "100", "50", 
-    "MIDCAP", "SMALLCAP", "LARGECAP", "MICROCAP",
-    "AUTO", "PHARMA", "IT", "METAL", "REALTY", "ENERGY",
-    "MEDIA", "FMCG", "PVT", "BANK", "FIN", "COMM",
-    "CHEMICALS", "EV", "GROWSECT", "HOUSING", "INFRA",
-    "PHARMA", "METAL", "REALTY", "ENERGY", "MEDIA"
-]
-
-# Index keywords that should be prioritized
-INDEX_KEYWORDS = ["NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "SENSEX", "BANKEX"]
-
-# Exact match symbols for main indices (symbol_ticker format from Fyers)
-EXACT_INDEX_SYMBOLS = {
-    "NIFTY": "NSE:NIFTY50-INDEX",
-    "BANKNIFTY": "NSE:NIFTYBANK-INDEX",
-    "FINNIFTY": "NSE:FINNIFTY-INDEX",
-    "MIDCPNIFTY": "NSE:MIDCPNIFTY-INDEX",
-    "SENSEX": "BSE:SENSEX-INDEX",
-    "BANKEX": "BSE:BANKEX-INDEX",
-}
-
-# Instrument type priority: Index=1, Futures=2, Options=3, Equity=4, Others=5
-INSTRUMENT_TYPE_PRIORITY = {
-    "13": 1,   # Index
-    "INDEX": 1,
-    "11": 2,   # Futures
-    "FUT": 2,
-    "FUTURE": 2,
-    "12": 3,   # Options
-    "OPT": 3,
-    "OPTION": 3,
-    "10": 4,   # Equity
-    "EQ": 4,
-    "EQUITY": 4,
-    "STK": 4,
-}
+# Initialize market calendar
+market_calendar = MarketCalendar()
 
 
-def is_etf_like(symbol: str) -> bool:
-    """Check if symbol looks like an ETF/unwanted variant."""
-    symbol_upper = symbol.upper()
-    return any(pattern in symbol_upper for pattern in ETF_EXCLUSION_PATTERNS)
-
-
-def is_noise(symbol: str, query: str) -> bool:
+@router.get("/status")
+async def get_market_status():
     """
-    Check if symbol is noise (obscure indices like NIFTY AQL, NIFTY 500, etc.)
-    Returns True if it's noise AND the user didn't explicitly search for it.
-    """
-    symbol_upper = symbol.upper()
-    query_upper = query.upper()
+    Get current market status.
     
-    # If user explicitly searched for the noise term, don't filter it
-    for pattern in NOISE_PATTERNS:
-        if pattern in symbol_upper:
-            # Allow if query contains the pattern (explicit search)
-            if pattern in query_upper:
-                return False
-            return True
-    return False
+    Returns:
+    {
+        "is_open": true/false,
+        "is_trading_day": true/false,
+        "next_open": "2026-01-15T09:15:00+05:30",
+        "next_close": "2026-01-15T15:30:00+05:30",
+        "time_to_close_minutes": 120,
+        "timezone": "Asia/Kolkata"
+    }
+    """
+    now = now_ist()
+    is_open = market_calendar.is_market_open(now)
+    is_trading_day = market_calendar.is_trading_day(now.date())
+    time_to_close = market_calendar.time_to_close(now)
+    
+    # Calculate next open/close
+    if is_open:
+        next_close = datetime.combine(now.date(), time(15, 30), tzinfo=IST)
+        next_open = None
+    else:
+        next_close = None
+        # Find next trading day
+        next_trading_day = market_calendar.next_trading_day(now.date())
+        next_open = datetime.combine(next_trading_day, time(9, 15), tzinfo=IST)
+    
+    return {
+        "is_open": is_open,
+        "is_trading_day": is_trading_day,
+        "next_open": next_open.isoformat() if next_open else None,
+        "next_close": next_close.isoformat() if next_close else None,
+        "time_to_close_minutes": time_to_close,
+        "timezone": "Asia/Kolkata",
+    }
 
 
-def is_index_like(query: str, symbol: str) -> bool:
-    """Check if query matches an index keyword exactly."""
-    query_upper = query.upper()
-    symbol_upper = symbol.upper()
-    return any(keyword == query_upper for keyword in INDEX_KEYWORDS) and any(keyword in symbol_upper for keyword in INDEX_KEYWORDS)
+@router.get("/search")
+async def search_symbols(
+    query: str = Query(..., min_length=1, description="Search query (symbol or name)"),
+    exchange: str = Query(None, description="Filter by exchange e.g., NSE_CM, NSE_FO"),
+    limit: int = Query(20, ge=1, le=100, description="Max results"),
+):
+    """
+    Search symbols from the local PostgreSQL symbol master
+    (parsed from Fyers Symbol Master CSVs).
+    
+    Priority order:
+    1. Exact match on main index (NIFTY → NSE:NIFTY50-INDEX)
+    2. Exact matches on symbol
+    3. Prefix matches
+    4. Main Index instruments (NIFTY, BANKNIFTY, etc.)
+    5. Futures & Options (F&O) - instrument_type 11/12
+    6. Equity
+    7. Noise/ETFs deprioritized or filtered
+    """
+    try:
+        from app.core.database import SessionLocal, Instrument
+        from sqlalchemy import or_, func
 
+        db = SessionLocal()
+        try:
+            query_upper = query.upper()
+            
+            # Check if query is an exact index keyword
+            is_exact_index = query_upper in EXACT_INDEX_SYMBOLS
+            target_index_symbol = EXACT_INDEX_SYMBOLS.get(query_upper)
+            
+            # Fetch more results for better ranking
+            fetch_limit = min(limit * 5, 200)
+            
+            filter_condition = or_(
+                Instrument.symbol.ilike(f"%{query}%"),
+                Instrument.name.ilike(f"%{query}%"),
+            )
+            if exchange:
+                filter_condition = filter_condition & (Instrument.exchange == exchange)
 
-def get_instrument_priority(instrument_type: str) -> int:
-    """Get priority score for instrument type (lower = higher priority)."""
-    return INSTRUMENT_TYPE_PRIORITY.get(instrument_type.upper() if instrument_type else "", 5)
+            results = (
+                db.query(Instrument)
+                .filter(filter_condition)
+                .filter(Instrument.is_active == 1)
+                .limit(fetch_limit)
+                .all()
+            )
+
+            # Convert to list of dicts for ranking
+            result_dicts = [
+                {
+                    "symbol": inst.symbol,
+                    "exchange": inst.exchange,
+                    "name": inst.name,
+                    "fyers_token": inst.fyers_token,
+                    "instrument_type": inst.instrument_type,
+                    "lot_size": inst.lot_size,
+                }
+                for inst in results
+            ]
+
+            # FILTER OUT NOISE before ranking (unless explicitly searched)
+            filtered_results = [
+                item for item in result_dicts 
+                if not is_noise(item.get("symbol", ""), query)
+            ]
+
+            # Rank results
+            def rank_score(item: dict) -> tuple:
+                symbol = item.get("symbol", "").upper()
+                inst_type = item.get("instrument_type", "")
+                
+                # Score components (lower = better)
+                
+                # 0. MAIN INDEX EXACT MATCH (highest priority)
+                # If query is "NIFTY", boost NSE:NIFTY50-INDEX to absolute top
+                main_index_match = 0
+                if is_exact_index and target_index_symbol:
+                    target_clean = target_index_symbol.replace("NSE:", "").replace("-INDEX", "")
+                    main_index_match = 0 if symbol == target_clean or symbol == target_index_symbol else 1
+                else:
+                    main_index_match = 1
+                
+                # 1. Exact match on symbol
+                exact_match = 0 if symbol == query_upper else 1
+                
+                # 2. Starts with query (prefix match)
+                prefix_match = 0 if symbol.startswith(query_upper) else 1
+                
+                # 3. Index keyword exact match (NIFTY, BANKNIFTY, etc.)
+                index_priority = 0 if is_index_like(query, item.get("symbol", "")) else 1
+                
+                # 4. Instrument type priority (Index > FUT > OPT > EQ > Others)
+                type_priority = get_instrument_priority(inst_type)
+                
+                # 5. F&O boost (instrument_type 11/12) for index queries
+                fo_boost = 0
+                if is_index_like(query, item.get("symbol", "")) and inst_type.upper() in ["11", "12", "FUT", "OPT"]:
+                    fo_boost = -1  # Boost F&O for index searches
+                
+                # 6. ETF deprioritization
+                etf_penalty = 10 if is_etf_like(symbol) else 0
+                
+                # 7. Segment priority (FO before CM for indices)
+                segment_priority = 0 if item.get("exchange") == "NSE_FO" else 1
+                
+                return (main_index_match, exact_match, prefix_match, index_priority, type_priority + fo_boost, etf_penalty, segment_priority, symbol)
+
+            # Sort by ranking
+            ranked_results = sorted(filtered_results, key=rank_score)
+            
+            # Apply limit after ranking
+            final_results = ranked_results[:limit]
+
+            return {
+                "query": query,
+                "exchange": exchange or "all",
+                "results": final_results,
+                "total": len(final_results),
+            }
+        finally:
+            db.close()
+    except Exception as e:
+        logger.error(f"Symbol search error: {str(e)}")
+        return {"query": query, "results": [], "total": 0, "error": str(e)}
 
 
 @router.get("/search")
@@ -240,24 +335,21 @@ async def get_quotes(request: QuotesRequest):
     Returns 401 if Fyers token is missing or expired.
     """
     # Apply symbol mapping to all incoming symbols
-    from app.services.fyers_api import map_to_fyers_symbol
-    symbols = [map_to_fyers_symbol(symbol) for symbol in request.symbols]
+    symbols = [to_fyers(symbol) for symbol in request.symbols]
     
     if not symbols:
         return {"quotes": {}, "total": 0, "error": "No symbols provided"}
     
     # Check if Fyers is authenticated before proceeding
-    from app.core.config import settings
     from app.services.fyers_token import get_fyers_token
     
     # Try to get token from persistent storage first
-    token = get_fyers_token() or settings.FYERS_ACCESS_TOKEN
+    token = get_fyers_token()
     if not token:
         logger.warning("Fyers quotes requested but no access token available")
-        from fastapi import HTTPException
         raise HTTPException(
-            status_code=401,
-            detail="Fyers not authenticated. Please login via /api/v1/fyers/login"
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"code": "FYERS_NOT_CONNECTED", "message": "Fyers not authenticated. Please login via /api/v1/fyers/connect"}
         )
     
     try:
@@ -286,35 +378,29 @@ async def get_quotes(request: QuotesRequest):
         
         # Fetch missing symbols from Fyers API in batches
         if missing:
-            batch_size = 50
-            for i in range(0, len(missing), batch_size):
-                batch = missing[i:i + batch_size]
-                logger.info(f"Fetching Fyers quotes batch {i//batch_size + 1}: {len(batch)} symbols")
-                
-                fyers_quotes = await fyers_api_client.get_quotes(batch)
-                
-                # Check if Fyers returned an error
-                if isinstance(fyers_quotes, dict) and fyers_quotes.get("error"):
-                    logger.warning(f"Fyers quotes error: {fyers_quotes['error']}")
-                    if "expired" in fyers_quotes["error"].lower() or "invalid" in fyers_quotes["error"].lower():
-                        from fastapi import HTTPException
-                        raise HTTPException(
-                            status_code=401,
-                            detail="Fyers token expired or invalid. Please re-login."
-                        )
-                    # Add error to all missing symbols
-                    for symbol in batch:
-                        results[symbol] = {
-                            "symbol": symbol,
-                            "ltp": None,
-                            "change": None,
-                            "change_percent": None,
-                            "source": "fyers_api_v3",
-                            "error": fyers_quotes["error"],
-                        }
-                else:
-                    for symbol, quote in fyers_quotes.items():
-                        results[symbol] = quote
+            fyers_quotes = await fyers_api_client.get_quotes(missing)
+            
+            # Check if Fyers returned an error
+            if isinstance(fyers_quotes, dict) and fyers_quotes.get("error"):
+                logger.warning(f"Fyers quotes error: {fyers_quotes['error']}")
+                if "expired" in fyers_quotes["error"].lower() or "invalid" in fyers_quotes["error"].lower():
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail={"code": "FYERS_NOT_CONNECTED", "message": "Fyers token expired or invalid. Please re-login."}
+                    )
+                # Add error to all missing symbols
+                for symbol in missing:
+                    results[symbol] = {
+                        "symbol": symbol,
+                        "ltp": None,
+                        "change": None,
+                        "change_percent": None,
+                        "source": "fyers_api_v3",
+                        "error": fyers_quotes["error"],
+                    }
+            else:
+                for symbol, quote in fyers_quotes.items():
+                    results[symbol] = quote
         
         # Return all results (live + cached)
         response = {
@@ -329,8 +415,7 @@ async def get_quotes(request: QuotesRequest):
         raise
     except Exception as e:
         logger.error(f"Quotes error: {str(e)}")
-        from fastapi import HTTPException
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        raise HTTPException(status_code=502, detail={"code": "FYERS_ERROR", "message": str(e)})
 
 
 INTERVAL_TO_RESOLUTION = {
@@ -360,14 +445,13 @@ async def get_candles(
             detail=f"Unsupported interval '{interval}'. Use one of: {', '.join(INTERVAL_TO_RESOLUTION)}",
         )
 
-    from app.services.fyers_api import map_to_fyers_symbol
-    symbol = map_to_fyers_symbol(symbol)
+    symbol = to_fyers(symbol)
 
-    now = int(datetime.now(IST).timestamp())
+    now = int(now_ist().timestamp())
     result = await fyers_api_client.get_history(symbol, resolution, now - days * 86400, now)
 
     if "error" in result:
-        raise HTTPException(status_code=result.get("status", 502), detail=result["error"])
+        raise HTTPException(status_code=result.get("status", 502), detail={"code": "FYERS_ERROR", "message": result["error"]})
 
     candles = []
     for row in result["candles"]:
@@ -392,6 +476,7 @@ async def get_quote(symbol: str):
     Fyers API v3 is the ONLY data source.
     """
     try:
+        symbol = to_fyers(symbol)
         # Check Redis cache first for latest tick
         from app.services.redis_ws import redis_tick_store
 
@@ -436,7 +521,7 @@ async def get_expiries(
         db = SessionLocal()
         try:
             symbol_upper = symbol.upper()
-            today = datetime.now(IST).date()
+            today = now_ist().date()
             
             # Get unique expiry dates for the symbol's options
             expiries = db.query(Instrument.expiry).filter(
@@ -452,19 +537,22 @@ async def get_expiries(
             db.close()
     except Exception as e:
         logger.error(f"Expiries error for {symbol}: {str(e)}")
-        from fastapi import HTTPException
-        raise HTTPException(status_code=500, detail=f"Failed to fetch expiries: {str(e)}")
+        raise HTTPException(status_code=502, detail={"code": "FYERS_ERROR", "message": f"Failed to fetch expiries: {str(e)}"})
 
 
 class OptionChainRequest(BaseModel):
     symbol: str  # e.g., "NIFTY", "BANKNIFTY"
     expiry: Optional[str] = None  # YYYY-MM-DD format, optional (uses nearest expiry)
+    strikes: int = Query(10, description="Number of ITM/OTM strikes around ATM")
+    raw: bool = Query(False, description="Return raw debug info")
 
 
 @router.get("/option-chain")
 async def get_option_chain(
     symbol: str = Query(..., description="Underlying symbol (e.g., NIFTY, BANKNIFTY)"),
     expiry: Optional[str] = Query(None, description="Expiry date in YYYY-MM-DD format (optional, uses nearest)"),
+    strikes: int = Query(10, ge=1, le=50, description="Number of ITM/OTM strikes around ATM"),
+    raw: bool = Query(False, description="Return raw debug info"),
 ):
     """
     Get option chain for a given index symbol.
@@ -472,12 +560,28 @@ async def get_option_chain(
     Fetches:
     1. Current Spot price of the symbol
     2. Calculates ATM strike
-    3. Fetches 10 ITM + 10 OTM strikes (21 total) from Fyers Symbol Master
-    4. Fetches quotes for 42 tokens (21 CE + 21 PE) in batches
+    3. Fetches strikes ITM + ATM + OTM from Fyers Symbol Master
+    4. Fetches quotes for all tokens in batches
     5. Returns formatted option chain data
     
     Returns:
-    [{"strike": 24350, "call_ltp": 120.4, "call_oi": 287900, "put_ltp": 175.20, "put_oi": 178900}, ...]
+    {
+        "symbol": "NIFTY",
+        "expiry": "2026-01-30",
+        "spot_price": 24350.5,
+        "atm_strike": 24350,
+        "strike_interval": 50,
+        "option_chain": [
+            {
+                "strike": 24200,
+                "is_atm": false,
+                "call": {"symbol": "NSE:NIFTY26JAN24200CE", "ltp": 120.4, "oi": 287900, "oi_change": 1000, "oi_change_pct": 0.35, "volume": 50000, "bid": 119.5, "ask": 121.0},
+                "put": {"symbol": "NSE:NIFTY26JAN24200PE", "ltp": 80.2, "oi": 150000, "oi_change": -500, "oi_change_pct": -0.33, "volume": 30000, "bid": 79.5, "ask": 81.0}
+            },
+            ...
+        ],
+        "expiries": ["2026-01-30", "2026-02-06", ...]
+    }
     """
     try:
         from app.core.database import SessionLocal, Instrument
@@ -485,11 +589,11 @@ async def get_option_chain(
         from app.services.fyers_token import get_fyers_token
         
         # Check Fyers authentication
-        token = get_fyers_token() or settings.FYERS_ACCESS_TOKEN
+        token = get_fyers_token()
         if not token:
             raise HTTPException(
-                status_code=401,
-                detail="Fyers not authenticated. Please login via /api/v1/fyers/login"
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail={"code": "FYERS_NOT_CONNECTED", "message": "Fyers not authenticated. Please login via /api/v1/fyers/connect"}
             )
         
         symbol_upper = symbol.upper()
@@ -500,12 +604,13 @@ async def get_option_chain(
             "BANKNIFTY": "NSE:NIFTYBANK-INDEX",
             "FINNIFTY": "NSE:FINNIFTY-INDEX",
             "MIDCPNIFTY": "NSE:MIDCPNIFTY-INDEX",
+            "SENSEX": "BSE:SENSEX-INDEX",
         }
         
         if symbol_upper not in index_symbol_map:
             raise HTTPException(
                 status_code=400,
-                detail=f"Unsupported symbol: {symbol}. Supported: NIFTY, BANKNIFTY, FINNIFTY, MIDCPNIFTY"
+                detail=f"Unsupported symbol: {symbol}. Supported: NIFTY, BANKNIFTY, FINNIFTY, MIDCPNIFTY, SENSEX"
             )
         
         index_ticker = index_symbol_map[symbol_upper]
@@ -513,16 +618,16 @@ async def get_option_chain(
         # 1. Fetch current spot price
         spot_quote = await fyers_api_client.get_quotes([index_ticker])
         if not spot_quote or index_ticker not in spot_quote:
-            raise HTTPException(status_code=500, detail="Failed to fetch spot price")
+            raise HTTPException(status_code=502, detail={"code": "FYERS_ERROR", "message": "Failed to fetch spot price"})
         
         spot_price = spot_quote[index_ticker].get("ltp")
         if spot_price is None:
-            raise HTTPException(status_code=500, detail="Spot price not available")
+            raise HTTPException(status_code=502, detail={"code": "FYERS_ERROR", "message": "Spot price not available"})
         
         logger.info(f"Spot price for {symbol_upper}: {spot_price}")
         
         # 2. Calculate ATM strike (round to nearest 50 for NIFTY, 100 for BANKNIFTY)
-        if symbol_upper in ["NIFTY", "FINNIFTY", "MIDCPNIFTY"]:
+        if symbol_upper in ["NIFTY", "FINNIFTY", "MIDCPNIFTY", "SENSEX"]:
             strike_interval = 50
         else:  # BANKNIFTY
             strike_interval = 100
@@ -531,12 +636,13 @@ async def get_option_chain(
         logger.info(f"ATM strike for {symbol_upper}: {atm_strike}")
         
         # 3. Determine expiry date
-        if not expiry:
-            # Find nearest expiry from database
-            db = SessionLocal()
-            try:
+        db = SessionLocal()
+        try:
+            today = now_ist().date()
+            
+            if not expiry:
+                # Find nearest expiry from database
                 from sqlalchemy import func
-                today = datetime.now(IST).date()
                 nearest_expiry = db.query(func.min(Instrument.expiry)).filter(
                     Instrument.symbol.ilike(f"%{symbol_upper}%"),
                     Instrument.expiry >= today,
@@ -547,20 +653,23 @@ async def get_option_chain(
                     expiry = nearest_expiry.strftime("%Y-%m-%d")
                 else:
                     raise HTTPException(status_code=404, detail="No expiry found for symbol")
-            finally:
-                db.close()
-        
-        logger.info(f"Using expiry: {expiry} for {symbol_upper}")
-        
-        # 4. Fetch 21 strikes (10 ITM + ATM + 10 OTM) from symbol master
-        strikes = []
-        for i in range(-10, 11):  # -10 to +10
-            strike = atm_strike + (i * strike_interval)
-            strikes.append(strike)
-        
-        # Query symbol master for CE and PE tokens for these strikes
-        db = SessionLocal()
-        try:
+            
+            # Also get all available expiries for the response
+            all_expiries = db.query(Instrument.expiry).filter(
+                Instrument.symbol.ilike(f"%{symbol_upper}%"),
+                Instrument.expiry >= today,
+                Instrument.instrument_type.in_(["12", "OPT", "OPTION"]),
+            ).distinct().order_by(Instrument.expiry.asc()).all()
+            expiry_list = [exp[0].strftime("%Y-%m-%d") for exp in all_expiries if exp[0]]
+            
+            logger.info(f"Using expiry: {expiry} for {symbol_upper}")
+            
+            # 4. Fetch strikes (strikes ITM + ATM + strikes OTM) from symbol master
+            strike_list = []
+            for i in range(-strikes, strikes + 1):
+                strike = atm_strike + (i * strike_interval)
+                strike_list.append(strike)
+            
             expiry_date = datetime.strptime(expiry, "%Y-%m-%d")
             
             # Fetch CE options
@@ -569,7 +678,7 @@ async def get_option_chain(
                 Instrument.expiry == expiry_date,
                 Instrument.instrument_type.in_(["12", "OPT", "OPTION"]),
                 Instrument.option_type == "CE",
-                Instrument.strike.in_([str(s) for s in strikes]),
+                Instrument.strike.in_([str(s) for s in strike_list]),
             ).all()
             
             # Fetch PE options
@@ -578,7 +687,7 @@ async def get_option_chain(
                 Instrument.expiry == expiry_date,
                 Instrument.instrument_type.in_(["12", "OPT", "OPTION"]),
                 Instrument.option_type == "PE",
-                Instrument.strike.in_([str(s) for s in strikes]),
+                Instrument.strike.in_([str(s) for s in strike_list]),
             ).all()
             
             logger.info(f"Found {len(ce_options)} CE and {len(pe_options)} PE options")
@@ -590,11 +699,11 @@ async def get_option_chain(
         finally:
             db.close()
         
-        # 5. Fetch quotes for all 42 tokens in batches
+        # 5. Fetch quotes for all tokens in batches
         all_symbols = []
         strike_to_symbols = {}
         
-        for strike in strikes:
+        for strike in strike_list:
             ce_symbol = ce_tokens.get(strike)
             pe_symbol = pe_tokens.get(strike)
             
@@ -615,43 +724,71 @@ async def get_option_chain(
         
         # 6. Build response
         option_chain = []
-        for strike in strikes:
-            symbols = strike_to_symbols.get(strike, {})
-            ce_symbol = symbols.get("ce")
-            pe_symbol = symbols.get("pe")
+        for strike in strike_list:
+            symbols_map = strike_to_symbols.get(strike, {})
+            ce_symbol = symbols_map.get("ce")
+            pe_symbol = symbols_map.get("pe")
             
             ce_quote = all_quotes.get(ce_symbol, {}) if ce_symbol else {}
             pe_quote = all_quotes.get(pe_symbol, {}) if pe_symbol else {}
             
+            is_atm = (strike == atm_strike)
+            
+            # ITM rule: call ITM if strike < spot, put ITM if strike > spot
+            call_itm = strike < spot_price
+            put_itm = strike > spot_price
+            
             option_chain.append({
                 "strike": strike,
-                "call_ltp": ce_quote.get("ltp"),
-                "call_oi": ce_quote.get("oi") or ce_quote.get("open_interest"),
-                "call_volume": ce_quote.get("volume"),
-                "call_change": ce_quote.get("change"),
-                "call_change_percent": ce_quote.get("change_percent"),
-                "put_ltp": pe_quote.get("ltp"),
-                "put_oi": pe_quote.get("oi") or pe_quote.get("open_interest"),
-                "put_volume": pe_quote.get("volume"),
-                "put_change": pe_quote.get("change"),
-                "put_change_percent": pe_quote.get("change_percent"),
+                "is_atm": is_atm,
+                "call_itm": call_itm,
+                "put_itm": put_itm,
+                "call": {
+                    "symbol": ce_symbol,
+                    "ltp": ce_quote.get("ltp"),
+                    "oi": ce_quote.get("oi") or ce_quote.get("open_interest"),
+                    "oi_change": ce_quote.get("oi_change"),
+                    "oi_change_pct": ce_quote.get("oi_change_percent"),
+                    "volume": ce_quote.get("volume"),
+                    "bid": ce_quote.get("bid"),
+                    "ask": ce_quote.get("ask"),
+                } if ce_symbol else None,
+                "put": {
+                    "symbol": pe_symbol,
+                    "ltp": pe_quote.get("ltp"),
+                    "oi": pe_quote.get("oi") or pe_quote.get("open_interest"),
+                    "oi_change": pe_quote.get("oi_change"),
+                    "oi_change_pct": pe_quote.get("oi_change_percent"),
+                    "volume": pe_quote.get("volume"),
+                    "bid": pe_quote.get("bid"),
+                    "ask": pe_quote.get("ask"),
+                } if pe_symbol else None,
             })
         
-        return {
+        response = {
             "symbol": symbol_upper,
             "expiry": expiry,
             "spot_price": spot_price,
             "atm_strike": atm_strike,
             "strike_interval": strike_interval,
             "option_chain": option_chain,
-            "timestamp": datetime.now(IST).isoformat(),
+            "expiries": expiry_list,
+            "timestamp": now_ist().isoformat(),
         }
+        
+        if raw:
+            response["debug"] = {
+                "all_quotes": all_quotes,
+                "strike_to_symbols": strike_to_symbols,
+            }
+        
+        return response
         
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Option chain error for {symbol}: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to fetch option chain: {str(e)}")
+        raise HTTPException(status_code=502, detail={"code": "FYERS_ERROR", "message": f"Failed to fetch option chain: {str(e)}"})
 
 
 class AISignalResponse(BaseModel):
