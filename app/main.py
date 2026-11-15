@@ -10,18 +10,17 @@ Non-Negotiable Rules:
 6. DATABASE: PostgreSQL ONLY (No SQLite)
 """
 
-import os
 import logging
 import asyncio
-from datetime import datetime, date
+from datetime import date
 from zoneinfo import ZoneInfo
 
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
 from app.core.config import settings
-from app.core.database import engine, SessionLocal, Base, Instrument, init_db
+from app.core.database import SessionLocal, Instrument, init_db
 from app.core.models import User, Subscription  # noqa: F401 - register models with Base.metadata
 from app.core.time_sync import time_syncer
 from app.core.auth import seed_admin_user
@@ -31,11 +30,9 @@ from app.api.v1.endpoints.auth import router as auth_router
 from app.api.v1.endpoints.admin import router as admin_router
 from app.services.symbol_master import SymbolMasterDownloader
 from app.services.redis_ws import redis_tick_store
-from app.services.fyers_websocket import get_fyers_ws_manager, start_fyers_websocket, stop_fyers_websocket, get_fyers_ws_status
+from app.services.fyers_websocket import start_fyers_websocket, stop_fyers_websocket, get_fyers_ws_status
 from app.services.fyers_token import get_fyers_token
-from app.core.symbol_map import to_fyers
 
-import aiohttp
 
 logging.basicConfig(
     level=logging.INFO,
@@ -232,7 +229,6 @@ async def fyers_status():
     kotak_message = "Not configured"
     if kotak_configured:
         try:
-            from services.kotak_service import SymbolMapper
             # Just check if credentials exist, don't actually connect
             kotak_connected = True
             kotak_message = "Configured"

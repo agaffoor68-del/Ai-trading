@@ -6,12 +6,11 @@ Persists Fyers access token to a JSON file for persistence across restarts.
 
 import json
 import logging
-import os
 from pathlib import Path
 from datetime import datetime, timedelta, time
 from typing import Optional
 
-from app.core.datetime_utils import IST, now_ist, to_ist, utc_to_epoch
+from app.core.datetime_utils import IST, now_ist
 
 logger = logging.getLogger(__name__)
 

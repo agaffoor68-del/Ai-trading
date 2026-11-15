@@ -15,8 +15,7 @@ from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 
-from app.core.config import settings
-from app.core.database import SessionLocal, init_db
+from app.core.database import SessionLocal
 from app.core.models import User, Subscription, UserRole, SubscriptionPlan
 
 IST = ZoneInfo("Asia/Kolkata")

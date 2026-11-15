@@ -10,7 +10,6 @@ Integrates all missed features:
 - Redis WebSocket ticks (latest LTP to Redis, candles to PostgreSQL)
 """
 
-import asyncio
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -27,7 +26,7 @@ from app.core.market_calendar import MarketCalendar
 from app.services.auto_login import AutoLoginManager
 from app.services.redis_ws import RedisCandleAggregator, RedisTickStore
 from app.services.telegram_notifier import TelegramNotifier
-from app.services.trailing_stop import TSLState, TrailingStop
+from app.services.trailing_stop import TrailingStop
 
 IST = ZoneInfo("Asia/Kolkata")
 logger = logging.getLogger(__name__)

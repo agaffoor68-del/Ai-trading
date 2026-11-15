@@ -10,7 +10,7 @@ Non-Negotiable Rule: Fyers API v3 is the ONLY data source.
 import asyncio
 import io
 import logging
-from datetime import datetime, date
+from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import aiohttp

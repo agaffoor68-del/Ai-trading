@@ -5,7 +5,7 @@ Login and user registration endpoints.
 """
 
 import logging
-from datetime import datetime, timedelta, time
+from datetime import timedelta
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, EmailStr

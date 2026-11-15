@@ -16,18 +16,15 @@ The access_token must be in format "<client_id>:<access_token>" where:
 The token must be a valid JWT with 3 parts, containing hsm_key and exp claims.
 """
 
-import json
 import logging
 import threading
 import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from typing import Callable, List, Optional
+from typing import Callable, List
 
 from fyers_apiv3.FyersWebsocket.data_ws import FyersDataSocket
 
-from app.core.config import settings
-from app.core.symbol_map import to_fyers
 
 logger = logging.getLogger(__name__)
 IST = ZoneInfo("Asia/Kolkata")

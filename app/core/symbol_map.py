@@ -5,7 +5,7 @@ Maps UI display names to exact Fyers tickers.
 All symbol conversions go through this module.
 """
 
-from typing import Dict, Optional
+from typing import Dict
 
 # Central mapping: UI display name -> Fyers ticker
 SYMBOL_TO_FYERS: Dict[str, str] = {

@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from zoneinfo import ZoneInfo
+from typing import Optional
 
 IST = ZoneInfo("Asia/Kolkata")
 

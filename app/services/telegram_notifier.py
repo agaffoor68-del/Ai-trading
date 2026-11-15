@@ -5,7 +5,6 @@ Sends trading alerts via Telegram Bot API using python-telegram-bot
 or fallback HTTP requests.
 """
 
-import asyncio
 import logging
 from typing import Optional
 

@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session, joinedload
 
-from app.core.auth import require_admin, require_active_subscription, get_db
+from app.core.auth import require_admin
 from app.core.database import SessionLocal
 from app.core.models import User, Subscription, UserRole, SubscriptionPlan
 

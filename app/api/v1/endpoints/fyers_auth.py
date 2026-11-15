@@ -6,13 +6,12 @@ This module handles the daily OAuth2 flow to generate access tokens.
 """
 
 import logging
-import os
 import traceback
 import hashlib
 import aiohttp
 import secrets
-from datetime import datetime, timedelta
-from fastapi import APIRouter, Request, Response, HTTPException, Depends, status
+from datetime import timedelta
+from fastapi import APIRouter, Request, HTTPException, Depends, status
 from fastapi.responses import RedirectResponse
 from cryptography.fernet import Fernet
 from sqlalchemy import text
@@ -21,7 +20,7 @@ from app.core.config import settings
 from app.core.database import SessionLocal
 from app.core.models import FyersToken
 from app.core.auth import require_admin
-from app.core.datetime_utils import IST, now_ist, utc_to_epoch
+from app.core.datetime_utils import now_ist
 from app.services.fyers_token import save_fyers_token, clear_fyers_token
 
 logger = logging.getLogger(__name__)
@@ -139,7 +138,6 @@ async def fyers_connect(
         db = SessionLocal()
         try:
             # Store state with expiry (5 minutes)
-            from app.core.models import Base
             # We'll use a simple approach - store in a key-value manner
             # For production, consider a proper OAuth state table
             stmt = text("""
@@ -387,7 +385,6 @@ async def fyers_status():
     Returns real connection status with token expiry info.
     """
     from app.services.fyers_token import get_fyers_token, get_fyers_token_status
-    from app.services.fyers_api import fyers_api_client
     
     # Get token from storage
     token = get_fyers_token()

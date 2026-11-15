@@ -28,6 +28,7 @@ ntplib==0.4.0
 passlib[bcrypt]==1.7.4
 bcrypt==4.0.1
 python-jose[cryptography]==3.5.0
+cryptography==42.0.8
 python-multipart==0.0.33
 email-validator==2.1.0.post1
 # Fyers API v3 Official SDK
