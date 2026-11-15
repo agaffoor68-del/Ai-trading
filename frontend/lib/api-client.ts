@@ -3,7 +3,10 @@
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "https://ai-trading-9qoa.onrender.com";
+const RAW_API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "https://ai-trading-9qoa.onrender.com";
+
+// Normalize the configured backend base so it never carries a trailing slash.
+const API_BASE_URL = RAW_API_BASE_URL.replace(/\/+$/, "");
 
 export interface ApiError {
   code: string;
@@ -22,9 +25,13 @@ export async function apiFetch<T>(endpoint: string, options: FetchOptions = {}):
     ...headers,
   };
 
-  // Same-origin requests carry the httpOnly session cookie; the Next.js
-  // proxy route adds the Authorization header for the backend.
-  const url = endpoint.startsWith("/api/") ? endpoint : `${API_BASE_URL}${endpoint}`;
+  // Same-origin /api/v1 requests go through the Next.js proxy (which adds
+  // the Authorization header). Anything else is an absolute backend URL or a
+  // path relative to the backend base.
+  const url =
+    endpoint.startsWith("http://") || endpoint.startsWith("https://") || endpoint.startsWith("/api/v1")
+      ? endpoint
+      : `${API_BASE_URL}${endpoint}`;
 
   const response = await fetch(url, {
     ...fetchOptions,

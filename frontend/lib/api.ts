@@ -1,6 +1,6 @@
 import type { SWRConfiguration } from "swr";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "https://ai-trading-9qoa.onrender.com";
+const API_BASE_URL = "https://ai-trading-9qoa.onrender.com/api/v1";
 
 // Error types from backend
 export interface ApiError {
@@ -209,68 +209,69 @@ async function fetcher<T>(url: string, options?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  // Broker status
+  // Broker status (auth/session routes stay same-origin via the Next.js proxy;
+  // backend data endpoints go straight to API_BASE_URL)
   getFyersStatus: () =>
-    fetcher<BrokerStatus["fyers"]>(`/api/v1/fyers/status`),
+    fetcher<BrokerStatus["fyers"]>(`${API_BASE_URL}/fyers/status`),
 
   getFullStatus: () =>
-    fetcher<BrokerStatus>(`/api/fyers/status`),
+    fetcher<BrokerStatus>(`${API_BASE_URL}/fyers/status`),
 
   // Fyers auth
   connectFyers: (clientId: string, clientSecret: string) =>
-    fetcher<FyersConnectResponse>(`/api/v1/fyers/connect`, {
+    fetcher<FyersConnectResponse>(`${API_BASE_URL}/fyers/connect`, {
       method: "POST",
       body: JSON.stringify({ client_id: clientId, client_secret: clientSecret }),
     }),
 
   // Market data
   getMarketStatus: () =>
-    fetcher<MarketStatusResponse>(`/api/market/status`),
+    fetcher<MarketStatusResponse>(`${API_BASE_URL}/market/status`),
 
   searchSymbols: (query: string) =>
-    fetcher<any>(`/api/v1/market/search?query=${encodeURIComponent(query)}`),
+    fetcher<any>(`${API_BASE_URL}/market/search?query=${encodeURIComponent(query)}`),
 
   getMarketQuotes: (symbols: string[]) =>
-    fetcher<QuotesResponse>(`/api/v1/market/quotes`, {
+    fetcher<QuotesResponse>(`${API_BASE_URL}/market/quotes`, {
       method: "POST",
       body: JSON.stringify({ symbols }),
     }),
 
   getCandles: (symbol: string, interval: string, days: number) =>
-    fetcher<CandleData[]>(`/api/v1/market/candles?symbol=${encodeURIComponent(symbol)}&interval=${encodeURIComponent(interval)}&days=${days}`),
+    fetcher<CandleData[]>(`${API_BASE_URL}/market/candles?symbol=${encodeURIComponent(symbol)}&interval=${encodeURIComponent(interval)}&days=${days}`),
 
   getOptionChain: (symbol: string, expiry: string, strikes?: number, raw?: boolean) =>
-    fetcher<OptionChainResponse>(`/api/v1/market/option-chain?symbol=${encodeURIComponent(symbol)}&expiry=${encodeURIComponent(expiry)}${strikes ? `&strikes=${strikes}` : ""}${raw ? `&raw=true` : ""}`),
+    fetcher<OptionChainResponse>(`${API_BASE_URL}/market/option-chain?symbol=${encodeURIComponent(symbol)}&expiry=${encodeURIComponent(expiry)}${strikes ? `&strikes=${strikes}` : ""}${raw ? `&raw=true` : ""}`),
 
   getExpiries: (symbol: string) =>
-    fetcher<ExpiriesResponse>(`/api/v1/market/expiries?symbol=${encodeURIComponent(symbol)}`),
+    fetcher<ExpiriesResponse>(`${API_BASE_URL}/market/expiries?symbol=${encodeURIComponent(symbol)}`),
 
   // AI signals
   getAISignals: (symbols: string[]) =>
-    fetcher<AISignalsResponse>(`/api/v1/market/ai/signals?symbols=${symbols.join(",")}`),
+    fetcher<AISignalsResponse>(`${API_BASE_URL}/market/ai/signals?symbols=${symbols.join(",")}`),
 
   // Execution (via backend)
   placeOrder: (orderData: OrderRequest) =>
-    fetcher<OrderResponse>(`/api/v1/execution/order`, {
+    fetcher<OrderResponse>(`${API_BASE_URL}/execution/order`, {
       method: "POST",
       body: JSON.stringify(orderData),
     }),
 
   getPositions: () =>
-    fetcher<PositionsResponse>(`/api/v1/execution/positions`),
+    fetcher<PositionsResponse>(`${API_BASE_URL}/execution/positions`),
 
   // Admin
   getAdminUsers: () =>
-    fetcher<AdminUsersResponse>(`/api/v1/admin/users`),
+    fetcher<AdminUsersResponse>(`${API_BASE_URL}/admin/users`),
 
   grantAccess: (data: { email: string; plan: string; days: number }) =>
-    fetcher<any>(`/api/v1/admin/subscribe`, {
+    fetcher<any>(`${API_BASE_URL}/admin/subscribe`, {
       method: "POST",
       body: JSON.stringify(data),
     }),
 
   revokeAccess: (userId: number) =>
-    fetcher<any>(`/api/v1/admin/revoke/${userId}`, {
+    fetcher<any>(`${API_BASE_URL}/admin/revoke/${userId}`, {
       method: "DELETE",
     }),
 };

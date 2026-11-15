@@ -53,7 +53,7 @@ export default function BrokerConnectPage() {
   const fetchStatus = useCallback(async () => {
     try {
       setIsLoading(true);
-      const response = await fetch("/api/fyers/status", {
+      const response = await fetch("/api/v1/fyers/status", {
         signal: AbortSignal.timeout(5000),
         credentials: "same-origin",
       });

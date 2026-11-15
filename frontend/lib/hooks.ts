@@ -262,8 +262,8 @@ export function useFyersStatus() {
 
 export function useFullStatus() {
   const { data, error, isLoading, mutate } = useSWR<any>(
-    "/api/fyers/status",
-    createFetcher<any>("/api/fyers/status"),
+    "/api/v1/fyers/status",
+    createFetcher<any>("/api/v1/fyers/status"),
     {
       refreshInterval: 30000,
       revalidateOnFocus: true,

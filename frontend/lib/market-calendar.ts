@@ -10,7 +10,7 @@ export function useMarketStatus() {
 
   const fetchStatus = useCallback(async () => {
     try {
-      const response = await fetch("/api/market/status", {
+      const response = await fetch("/api/v1/market/status", {
         signal: AbortSignal.timeout(5000),
         credentials: "same-origin",
       });
