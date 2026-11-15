@@ -33,6 +33,7 @@ DATABASE_URL = _DATABASE_URL
 
 engine = create_engine(
     DATABASE_URL,
+    hide_parameters=True,
     pool_pre_ping=True,
     pool_size=5,
     max_overflow=10,
@@ -77,13 +78,15 @@ def get_db():
 
 def init_db():
     """Create all tables."""
+    # Register every model even when init_db is called outside app.main.
+    from app.core import models  # noqa: F401
+
     try:
         Base.metadata.create_all(bind=engine)
         # Test the connection
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
         logger.info("Database connection successful")
-    except Exception as e:
-        logger.error(f"Database connection failed: {e}")
-        logger.error(f"DATABASE_URL (sanitized): {DATABASE_URL.split('@')[0]}@***")
+    except Exception:
+        logger.exception("Database initialization failed")
         raise

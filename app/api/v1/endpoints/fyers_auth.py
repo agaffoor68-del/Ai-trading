@@ -14,7 +14,7 @@ from datetime import timedelta
 from fastapi import APIRouter, Request, HTTPException, Depends, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
-from cryptography.fernet import Fernet
+from cryptography.fernet import Fernet, InvalidToken
 from sqlalchemy import text
 
 from app.core.config import settings
@@ -58,10 +58,6 @@ def generate_app_id_hash(client_id: str, client_secret: str) -> str:
 def save_fyers_token_to_db(access_token: str, expires_in: int, refresh_token: str = "") -> bool:
     """Save Fyers access token to PostgreSQL database for persistence across restarts."""
     try:
-        db = SessionLocal()
-        # Delete old tokens
-        db.query(FyersToken).delete()
-        # Create new token record with encrypted tokens
         encrypted_access = _encrypt(access_token)
         encrypted_refresh = _encrypt(refresh_token) if refresh_token else ""
         token_record = FyersToken(
@@ -69,21 +65,25 @@ def save_fyers_token_to_db(access_token: str, expires_in: int, refresh_token: st
             refresh_token=encrypted_refresh,
             expires_in=expires_in
         )
-        db.add(token_record)
-        db.commit()
-        db.close()
+        with SessionLocal() as db:
+            try:
+                db.query(FyersToken).delete()
+                db.add(token_record)
+                db.commit()
+            except Exception:
+                db.rollback()
+                raise
         return True
     except Exception as e:
-        logger.error(f"Failed to save Fyers token to database: {str(e)}")
+        logger.error("DB Error saving Fyers token: %s (%s)", str(e), type(e).__name__, exc_info=True)
         return False
 
 
 def get_fyers_token_from_db() -> dict:
     """Get the latest Fyers token from database (decrypted)."""
     try:
-        db = SessionLocal()
-        token = db.query(FyersToken).order_by(FyersToken.created_at.desc()).first()
-        db.close()
+        with SessionLocal() as db:
+            token = db.query(FyersToken).order_by(FyersToken.created_at.desc()).first()
         if token:
             return {
                 "access_token": _decrypt(token.access_token) if token.access_token else "",
@@ -92,8 +92,15 @@ def get_fyers_token_from_db() -> dict:
                 "created_at": token.created_at.isoformat() if token.created_at else None
             }
         return {}
+    except InvalidToken:
+        logger.exception(
+            "Fyers token decryption failed (InvalidToken): stored token is corrupt or "
+            "TOKEN_ENCRYPTION_KEY does not match the key used to save it. "
+            "Keep the key stable across deployments and log in to Fyers again."
+        )
+        return {}
     except Exception as e:
-        logger.error(f"Failed to get Fyers token from database: {str(e)}")
+        logger.error("DB Error loading Fyers token: %s (%s)", str(e), type(e).__name__, exc_info=True)
         return {}
 
 
@@ -294,7 +301,7 @@ async def fyers_callback(request: Request):
         # Generate token using official SDK (handles appIdHash internally)
         response = session.generate_token()
         
-        logger.info(f"Fyers token response: {response}")
+        logger.info("Fyers token exchange completed (code: %s)", response.get("code") if isinstance(response, dict) else None)
         
         # Check for errors in response
         if isinstance(response, dict) and response.get("code") != 200:
@@ -320,7 +327,7 @@ async def fyers_callback(request: Request):
                 access_token = response["data"].get("access_token")
         
         if not access_token:
-            logger.error(f"Fyers token response: no access_token returned. Response: {response}")
+            logger.error("Fyers token response: no access_token returned")
             frontend_url = settings.FRONTEND_URL or "http://localhost:3000"
             return RedirectResponse(url=f"{frontend_url}/settings?fyers=failed&reason=no_token")
         
@@ -331,15 +338,18 @@ async def fyers_callback(request: Request):
         saved = save_fyers_token_to_db(access_token, expires_in, refresh_token)
         if not saved:
             logger.error("Failed to save Fyers token to database")
+            frontend_url = settings.FRONTEND_URL or "http://localhost:3000"
+            return RedirectResponse(url=f"{frontend_url}/settings?fyers=failed&reason=token_storage_error")
         
         # Also save to file for fyers_token.py utility
-        save_fyers_token(access_token, expires_in, refresh_token)
+        if not save_fyers_token(access_token, expires_in, refresh_token):
+            logger.warning("Fyers token file cache unavailable; token persisted in PostgreSQL")
         
         # Also update in-memory settings for immediate use
         settings.FYERS_ACCESS_TOKEN = access_token
         settings.FYERS_CLIENT_ID = client_id
         settings.FYERS_CLIENT_SECRET = client_secret
-        logger.info(f"Fyers access token saved to database, file, and settings (length: {len(access_token)})")
+        logger.info("Fyers access token committed to PostgreSQL and loaded into settings")
         
         logger.info(f"Fyers OAuth2 successful for client: {client_id[:4]}***")
         frontend_url = settings.FRONTEND_URL or "http://localhost:3000"

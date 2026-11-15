@@ -21,12 +21,12 @@ from sqlalchemy import text
 
 from app.core.config import settings
 from app.core.database import SessionLocal, Instrument, init_db
-from app.core.models import User, Subscription  # noqa: F401 - register models with Base.metadata
+from app.core.models import User, Subscription, FyersToken  # noqa: F401 - register models with Base.metadata
 from app.core.time_sync import time_syncer
 from app.core.auth import seed_admin_user
 from app.api.v1.endpoints.fyers_auth import router as fyers_router
 from app.api.v1.endpoints.market import router as market_router
-from app.api.v1.endpoints.auth import router as auth_router
+from app.api.v1.endpoints.auth import router as auth_router, get_current_user_info, MeResponse
 from app.api.v1.endpoints.admin import router as admin_router
 from app.services.symbol_master import SymbolMasterDownloader
 from app.services.redis_ws import redis_tick_store
@@ -68,6 +68,10 @@ app.add_middleware(
 app.include_router(fyers_router, prefix="/api/v1/fyers", tags=["fyers-auth"])
 app.include_router(market_router, prefix="/api/v1/market", tags=["market-data"])
 app.include_router(auth_router, prefix="/api/v1/auth", tags=["auth"])
+app.add_api_route(
+    "/api/auth/me", get_current_user_info, methods=["GET"],
+    response_model=MeResponse, tags=["auth"],
+)
 app.include_router(admin_router, prefix="/api/v1/admin", tags=["admin"])
 
 
@@ -285,12 +289,10 @@ async def market_status():
 async def startup_event():
     logger.info(">>> Phase 2: Core Setup Starting Up <<<")
 
-    # 1. Initialize PostgreSQL database (creates all tables including User, Subscription)
-    try:
-        init_db()
-        logger.info("PostgreSQL tables initialized")
-    except Exception as e:
-        logger.error(f"Database init error: {str(e)}")
+    # 1. create_all(bind=engine) runs in init_db after all models are registered.
+    # Stop startup on failure so auth never runs against an uninitialized schema.
+    init_db()
+    logger.info("PostgreSQL tables initialized (including fyers_tokens)")
 
     # 2. Seed default admin user (agaffoor68@gmail.com / Abdul@222)
     try:
