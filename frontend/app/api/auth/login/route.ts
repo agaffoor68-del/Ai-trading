@@ -30,13 +30,29 @@ export async function POST(request: NextRequest) {
       cache: "no-store",
     });
 
-    const data = await backendResponse.json();
+    const data = await backendResponse.json().catch(() => null);
 
     if (!backendResponse.ok) {
-      return NextResponse.json(data, { status: backendResponse.status });
+      const detail =
+        data && typeof data === "object" && "detail" in data
+          ? String((data as { detail: unknown }).detail)
+          : `Authentication backend error (status ${backendResponse.status}).`;
+
+      return NextResponse.json({ detail }, { status: backendResponse.status });
     }
 
-    const { access_token: accessToken, expires_in: expiresIn, ...userData } = data;
+    if (!data || typeof data !== "object") {
+      return NextResponse.json(
+        { detail: "Authentication backend returned an unexpected response." },
+        { status: 502 }
+      );
+    }
+
+    const { access_token: accessToken, expires_in: expiresIn, ...userData } = data as {
+      access_token?: string;
+      expires_in?: number;
+      [key: string]: unknown;
+    };
 
     if (!accessToken) {
       return NextResponse.json(

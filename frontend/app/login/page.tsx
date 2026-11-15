@@ -30,21 +30,35 @@ export default function LoginPage() {
         method: "POST",
         body: formData,
         credentials: "include",
+        headers: { Accept: "application/json" },
       });
 
-      const data = await response.json();
+      const contentType = response.headers.get("content-type") || "";
+      const isJson = contentType.includes("application/json");
+      const data = isJson ? await response.json().catch(() => null) : null;
 
       if (!response.ok) {
         // Distinguish between wrong credentials (401), forbidden (403), and other errors
         const status = response.status;
+        const detail =
+          data && typeof data === "object" && "detail" in data
+            ? String((data as { detail: unknown }).detail)
+            : null;
+
         if (status === 401) {
-          setError("Invalid email or password. Please check your credentials.");
+          setError(detail || "Invalid email or password. Please check your credentials.");
         } else if (status === 403) {
-          setError("User account is deactivated. Please contact support.");
+          setError(detail || "User account is deactivated. Please contact support.");
         } else if (status === 429) {
-          setError("Too many login attempts. Please try again later.");
+          setError(detail || "Too many login attempts. Please try again later.");
+        } else if (detail) {
+          setError(`${detail} (status ${status})`);
+        } else if (!isJson) {
+          setError(
+            `Login failed with status ${status}: the server returned an unexpected non-JSON response.`
+          );
         } else {
-          setError(`Login failed (${status}). Please try again.`);
+          setError(`Login failed (status ${status}). Please try again.`);
         }
         return;
       }

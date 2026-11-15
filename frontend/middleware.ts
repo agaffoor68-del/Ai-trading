@@ -68,11 +68,13 @@ export const config = {
   matcher: [
     /*
      * Match all request paths except for the ones starting with:
+     * - api/ (route handlers must never be redirected or rewritten)
+     * - login (public page and its form)
      * - _next/static (static files)
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
      * - public folder
      */
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.png$).*)",
+    "/((?!api/|login(?:/|$)|_next/static|_next/image|favicon.ico|.*\\.png$).*)",
   ],
 }
