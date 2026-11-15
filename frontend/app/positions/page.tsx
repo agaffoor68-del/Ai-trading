@@ -18,7 +18,7 @@ import { Header } from "@/components/Header";
 import useSWR from "swr";
 import { api, type Position, type PositionsResponse } from "@/lib/api";
 
-const fetcher = (url: string) => fetch(url).then((res) => {
+const fetcher = (url: string) => fetch(url, { credentials: "same-origin" }).then((res) => {
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 });

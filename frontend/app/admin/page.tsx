@@ -95,13 +95,10 @@ export default function AdminPage() {
   useEffect(() => {
     const checkAdmin = async () => {
       try {
-        // Try to fetch admin users - will fail if not admin
-        const token = localStorage.getItem("token"); // Assuming JWT in localStorage
-        if (token) {
-          const data = await api.getAdminUsers(token);
-          setIsAdmin(true);
-          setUsers(data.users as AdminUser[]);
-        }
+        // Session is the httpOnly cookie forwarded by the Next.js proxy.
+        const data = await api.getAdminUsers();
+        setIsAdmin(true);
+        setUsers(data.users as AdminUser[]);
       } catch (err) {
         // Not admin or error
         setIsAdmin(false);
@@ -146,10 +143,7 @@ export default function AdminPage() {
 
     setIsLoading(true);
     try {
-      const token = localStorage.getItem("token");
-      if (!token) throw new Error("Not authenticated");
-      
-      await api.revokeAccess(token, userId);
+      await api.revokeAccess(userId);
       setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, is_active: false, subscription_status: "cancelled" } : u)));
       showToast(`Access revoked for ${user.email}`, "success");
     } catch {
@@ -167,11 +161,8 @@ export default function AdminPage() {
 
     setIsLoading(true);
     try {
-      const token = localStorage.getItem("token");
-      if (!token) throw new Error("Not authenticated");
-      
       // Reactivate by granting Pro for 30 days
-      await api.grantAccess(token, { email: user.email, plan: "Pro", days: 30 });
+      await api.grantAccess({ email: user.email, plan: "Pro", days: 30 });
       setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, is_active: true, subscription_status: "active" } : u)));
       showToast(`Access reactivated for ${user.email}`, "success");
     } catch {
@@ -195,10 +186,7 @@ export default function AdminPage() {
 
     setIsLoading(true);
     try {
-      const token = localStorage.getItem("token");
-      if (!token) throw new Error("Not authenticated");
-      
-      await api.grantAccess(token, grantForm);
+      await api.grantAccess(grantForm);
       
       if (existingUser) {
         setUsers((prev) => prev.map((u) => 

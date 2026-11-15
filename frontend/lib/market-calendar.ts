@@ -10,8 +10,9 @@ export function useMarketStatus() {
 
   const fetchStatus = useCallback(async () => {
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://ai-trading-9qoa.onrender.com"}/api/market/status`, {
+      const response = await fetch("/api/market/status", {
         signal: AbortSignal.timeout(5000),
+        credentials: "same-origin",
       });
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);

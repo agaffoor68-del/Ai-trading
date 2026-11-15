@@ -53,8 +53,9 @@ export default function BrokerConnectPage() {
   const fetchStatus = useCallback(async () => {
     try {
       setIsLoading(true);
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://ai-trading-9qoa.onrender.com"}/api/fyers/status`, {
+      const response = await fetch("/api/fyers/status", {
         signal: AbortSignal.timeout(5000),
+        credentials: "same-origin",
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
@@ -120,9 +121,10 @@ export default function BrokerConnectPage() {
     setKotakError(null);
     try {
       // Save credentials to backend (endpoint would need to be created)
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://ai-trading-9qoa.onrender.com"}/api/v1/kotak/save-credentials`, {
+      const response = await fetch("/api/v1/kotak/save-credentials", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
         body: JSON.stringify({
           consumer_key: kotakConsumerKey.trim(),
           consumer_secret: kotakConsumerSecret.trim(),
@@ -140,9 +142,10 @@ export default function BrokerConnectPage() {
       }
 
       // Initiate Kotak login
-      const loginResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://ai-trading-9qoa.onrender.com"}/api/v1/kotak/login`, {
+      const loginResponse = await fetch("/api/v1/kotak/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
         signal: AbortSignal.timeout(10000),
       });
 

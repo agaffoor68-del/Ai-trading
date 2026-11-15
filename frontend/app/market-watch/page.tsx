@@ -30,6 +30,7 @@ interface DisplayItem extends SearchResult {
 const fetcher = async (url: string) => {
   const response = await fetch(url, {
     signal: AbortSignal.timeout(10000),
+    credentials: "same-origin",
   });
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -45,7 +46,7 @@ export default function MarketWatchPage() {
 
   // SWR for search - fetches on query change
   const { data: searchData, error: searchError, isLoading: isSearchLoading, mutate: mutateSearch } = useSWR(
-    query.trim() ? `${API_URL}/api/v1/market/search?query=${encodeURIComponent(query.trim())}` : null,
+    query.trim() ? `/api/v1/market/search?query=${encodeURIComponent(query.trim())}` : null,
     fetcher,
     {
       revalidateOnFocus: false,

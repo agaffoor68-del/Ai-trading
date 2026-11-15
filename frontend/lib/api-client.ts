@@ -16,25 +16,20 @@ interface FetchOptions extends RequestInit {
 
 export async function apiFetch<T>(endpoint: string, options: FetchOptions = {}): Promise<T> {
   const { requireAuth = true, headers = {}, ...fetchOptions } = options;
-  
-  const cookie = document.cookie
-    .split("; ")
-    .find(row => row.startsWith("access_token="));
-  const token = cookie?.split("=")[1];
 
   const headersObj: HeadersInit = {
     "Content-Type": "application/json",
     ...headers,
   };
 
-  if (requireAuth && token) {
-    (headersObj as Record<string, string>)["Authorization"] = `Bearer ${token}`;
-  }
+  // Same-origin requests carry the httpOnly session cookie; the Next.js
+  // proxy route adds the Authorization header for the backend.
+  const url = endpoint.startsWith("/api/") ? endpoint : `${API_BASE_URL}${endpoint}`;
 
-  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+  const response = await fetch(url, {
     ...fetchOptions,
     headers: headersObj,
-    credentials: "include",
+    credentials: "same-origin",
   });
 
   // Handle 401 - redirect to login

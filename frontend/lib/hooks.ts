@@ -7,30 +7,37 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "https://ai-trading-9qoa
 
 // Helper to create fetcher with proper error handling
 const createFetcher = <T,>(key: string) => async (): Promise<T> => {
-  const response = await fetch(`${API_BASE_URL}${key}`, {
+  const response = await fetch(key, {
     signal: AbortSignal.timeout(10000),
-    credentials: "include",
+    credentials: "same-origin",
   });
-  
+
   if (!response.ok) {
     const error = await response.json().catch(() => ({ code: "UNKNOWN", message: `HTTP ${response.status}` })) as { code: string; message: string };
     const err = new Error(error.message || `HTTP ${response.status}`) as Error & { code?: string; status?: number };
     err.code = error.code;
     err.status = response.status;
+
+    if (response.status === 401 && error.code !== "FYERS_NOT_CONNECTED") {
+      if (typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
+        window.location.href = `/login?redirect=${encodeURIComponent(window.location.pathname)}`;
+      }
+    }
+
     throw err;
   }
-  
+
   return response.json();
 };
 
 // Helper for POST requests
 const createPostFetcher = <T,>(key: string, body: any) => async (): Promise<T> => {
-  const response = await fetch(`${API_BASE_URL}${key}`, {
+  const response = await fetch(key, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(10000),
-    credentials: "include",
+    credentials: "same-origin",
   });
   
   if (!response.ok) {

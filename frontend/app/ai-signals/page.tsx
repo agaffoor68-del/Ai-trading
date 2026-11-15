@@ -14,7 +14,9 @@ export default function AISignalsPage() {
 
   const fetchSignals = async () => {
     try {
-      const res = await fetch(API_URL + "/api/v1/ai/signals?symbols=NIFTY,BANKNIFTY,FINNIFTY,MIDCPNIFTY");
+      const res = await fetch("/api/v1/market/ai/signals?symbols=NIFTY,BANKNIFTY,FINNIFTY,MIDCPNIFTY", {
+        credentials: "same-origin",
+      });
       if (!res.ok) throw new Error("HTTP " + res.status);
       const data = await res.json();
       setSignals(data.signals || []);

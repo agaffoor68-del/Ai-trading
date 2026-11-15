@@ -13,6 +13,7 @@ import secrets
 from datetime import timedelta
 from fastapi import APIRouter, Request, HTTPException, Depends, status
 from fastapi.responses import RedirectResponse
+from pydantic import BaseModel
 from cryptography.fernet import Fernet
 from sqlalchemy import text
 
@@ -96,21 +97,29 @@ def get_fyers_token_from_db() -> dict:
         return {}
 
 
+class FyersConnectRequest(BaseModel):
+    client_id: str
+    client_secret: str
+
+
 @router.post("/connect")
 async def fyers_connect(
-    client_id: str,
-    client_secret: str,
+    payload: FyersConnectRequest,
     current_user=Depends(require_admin),
 ):
     """
     Initiate Fyers OAuth2 flow.
-    
-    Takes client_id and secret, saves them encrypted, creates a random state,
-    and returns the Fyers login URL. The frontend then redirects the browser to it.
-    
+
+    Takes client_id and secret in a JSON body, saves them encrypted, creates a
+    random state, and returns the Fyers login URL. The frontend then redirects
+    the browser to it.
+
     Admin only endpoint.
     """
     try:
+        client_id = payload.client_id
+        client_secret = payload.client_secret
+
         if not client_id or not client_secret:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,

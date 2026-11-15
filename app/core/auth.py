@@ -154,16 +154,23 @@ def require_active_subscription(current_user: User = Depends(get_current_user)) 
 def seed_admin_user() -> None:
     """
     Initial Admin Seeder.
-    On startup, check if the admin exists. If not, create one with:
-    - Email: agaffoor68@gmail.com
-    - Password: Abdul@222
-    - Role: ADMIN
+
+    Creates the admin from ADMIN_EMAIL / ADMIN_PASSWORD when it does not exist.
+    If RESET_ADMIN_PASSWORD=1 is set, the existing admin's password hash is
+    replaced once with ADMIN_PASSWORD (the password is never logged).
+    Remove the flag after the reset.
     """
+    from app.core.config import settings
+
+    admin_email = settings.ADMIN_EMAIL
+    admin_password = settings.ADMIN_PASSWORD
+
+    if not admin_email or not admin_password:
+        logger.error("Admin seeder skipped: ADMIN_EMAIL/ADMIN_PASSWORD not configured")
+        return
+
     db = SessionLocal()
     try:
-        admin_email = "agaffoor68@gmail.com"
-        admin_password = "Abdul@222"
-
         existing_admin = (
             db.query(User)
             .filter(User.email == admin_email)
@@ -171,7 +178,18 @@ def seed_admin_user() -> None:
         )
 
         if existing_admin:
-            logger.info(f"Admin user already exists: {admin_email}")
+            if os.getenv("RESET_ADMIN_PASSWORD") == "1":
+                existing_admin.hashed_password = hash_password(admin_password)
+                existing_admin.role = UserRole.ADMIN
+                existing_admin.is_active = True
+                db.commit()
+                logger.info(
+                    "Admin password reset for %s from ADMIN_PASSWORD. "
+                    "Remove RESET_ADMIN_PASSWORD=1 from the environment.",
+                    admin_email,
+                )
+            else:
+                logger.info(f"Admin user already exists: {admin_email}")
             return
 
         admin_user = User(

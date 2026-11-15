@@ -457,6 +457,7 @@ async def get_quotes(request: QuotesRequest):
         logger.error(f"Quotes error: {str(e)}")
         raise HTTPException(status_code=502, detail={"code": "FYERS_ERROR", "message": str(e)})
 
+@router.get("/expiries")
 async def get_expiries(
     symbol: str = Query(..., description="Underlying symbol (e.g., NIFTY, BANKNIFTY)"),
 ):

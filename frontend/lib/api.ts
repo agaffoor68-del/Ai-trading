@@ -211,71 +211,67 @@ async function fetcher<T>(url: string, options?: RequestInit): Promise<T> {
 export const api = {
   // Broker status
   getFyersStatus: () =>
-    fetcher<BrokerStatus["fyers"]>(`${API_BASE_URL}/api/v1/fyers/status`),
+    fetcher<BrokerStatus["fyers"]>(`/api/v1/fyers/status`),
 
   getFullStatus: () =>
-    fetcher<BrokerStatus>(`${API_BASE_URL}/api/fyers/status`),
+    fetcher<BrokerStatus>(`/api/fyers/status`),
 
   // Fyers auth
   connectFyers: (clientId: string, clientSecret: string) =>
-    fetcher<FyersConnectResponse>(`${API_BASE_URL}/api/v1/fyers/connect`, {
+    fetcher<FyersConnectResponse>(`/api/v1/fyers/connect`, {
       method: "POST",
       body: JSON.stringify({ client_id: clientId, client_secret: clientSecret }),
     }),
 
   // Market data
   getMarketStatus: () =>
-    fetcher<MarketStatusResponse>(`${API_BASE_URL}/api/market/status`),
+    fetcher<MarketStatusResponse>(`/api/market/status`),
 
   searchSymbols: (query: string) =>
-    fetcher<any>(`${API_BASE_URL}/api/v1/market/search?query=${encodeURIComponent(query)}`),
+    fetcher<any>(`/api/v1/market/search?query=${encodeURIComponent(query)}`),
 
   getMarketQuotes: (symbols: string[]) =>
-    fetcher<QuotesResponse>(`${API_BASE_URL}/api/v1/market/quotes`, {
+    fetcher<QuotesResponse>(`/api/v1/market/quotes`, {
       method: "POST",
       body: JSON.stringify({ symbols }),
     }),
 
   getCandles: (symbol: string, interval: string, days: number) =>
-    fetcher<CandleData[]>(`${API_BASE_URL}/api/v1/market/candles?symbol=${encodeURIComponent(symbol)}&interval=${encodeURIComponent(interval)}&days=${days}`),
+    fetcher<CandleData[]>(`/api/v1/market/candles?symbol=${encodeURIComponent(symbol)}&interval=${encodeURIComponent(interval)}&days=${days}`),
 
   getOptionChain: (symbol: string, expiry: string, strikes?: number, raw?: boolean) =>
-    fetcher<OptionChainResponse>(`${API_BASE_URL}/api/v1/market/option-chain?symbol=${encodeURIComponent(symbol)}&expiry=${encodeURIComponent(expiry)}${strikes ? `&strikes=${strikes}` : ""}${raw ? `&raw=true` : ""}`),
+    fetcher<OptionChainResponse>(`/api/v1/market/option-chain?symbol=${encodeURIComponent(symbol)}&expiry=${encodeURIComponent(expiry)}${strikes ? `&strikes=${strikes}` : ""}${raw ? `&raw=true` : ""}`),
 
   getExpiries: (symbol: string) =>
-    fetcher<ExpiriesResponse>(`${API_BASE_URL}/api/v1/market/expiries?symbol=${encodeURIComponent(symbol)}`),
+    fetcher<ExpiriesResponse>(`/api/v1/market/expiries?symbol=${encodeURIComponent(symbol)}`),
 
   // AI signals
   getAISignals: (symbols: string[]) =>
-    fetcher<AISignalsResponse>(`${API_BASE_URL}/api/v1/market/ai/signals?symbols=${symbols.join(",")}`),
+    fetcher<AISignalsResponse>(`/api/v1/market/ai/signals?symbols=${symbols.join(",")}`),
 
   // Execution (via backend)
   placeOrder: (orderData: OrderRequest) =>
-    fetcher<OrderResponse>(`${API_BASE_URL}/api/v1/execution/order`, {
+    fetcher<OrderResponse>(`/api/v1/execution/order`, {
       method: "POST",
       body: JSON.stringify(orderData),
     }),
 
   getPositions: () =>
-    fetcher<PositionsResponse>(`${API_BASE_URL}/api/v1/execution/positions`),
+    fetcher<PositionsResponse>(`/api/v1/execution/positions`),
 
   // Admin
-  getAdminUsers: (token: string) =>
-    fetcher<AdminUsersResponse>(`${API_BASE_URL}/api/v1/admin/users`, {
-      headers: { Authorization: `Bearer ${token}` },
-    }),
+  getAdminUsers: () =>
+    fetcher<AdminUsersResponse>(`/api/v1/admin/users`),
 
-  grantAccess: (token: string, data: { email: string; plan: string; days: number }) =>
-    fetcher<any>(`${API_BASE_URL}/api/v1/admin/subscribe`, {
+  grantAccess: (data: { email: string; plan: string; days: number }) =>
+    fetcher<any>(`/api/v1/admin/subscribe`, {
       method: "POST",
-      headers: { Authorization: `Bearer ${token}` },
       body: JSON.stringify(data),
     }),
 
-  revokeAccess: (token: string, userId: number) =>
-    fetcher<any>(`${API_BASE_URL}/api/v1/admin/revoke/${userId}`, {
+  revokeAccess: (userId: number) =>
+    fetcher<any>(`/api/v1/admin/revoke/${userId}`, {
       method: "DELETE",
-      headers: { Authorization: `Bearer ${token}` },
     }),
 };
 
