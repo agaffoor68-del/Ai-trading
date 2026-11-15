@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
 import {
   Settings,
@@ -51,30 +51,10 @@ import { Header } from "@/components/Header";
 
 type Tab = "general" | "api-keys" | "notifications";
 
-interface ApiKey {
-  id: string;
-  label: string;
-  value: string;
-  description: string;
-}
-
-const DEFAULT_API_KEYS: ApiKey[] = [
-  { id: "fyers", label: "Fyers Client ID", value: "", description: "Your Fyers API Client ID" },
-  { id: "fyers-secret", label: "Fyers Client Secret", value: "", description: "Your Fyers API Client Secret" },
-  { id: "kotak", label: "Kotak Consumer Key", value: "", description: "Kotak Neo API Consumer Key" },
-  { id: "kotak-secret", label: "Kotak Consumer Secret", value: "", description: "Kotak Neo API Consumer Secret" },
-  { id: "kotak-totp", label: "Kotak TOTP Secret", value: "", description: "TOTP secret for 2FA" },
-  { id: "kotak-mpin", label: "Kotak MPIN", value: "", description: "6-digit MPIN for Kotak Neo" },
-  { id: "grok", label: "Grok API Key", value: "", description: "xAI Grok API key for AI signals" },
-];
-
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<Tab>("general");
-  const [apiKeys, setApiKeys] = useState<ApiKey[]>(DEFAULT_API_KEYS);
-  const [showValues, setShowValues] = useState<Record<string, boolean>>({});
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
   const [isSaving, setIsSaving] = useState(false);
-  const [testResults, setTestResults] = useState<Record<string, "success" | "error" | "testing">>({});
 
   const showToast = (message: string, type: "success" | "error") => {
     setToast({ message, type });
@@ -84,6 +64,7 @@ export default function SettingsPage() {
   const handleSave = async () => {
     setIsSaving(true);
     try {
+      // Settings would be saved to backend
       await new Promise((resolve) => setTimeout(resolve, 1000));
       showToast("Settings saved successfully", "success");
     } catch {
@@ -93,34 +74,9 @@ export default function SettingsPage() {
     }
   };
 
-  const toggleVisibility = (id: string) => {
-    setShowValues((prev) => ({ ...prev, [id]: !prev[id] }));
-  };
-
-  const handleTestConnection = async (key: ApiKey) => {
-    if (!key.value) {
-      showToast(`Please enter ${key.label} first`, "error");
-      return;
-    }
-    setTestResults((prev) => ({ ...prev, [key.id]: "testing" }));
-    try {
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-      setTestResults((prev) => ({ ...prev, [key.id]: "success" }));
-      showToast(`${key.label} connection successful`, "success");
-    } catch {
-      setTestResults((prev) => ({ ...prev, [key.id]: "error" }));
-      showToast(`${key.label} connection failed`, "error");
-    }
-  };
-
-  const copyToClipboard = (value: string, label: string) => {
-    navigator.clipboard.writeText(value);
-    showToast(`${label} copied to clipboard`, "success");
-  };
-
   const tabs: { id: Tab; label: string; icon: LucideIcon }[] = [
     { id: "general", label: "General", icon: Settings },
-    { id: "api-keys", label: "Broker API Keys", icon: Key },
+    { id: "api-keys", label: "Broker Config", icon: Key },
     { id: "notifications", label: "Notifications", icon: Bell },
   ];
 
@@ -215,18 +171,8 @@ export default function SettingsPage() {
             <div className="p-4 md:p-6">
               {/* General Tab */}
               {activeTab === "general" && <GeneralSettingsTab />}
-              {/* API Keys Tab */}
-              {activeTab === "api-keys" && (
-                <ApiKeysTab
-                  apiKeys={apiKeys}
-                  setApiKeys={setApiKeys}
-                  showValues={showValues}
-                  toggleVisibility={toggleVisibility}
-                  testResults={testResults}
-                  handleTestConnection={handleTestConnection}
-                  copyToClipboard={copyToClipboard}
-                />
-              )}
+              {/* Broker Config Tab */}
+              {activeTab === "api-keys" && <BrokerConfigTab />}
               {/* Notifications Tab */}
               {activeTab === "notifications" && <NotificationsTab />}
             </div>
@@ -269,113 +215,245 @@ function GeneralSettingsTab() {
   );
 }
 
-function ApiKeysTab({
-  apiKeys,
-  setApiKeys,
-  showValues,
-  toggleVisibility,
-  testResults,
-  handleTestConnection,
-  copyToClipboard,
-}: {
-  apiKeys: ApiKey[];
-  setApiKeys: React.Dispatch<React.SetStateAction<ApiKey[]>>;
-  showValues: Record<string, boolean>;
-  toggleVisibility: (id: string) => void;
-  testResults: Record<string, "success" | "error" | "testing">;
-  handleTestConnection: (key: ApiKey) => void;
-  copyToClipboard: (value: string, label: string) => void;
-}) {
+function BrokerConfigTab() {
+  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+  const [showToast, setShowToast] = useState(false);
+
+  const showToastMsg = (message: string, type: "success" | "error") => {
+    setToast({ message, type });
+    setShowToast(true);
+    setTimeout(() => setShowToast(false), 4000);
+  };
+
+  // Fyers config state
+  const [fyersConfig, setFyersConfig] = useState({
+    clientId: "",
+    clientSecret: "",
+    redirectUri: "",
+    isConnected: false,
+    showSecret: false,
+  });
+
+  // Kotak config state
+  const [kotakConfig, setKotakConfig] = useState({
+    consumerKey: "",
+    consumerSecret: "",
+    totpSecret: "",
+    mobileNumber: "",
+    mpin: "",
+    ucc: "",
+    isConnected: false,
+  });
+
+  // Load status on mount
+  useEffect(() => {
+    const loadStatus = async () => {
+      try {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://ai-trading-9qoa.onrender.com"}/api/fyers/status`);
+        if (response.ok) {
+          const data = await response.json();
+          setFyersConfig(prev => ({ ...prev, isConnected: data.fyers?.connected && data.fyers?.valid }));
+          setKotakConfig(prev => ({ ...prev, isConnected: data.kotak?.connected }));
+        }
+      } catch (err) {
+        console.warn("Failed to load broker status:", err);
+      }
+    };
+    loadStatus();
+  }, []);
+
+  const handleFyersSaveAndConnect = async () => {
+    if (!fyersConfig.clientId.trim() || !fyersConfig.clientSecret.trim()) {
+      showToastMsg("Please enter both Fyers Client ID and Secret Key", "error");
+      return;
+    }
+
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://ai-trading-9qoa.onrender.com"}/api/v1/fyers/connect`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          client_id: fyersConfig.clientId.trim(),
+          client_secret: fyersConfig.clientSecret.trim(),
+        }),
+        signal: AbortSignal.timeout(10000),
+      });
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({ message: "Failed" }));
+        throw new Error(err.message || `HTTP ${response.status}`);
+      }
+
+      const data = await response.json();
+      window.location.href = data.auth_url;
+    } catch (err) {
+      showToastMsg(err instanceof Error ? err.message : "Failed to connect Fyers", "error");
+    }
+  };
+
+  const handleKotakSave = async () => {
+    // Kotak credentials saved to backend admin panel
+    showToastMsg("Kotak credentials should be configured in Admin Panel", "error");
+  };
+
   return (
     <div className="space-y-6">
       <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
         <KeyIcon className="w-5 h-5 text-neon-cyan" strokeWidth={2.5} />
-        Broker API Credentials
+        Broker Configuration
       </h3>
       <p className="text-text-secondary text-sm mb-6">
-        Your API keys are encrypted and stored securely. They are never exposed in the frontend code.
+        Configure your broker connections. Credentials are encrypted and stored securely on the backend.
+        The frontend only initiates OAuth flows; sensitive secrets are never stored in the browser.
       </p>
 
       {/* Fyers Section */}
-      <SectionCard title="Fyers API (Market Data)" icon={Database} iconColor="text-neon-cyan">
-        <ApiKeyRow
-          key="fyers"
-          apiKey={apiKeys.find((k) => k.id === "fyers")!}
-          showValue={showValues.fyers}
-          onToggleVisibility={toggleVisibility}
-          testResult={testResults.fyers}
-          onTest={handleTestConnection}
-          onCopy={copyToClipboard}
-          onChange={(v) => setApiKeys((prev) => prev.map((k) => (k.id === "fyers" ? { ...k, value: v } : k)))}
-        />
-        <ApiKeyRow
-          key="fyers-secret"
-          apiKey={apiKeys.find((k) => k.id === "fyers-secret")!}
-          showValue={showValues["fyers-secret"]}
-          onToggleVisibility={toggleVisibility}
-          testResult={testResults["fyers-secret"]}
-          onTest={handleTestConnection}
-          onCopy={copyToClipboard}
-          onChange={(v) => setApiKeys((prev) => prev.map((k) => (k.id === "fyers-secret" ? { ...k, value: v } : k)))}
-        />
+      <SectionCard title="Fyers API v3 (Market Data)" icon={Database} iconColor="text-neon-cyan">
+        <div className="space-y-4">
+          <ConfigRow
+            label="Client ID"
+            value={fyersConfig.clientId}
+            onChange={(v) => setFyersConfig(prev => ({ ...prev, clientId: v }))}
+            placeholder="Enter your Fyers Client ID"
+            showSecret={fyersConfig.showSecret}
+            onToggleSecret={() => setFyersConfig(prev => ({ ...prev, showSecret: !prev.showSecret }))}
+          />
+          <ConfigRow
+            label="Client Secret"
+            value={fyersConfig.clientSecret}
+            onChange={(v) => setFyersConfig(prev => ({ ...prev, clientSecret: v }))}
+            placeholder="Enter your Fyers Secret Key"
+            showSecret={fyersConfig.showSecret}
+            onToggleSecret={() => setFyersConfig(prev => ({ ...prev, showSecret: !prev.showSecret }))}
+            isSecret
+          />
+          <ConfigRow
+            label="Redirect URI"
+            value={fyersConfig.redirectUri || `${process.env.NEXT_PUBLIC_API_URL || "https://ai-trading-9qoa.onrender.com"}/api/v1/fyers/callback`}
+            onChange={(v) => setFyersConfig(prev => ({ ...prev, redirectUri: v }))}
+            placeholder="OAuth redirect URI"
+            disabled
+          />
+          
+          <div className="pt-4 border-t border-glow-border flex gap-3">
+            {fyersConfig.isConnected ? (
+              <motion.button
+                disabled
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                className="flex-1 py-3 rounded-xl bg-gradient-to-r from-neon-green to-neon-cyan text-true-black font-bold cursor-not-allowed opacity-60 flex items-center justify-center gap-2"
+              >
+                <CheckCircle className="w-5 h-5" strokeWidth={2.5} />
+                Fyers Connected
+              </motion.button>
+            ) : (
+              <motion.button
+                onClick={handleFyersSaveAndConnect}
+                whileHover={{ scale: 1.02, boxShadow: "0 0 20px rgba(0, 240, 255, 0.3)" }}
+                whileTap={{ scale: 0.98 }}
+                className="flex-1 py-3 rounded-xl bg-gradient-to-r from-neon-cyan to-neon-purple text-true-black font-bold shadow-glow-cyan hover:shadow-glow-cyan/50 flex items-center justify-center gap-2"
+              >
+                <Save className="w-5 h-5" strokeWidth={2.5} />
+                Save & Connect to Fyers
+              </motion.button>
+            )}
+          </div>
+          
+          <p className="mt-4 text-center text-xs text-text-muted">
+            Clicking "Save & Connect" will store credentials securely and redirect to Fyers OAuth for authorization.
+          </p>
+        </div>
       </SectionCard>
 
       {/* Kotak Section */}
       <SectionCard title="Kotak Neo (Order Execution)" icon={Terminal} iconColor="text-neon-orange">
-        <ApiKeyRow
-          key="kotak"
-          apiKey={apiKeys.find((k) => k.id === "kotak")!}
-          showValue={showValues.kotak}
-          onToggleVisibility={toggleVisibility}
-          testResult={testResults.kotak}
-          onTest={handleTestConnection}
-          onCopy={copyToClipboard}
-          onChange={(v) => setApiKeys((prev) => prev.map((k) => (k.id === "kotak" ? { ...k, value: v } : k)))}
-        />
-        <ApiKeyRow
-          key="kotak-secret"
-          apiKey={apiKeys.find((k) => k.id === "kotak-secret")!}
-          showValue={showValues["kotak-secret"]}
-          onToggleVisibility={toggleVisibility}
-          testResult={testResults["kotak-secret"]}
-          onTest={handleTestConnection}
-          onCopy={copyToClipboard}
-          onChange={(v) => setApiKeys((prev) => prev.map((k) => (k.id === "kotak-secret" ? { ...k, value: v } : k)))}
-        />
-        <ApiKeyRow
-          key="kotak-totp"
-          apiKey={apiKeys.find((k) => k.id === "kotak-totp")!}
-          showValue={showValues["kotak-totp"]}
-          onToggleVisibility={toggleVisibility}
-          testResult={testResults["kotak-totp"]}
-          onTest={handleTestConnection}
-          onCopy={copyToClipboard}
-          onChange={(v) => setApiKeys((prev) => prev.map((k) => (k.id === "kotak-totp" ? { ...k, value: v } : k)))}
-        />
-        <ApiKeyRow
-          key="kotak-mpin"
-          apiKey={apiKeys.find((k) => k.id === "kotak-mpin")!}
-          showValue={showValues["kotak-mpin"]}
-          onToggleVisibility={toggleVisibility}
-          testResult={testResults["kotak-mpin"]}
-          onTest={handleTestConnection}
-          onCopy={copyToClipboard}
-          onChange={(v) => setApiKeys((prev) => prev.map((k) => (k.id === "kotak-mpin" ? { ...k, value: v } : k)))}
-        />
+        <div className="space-y-4">
+          <ConfigRow
+            label="Consumer Key"
+            value={kotakConfig.consumerKey}
+            onChange={(v) => setKotakConfig(prev => ({ ...prev, consumerKey: v }))}
+            placeholder="Kotak Consumer Key"
+            isSecret
+          />
+          <ConfigRow
+            label="Consumer Secret"
+            value={kotakConfig.consumerSecret}
+            onChange={(v) => setKotakConfig(prev => ({ ...prev, consumerSecret: v }))}
+            placeholder="Kotak Consumer Secret"
+            isSecret
+          />
+          <ConfigRow
+            label="TOTP Secret"
+            value={kotakConfig.totpSecret}
+            onChange={(v) => setKotakConfig(prev => ({ ...prev, totpSecret: v }))}
+            placeholder="TOTP Secret for 2FA"
+            isSecret
+          />
+          <ConfigRow
+            label="Mobile Number"
+            value={kotakConfig.mobileNumber}
+            onChange={(v) => setKotakConfig(prev => ({ ...prev, mobileNumber: v }))}
+            placeholder="Registered Mobile Number"
+          />
+          <ConfigRow
+            label="MPIN"
+            value={kotakConfig.mpin}
+            onChange={(v) => setKotakConfig(prev => ({ ...prev, mpin: v }))}
+            placeholder="6-digit MPIN"
+            isSecret
+          />
+          <ConfigRow
+            label="UCC (Optional)"
+            value={kotakConfig.ucc}
+            onChange={(v) => setKotakConfig(prev => ({ ...prev, ucc: v }))}
+            placeholder="UCC"
+          />
+          
+          <div className="pt-4 border-t border-glow-border flex gap-3">
+            {kotakConfig.isConnected ? (
+              <motion.button
+                disabled
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                className="flex-1 py-3 rounded-xl bg-gradient-to-r from-neon-green to-neon-cyan text-true-black font-bold cursor-not-allowed opacity-60 flex items-center justify-center gap-2"
+              >
+                <CheckCircle className="w-5 h-5" strokeWidth={2.5} />
+                Kotak Connected
+              </motion.button>
+            ) : (
+              <motion.button
+                onClick={handleKotakSave}
+                whileHover={{ scale: 1.02, boxShadow: "0 0 20px rgba(249, 115, 22, 0.4)" }}
+                whileTap={{ scale: 0.98 }}
+                className="flex-1 py-3 rounded-xl bg-gradient-to-r from-neon-orange to-neon-red text-white font-bold shadow-glow-orange hover:shadow-glow-orange/50 flex items-center justify-center gap-2"
+              >
+                <Save className="w-5 h-5" strokeWidth={2.5} />
+                Configure Kotak (via Admin Panel)
+              </motion.button>
+            )}
+          </div>
+          
+          <p className="mt-4 text-center text-xs text-text-muted">
+            Kotak Neo credentials are managed via the Admin Panel for security.
+          </p>
+        </div>
       </SectionCard>
 
       {/* AI Section */}
       <SectionCard title="AI Integration" icon={Zap} iconColor="text-neon-purple">
-        <ApiKeyRow
-          key="grok"
-          apiKey={apiKeys.find((k) => k.id === "grok")!}
-          showValue={showValues.grok}
-          onToggleVisibility={toggleVisibility}
-          testResult={testResults.grok}
-          onTest={handleTestConnection}
-          onCopy={copyToClipboard}
-          onChange={(v) => setApiKeys((prev) => prev.map((k) => (k.id === "grok" ? { ...k, value: v } : k)))}
-        />
+        <div className="space-y-4">
+          <ConfigRow
+            label="Grok API Key (xAI)"
+            value=""
+            onChange={() => {}}
+            placeholder="xai-..."
+            isSecret
+            disabled
+          />
+          <p className="text-text-secondary text-sm">
+            Grok API key is configured via environment variables on the backend.
+          </p>
+        </div>
       </SectionCard>
     </div>
   );
@@ -419,7 +497,6 @@ function NotificationsTab() {
 }
 
 // Helper Components
-
 function SettingGroup({ title, items }: { title: string; items: React.ReactNode[] }) {
   return (
     <div className="p-4 rounded-xl bg-card-bg/30 border border-glow-border/50">
@@ -506,71 +583,50 @@ function SectionCard({ title, icon: Icon, iconColor, children }: { title: string
   );
 }
 
-function ApiKeyRow({ apiKey, showValue, onToggleVisibility, testResult, onTest, onCopy, onChange }: {
-  apiKey: ApiKey;
-  showValue: boolean;
-  onToggleVisibility: (id: string) => void;
-  testResult?: "success" | "error" | "testing";
-  onTest: (key: ApiKey) => void;
-  onCopy: (value: string, label: string) => void;
-  onChange: (value: string) => void;
+function ConfigRow({ 
+  label, 
+  value, 
+  onChange, 
+  placeholder, 
+  showSecret = false, 
+  onToggleSecret, 
+  isSecret = false, 
+  disabled = false 
+}: { 
+  label: string; 
+  value: string; 
+  onChange: (v: string) => void; 
+  placeholder: string; 
+  showSecret?: boolean; 
+  onToggleSecret?: () => void; 
+  isSecret?: boolean; 
+  disabled?: boolean;
 }) {
   return (
     <div className="flex items-center gap-3 p-3 rounded-lg bg-true-black/50 border border-glow-border/50">
       <div className="flex-1 min-w-0">
-        <label className="text-xs text-text-muted uppercase tracking-wider block mb-1">{apiKey.label}</label>
+        <label className="text-xs text-text-muted uppercase tracking-wider block mb-1">{label}</label>
         <div className="flex items-center gap-2">
           <input
-            type={showValue ? "text" : "password"}
-            value={apiKey.value}
+            type={(showSecret || !isSecret) ? "text" : "password"}
+            value={value}
             onChange={(e) => onChange(e.target.value)}
-            placeholder="Enter API key..."
-            className="flex-1 pl-4 py-2 bg-card-bg border border-glow-border focus:border-neon-cyan focus:outline-none rounded-lg text-white text-sm font-mono"
+            placeholder={placeholder}
+            disabled={disabled}
+            className="flex-1 pl-4 py-2 bg-card-bg border border-glow-border focus:border-neon-cyan focus:outline-none rounded-lg text-white text-sm font-mono disabled:opacity-50"
           />
-          <motion.button
-            onClick={() => onToggleVisibility(apiKey.id)}
-            whileHover={{ scale: 1.1 }}
-            whileTap={{ scale: 0.9 }}
-            className="p-2 rounded-lg bg-card-bg/50 border border-glow-border text-text-muted hover:text-white hover:border-neon-cyan/50 transition-colors"
-            title={showValue ? "Hide" : "Show"}
-          >
-            {showValue ? <EyeOff className="w-4 h-4" strokeWidth={2} /> : <Eye className="w-4 h-4" strokeWidth={2} />}
-          </motion.button>
+          {(isSecret || showSecret !== undefined) && onToggleSecret && (
+            <motion.button
+              onClick={onToggleSecret}
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.9 }}
+              className="p-2 rounded-lg bg-card-bg/50 border border-glow-border text-text-muted hover:text-white hover:border-neon-cyan/50 transition-colors"
+              title={showSecret ? "Hide" : "Show"}
+            >
+              {showSecret ? <EyeOff className="w-4 h-4" strokeWidth={2} /> : <Eye className="w-4 h-4" strokeWidth={2} />}
+            </motion.button>
+          )}
         </div>
-        <p className="text-[10px] text-text-muted mt-1">{apiKey.description}</p>
-      </div>
-      <div className="flex items-center gap-2">
-        <motion.button
-          onClick={() => onCopy(apiKey.value, apiKey.label)}
-          disabled={!apiKey.value}
-          whileHover={{ scale: 1.1 }}
-          whileTap={{ scale: 0.9 }}
-          className="p-2 rounded-lg bg-card-bg/50 border border-glow-border text-text-muted hover:text-white hover:border-neon-cyan/50 transition-colors disabled:opacity-50"
-          title="Copy"
-        >
-          <Copy className="w-4 h-4" strokeWidth={2} />
-        </motion.button>
-        <motion.button
-          onClick={() => onTest(apiKey)}
-          disabled={testResult === "testing" || !apiKey.value}
-          whileHover={{ scale: 1.1 }}
-          whileTap={{ scale: 0.9 }}
-          className={`p-2 rounded-lg transition-colors ${
-            testResult === "success"
-              ? "bg-neon-green/20 border border-neon-green/30 text-neon-green"
-              : testResult === "error"
-              ? "bg-neon-red/20 border border-neon-red/30 text-neon-red"
-              : testResult === "testing"
-              ? "bg-neon-orange/20 border border-neon-orange/30 text-neon-orange animate-pulse"
-              : "bg-card-bg/50 border border-glow-border text-text-muted hover:bg-neon-cyan/10 hover:border-neon-cyan/50"
-          }`}
-          title={testResult === "success" ? "Connected" : testResult === "error" ? "Failed" : testResult === "testing" ? "Testing..." : "Test Connection"}
-        >
-          {testResult === "success" && <CheckCircle className="w-4 h-4" strokeWidth={2.5} />}
-          {testResult === "error" && <AlertCircle className="w-4 h-4" strokeWidth={2.5} />}
-          {testResult === "testing" && <Loader2 className="w-4 h-4 animate-spin" strokeWidth={2.5} />}
-          {!testResult && <Wifi className="w-4 h-4" strokeWidth={2.5} />}
-        </motion.button>
       </div>
     </div>
   );

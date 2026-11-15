@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Sidebar } from "./Sidebar";
+import { Sidebar, SidebarProvider } from "./Sidebar";
 import { Header } from "./Header";
 import { HeroBanner } from "./HeroBanner";
 import { MarketWatch } from "./MarketWatch";
@@ -19,6 +19,7 @@ function MainChart() {
 export function DashboardLayout() {
   return (
     <SymbolProvider>
+    <SidebarProvider>
     <div className="min-h-screen bg-true-black text-white">
       {/* Sidebar */}
       <Sidebar />
@@ -55,6 +56,7 @@ export function DashboardLayout() {
         </main>
       </div>
     </div>
-     </SymbolProvider>
+    </SidebarProvider>
+    </SymbolProvider>
   );
 }

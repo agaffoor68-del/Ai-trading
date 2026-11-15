@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { motion } from "framer-motion";
 import {
   Users,
@@ -34,145 +34,51 @@ import {
 } from "lucide-react";
 import { Sidebar } from "@/components/Sidebar";
 import { Header } from "@/components/Header";
+import { api } from "@/lib/api";
 
 interface AdminUser {
-  id: string;
+  id: number;
   email: string;
   name: string;
-  role: "admin" | "trader" | "viewer";
-  plan: "free" | "pro" | "enterprise";
-  subscriptionStatus: "active" | "expired" | "cancelled" | "trial";
-  expiryDate: string;
-  createdAt: string;
-  isActive: boolean;
-  lastLogin: string;
-  apiCallsToday: number;
+  role: string;
+  plan: string;
+  subscription_status: string;
+  expiry_date: string | null;
+  created_at: string;
+  is_active: boolean;
+  last_login: string | null;
+  api_calls_today: number;
+  subscription: {
+    plan_type: string;
+    start_date: string | null;
+    end_date: string | null;
+    is_active: boolean;
+  } | null;
 }
 
-const MOCK_USERS: AdminUser[] = [
-  {
-    id: "1",
-    email: "admin@alphatrade.com",
-    name: "Admin User",
-    role: "admin",
-    plan: "enterprise",
-    subscriptionStatus: "active",
-    expiryDate: "2025-12-31",
-    createdAt: "2024-01-15",
-    isActive: true,
-    lastLogin: "2024-11-11 14:30:00",
-    apiCallsToday: 1247,
-  },
-  {
-    id: "2",
-    email: "rajesh.kumar@trader.com",
-    name: "Rajesh Kumar",
-    role: "trader",
-    plan: "pro",
-    subscriptionStatus: "active",
-    expiryDate: "2025-06-15",
-    createdAt: "2024-03-22",
-    isActive: true,
-    lastLogin: "2024-11-11 10:15:00",
-    apiCallsToday: 892,
-  },
-  {
-    id: "3",
-    email: "priya.sharma@investor.com",
-    name: "Priya Sharma",
-    role: "trader",
-    plan: "pro",
-    subscriptionStatus: "active",
-    expiryDate: "2025-08-30",
-    createdAt: "2024-04-10",
-    isActive: true,
-    lastLogin: "2024-11-10 18:45:00",
-    apiCallsToday: 567,
-  },
-  {
-    id: "4",
-    email: "amit.patel@free.com",
-    name: "Amit Patel",
-    role: "viewer",
-    plan: "free",
-    subscriptionStatus: "trial",
-    expiryDate: "2024-12-01",
-    createdAt: "2024-11-01",
-    isActive: true,
-    lastLogin: "2024-11-11 09:30:00",
-    apiCallsToday: 45,
-  },
-  {
-    id: "5",
-    email: "sneha.reddy@expired.com",
-    name: "Sneha Reddy",
-    role: "trader",
-    plan: "pro",
-    subscriptionStatus: "expired",
-    expiryDate: "2024-10-01",
-    createdAt: "2024-02-14",
-    isActive: false,
-    lastLogin: "2024-10-15 12:00:00",
-    apiCallsToday: 0,
-  },
-  {
-    id: "6",
-    email: "vikram.singh@cancelled.com",
-    name: "Vikram Singh",
-    role: "viewer",
-    plan: "free",
-    subscriptionStatus: "cancelled",
-    expiryDate: "2024-09-15",
-    createdAt: "2024-05-20",
-    isActive: false,
-    lastLogin: "2024-09-10 16:20:00",
-    apiCallsToday: 0,
-  },
-  {
-    id: "7",
-    email: "kavya.nair@new.com",
-    name: "Kavya Nair",
-    role: "trader",
-    plan: "pro",
-    subscriptionStatus: "active",
-    expiryDate: "2025-03-20",
-    createdAt: "2024-09-15",
-    isActive: true,
-    lastLogin: "2024-11-11 11:00:00",
-    apiCallsToday: 234,
-  },
-  {
-    id: "8",
-    email: "arjun.mehta@pro.com",
-    name: "Arjun Mehta",
-    role: "trader",
-    plan: "enterprise",
-    subscriptionStatus: "active",
-    expiryDate: "2025-11-30",
-    createdAt: "2024-06-01",
-    isActive: true,
-    lastLogin: "2024-11-11 13:45:00",
-    apiCallsToday: 1890,
-  },
-];
+interface AdminUsersResponse {
+  users: AdminUser[];
+  total: number;
+}
 
-const PLANS = ["free", "pro", "enterprise"] as const;
-const ROLES = ["admin", "trader", "viewer"] as const;
+const PLANS = ["Basic", "Pro"] as const;
+const ROLES = ["ADMIN", "USER"] as const;
 const STATUSES = ["active", "expired", "cancelled", "trial"] as const;
 
 export default function AdminPage() {
-  const [users, setUsers] = useState<AdminUser[]>(MOCK_USERS);
+  const [users, setUsers] = useState<AdminUser[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
   const [grantModalOpen, setGrantModalOpen] = useState(false);
   const [grantForm, setGrantForm] = useState({
     email: "",
-    plan: "pro" as "free" | "pro" | "enterprise",
-    role: "trader" as "admin" | "trader" | "viewer",
+    plan: "Pro" as "Basic" | "Pro",
     days: 30,
   });
   const [editingUser, setEditingUser] = useState<AdminUser | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false);
 
   const filteredUsers = users.filter(
     (u) =>
@@ -185,7 +91,54 @@ export default function AdminPage() {
     setTimeout(() => setToast(null), 4000);
   };
 
-  const handleRevoke = async (userId: string) => {
+  // Check admin role on mount
+  useEffect(() => {
+    const checkAdmin = async () => {
+      try {
+        // Try to fetch admin users - will fail if not admin
+        const token = localStorage.getItem("token"); // Assuming JWT in localStorage
+        if (token) {
+          const data = await api.getAdminUsers(token);
+          setIsAdmin(true);
+          setUsers(data.users as AdminUser[]);
+        }
+      } catch (err) {
+        // Not admin or error
+        setIsAdmin(false);
+      } finally {
+        setIsLoading(false);
+        setAuthChecked(true);
+      }
+    };
+    checkAdmin();
+  }, []);
+
+  // If not admin, show access denied
+  if (authChecked && !isAdmin) {
+    return (
+      <div className="min-h-screen bg-true-black text-white flex items-center justify-center">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="text-center p-8 max-w-md"
+        >
+          <ShieldAlert className="w-16 h-16 mx-auto mb-4 text-neon-red/50" strokeWidth={1.5} />
+          <h1 className="text-2xl font-bold text-white mb-2">Access Denied</h1>
+          <p className="text-text-secondary mb-6">Admin panel is only accessible to administrators.</p>
+          <motion.button
+            onClick={() => window.history.back()}
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            className="px-6 py-3 rounded-xl bg-gradient-to-r from-neon-cyan to-neon-purple text-true-black font-bold shadow-glow-cyan"
+          >
+            Go Back
+          </motion.button>
+        </motion.div>
+      </div>
+    );
+  }
+
+  const handleRevoke = async (userId: number) => {
     const user = users.find((u) => u.id === userId);
     if (!user) return;
 
@@ -193,9 +146,11 @@ export default function AdminPage() {
 
     setIsLoading(true);
     try {
-      // await api.revokeUser(userId);
-      await new Promise((resolve) => setTimeout(resolve, 800));
-      setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, isActive: false, subscriptionStatus: "cancelled" } : u)));
+      const token = localStorage.getItem("token");
+      if (!token) throw new Error("Not authenticated");
+      
+      await api.revokeAccess(token, userId);
+      setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, is_active: false, subscription_status: "cancelled" } : u)));
       showToast(`Access revoked for ${user.email}`, "success");
     } catch {
       showToast("Failed to revoke access", "error");
@@ -204,7 +159,7 @@ export default function AdminPage() {
     }
   };
 
-  const handleReactivate = async (userId: string) => {
+  const handleReactivate = async (userId: number) => {
     const user = users.find((u) => u.id === userId);
     if (!user) return;
 
@@ -212,9 +167,12 @@ export default function AdminPage() {
 
     setIsLoading(true);
     try {
-      // await api.reactivateUser(userId);
-      await new Promise((resolve) => setTimeout(resolve, 800));
-      setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, isActive: true, subscriptionStatus: "active" } : u)));
+      const token = localStorage.getItem("token");
+      if (!token) throw new Error("Not authenticated");
+      
+      // Reactivate by granting Pro for 30 days
+      await api.grantAccess(token, { email: user.email, plan: "Pro", days: 30 });
+      setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, is_active: true, subscription_status: "active" } : u)));
       showToast(`Access reactivated for ${user.email}`, "success");
     } catch {
       showToast("Failed to reactivate access", "error");
@@ -230,42 +188,50 @@ export default function AdminPage() {
     }
 
     const existingUser = users.find((u) => u.email === grantForm.email);
-    if (existingUser && existingUser.isActive) {
+    if (existingUser && existingUser.is_active) {
       showToast("User already has active access", "error");
       return;
     }
 
     setIsLoading(true);
     try {
-      // await api.grantAccess(grantForm);
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      const token = localStorage.getItem("token");
+      if (!token) throw new Error("Not authenticated");
+      
+      await api.grantAccess(token, grantForm);
       
       if (existingUser) {
         setUsers((prev) => prev.map((u) => 
           u.id === existingUser.id 
-            ? { ...u, isActive: true, plan: grantForm.plan, role: grantForm.role, subscriptionStatus: "active", expiryDate: new Date(Date.now() + grantForm.days * 86400000).toISOString().split("T")[0] }
+            ? { ...u, is_active: true, plan: grantForm.plan, subscription_status: "active", expiry_date: new Date(Date.now() + grantForm.days * 86400000).toISOString().split("T")[0] }
             : u
         ));
       } else {
         const newUser: AdminUser = {
-          id: Date.now().toString(),
+          id: Date.now(),
           email: grantForm.email,
           name: grantForm.email.split("@")[0],
-          role: grantForm.role,
+          role: "USER",
           plan: grantForm.plan,
-          subscriptionStatus: "active",
-          expiryDate: new Date(Date.now() + grantForm.days * 86400000).toISOString().split("T")[0],
-          createdAt: new Date().toISOString().split("T")[0],
-          isActive: true,
-          lastLogin: "Never",
-          apiCallsToday: 0,
+          subscription_status: "active",
+          expiry_date: new Date(Date.now() + grantForm.days * 86400000).toISOString().split("T")[0],
+          created_at: new Date().toISOString().split("T")[0],
+          is_active: true,
+          last_login: null,
+          api_calls_today: 0,
+          subscription: {
+            plan_type: grantForm.plan,
+            start_date: new Date().toISOString().split("T")[0],
+            end_date: new Date(Date.now() + grantForm.days * 86400000).toISOString().split("T")[0],
+            is_active: true,
+          },
         };
         setUsers((prev) => [newUser, ...prev]);
       }
       
       showToast(`Access granted to ${grantForm.email} (${grantForm.plan}, ${grantForm.days} days)`, "success");
       setGrantModalOpen(false);
-      setGrantForm({ email: "", plan: "pro", role: "trader", days: 30 });
+setGrantForm({ email: "", plan: "Pro", days: 30 });
     } catch {
       showToast("Failed to grant access", "error");
     } finally {
@@ -281,7 +247,7 @@ export default function AdminPage() {
     if (!editingUser) return;
     setIsLoading(true);
     try {
-      // await api.updateUser(editingUser.id, editingUser);
+      // Backend update would go here
       await new Promise((resolve) => setTimeout(resolve, 800));
       setUsers((prev) => prev.map((u) => (u.id === editingUser.id ? editingUser : u)));
       showToast(`Updated ${editingUser.email}`, "success");
@@ -305,23 +271,22 @@ export default function AdminPage() {
 
   const getRoleColor = (role: string) => {
     switch (role) {
-      case "admin": return "text-neon-purple bg-neon-purple/20 border-neon-purple/30";
-      case "trader": return "text-neon-green bg-neon-green/20 border-neon-green/30";
-      case "viewer": return "text-neon-cyan bg-neon-cyan/20 border-neon-cyan/30";
+      case "ADMIN": return "text-neon-purple bg-neon-purple/20 border-neon-purple/30";
+      case "USER": return "text-neon-green bg-neon-green/20 border-neon-green/30";
       default: return "text-text-muted";
     }
   };
 
   const getPlanColor = (plan: string) => {
     switch (plan) {
-      case "enterprise": return "text-neon-purple bg-neon-purple/20 border-neon-purple/30";
-      case "pro": return "text-neon-green bg-neon-green/20 border-neon-green/30";
-      case "free": return "text-text-muted bg-card-bg/50 border-glow-border";
+      case "Pro": return "text-neon-green bg-neon-green/20 border-neon-green/30";
+      case "Basic": return "text-text-muted bg-card-bg/50 border-glow-border";
       default: return "text-text-muted";
     }
   };
 
-  const formatDate = (dateStr: string) => {
+  const formatDate = (dateStr: string | null) => {
+    if (!dateStr) return "N/A";
     try {
       return new Date(dateStr).toLocaleDateString();
     } catch {
@@ -329,13 +294,26 @@ export default function AdminPage() {
     }
   };
 
-  const formatDateTime = (dateStr: string) => {
+  const formatDateTime = (dateStr: string | null) => {
+    if (!dateStr) return "Never";
     try {
       return new Date(dateStr).toLocaleString();
     } catch {
       return dateStr;
     }
   };
+
+  // Show loading while checking auth
+  if (isLoading && !authChecked) {
+    return (
+      <div className="min-h-screen bg-true-black text-white flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 className="w-8 h-8 animate-spin text-neon-cyan" strokeWidth={2.5} />
+          <span className="text-text-secondary">Checking permissions...</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-true-black text-white">
@@ -359,7 +337,7 @@ export default function AdminPage() {
                 </div>
               </div>
               <motion.button
-                onClick={() => { setGrantForm({ email: "", plan: "pro", role: "trader", days: 30 }); setGrantModalOpen(true); }}
+                onClick={() => { setGrantForm({ email: "", plan: "Pro", days: 30 }); setGrantModalOpen(true); }}
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
                 className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-neon-purple to-neon-cyan text-true-black font-medium hover:opacity-90 transition-opacity shadow-glow-purple"
@@ -398,9 +376,9 @@ export default function AdminPage() {
             className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4"
           >
             <StatCard label="Total Users" value={users.length} icon={Users} color="text-neon-cyan" />
-            <StatCard label="Active Subscriptions" value={users.filter((u) => u.subscriptionStatus === "active").length} icon={ShieldCheck} color="text-neon-green" />
-            <StatCard label="Pro/Enterprise" value={users.filter((u) => u.plan !== "free").length} icon={Shield} color="text-neon-purple" />
-            <StatCard label="API Calls Today" value={users.reduce((sum, u) => sum + u.apiCallsToday, 0).toLocaleString()} icon={Activity} color="text-neon-orange" />
+            <StatCard label="Active Subscriptions" value={users.filter((u) => u.subscription_status === "active").length} icon={ShieldCheck} color="text-neon-green" />
+            <StatCard label="Pro Users" value={users.filter((u) => u.plan === "Pro").length} icon={Shield} color="text-neon-purple" />
+            <StatCard label="API Calls Today" value={users.reduce((sum, u) => sum + u.api_calls_today, 0).toLocaleString()} icon={Activity} color="text-neon-orange" />
           </motion.div>
 
           {/* Users Table */}
@@ -465,52 +443,31 @@ export default function AdminPage() {
                         </div>
                       </td>
                       <td className="px-3 md:px-5 py-3 md:py-4 text-center">
-                        <select
-                          value={user.role}
-                          onChange={(e) => { if (!editingUser) setUsers((prev) => prev.map((u) => u.id === user.id ? { ...u, role: e.target.value as any } : u)); }}
-                          disabled={!!editingUser && editingUser.id !== user.id}
-                          className={`w-auto px-2 py-1 rounded text-xs font-medium bg-transparent border-none text-white appearance-none cursor-pointer ${getRoleColor(user.role)}`}
-                        >
-                          {ROLES.map((r) => (
-                            <option key={r} value={r}>{r.toUpperCase()}</option>
-                          ))}
-                        </select>
+                        <span className={`px-2 py-1 rounded text-xs font-medium ${getRoleColor(user.role)}`}>
+                          {user.role}
+                        </span>
                       </td>
                       <td className="px-3 md:px-5 py-3 md:py-4 text-center">
-                        <select
-                          value={user.plan}
-                          onChange={(e) => { if (!editingUser) setUsers((prev) => prev.map((u) => u.id === user.id ? { ...u, plan: e.target.value as any } : u)); }}
-                          disabled={!!editingUser && editingUser.id !== user.id}
-                          className={`w-auto px-2 py-1 rounded text-xs font-medium bg-transparent border-none text-white appearance-none cursor-pointer ${getPlanColor(user.plan)}`}
-                        >
-                          {PLANS.map((p) => (
-                            <option key={p} value={p}>{p.toUpperCase()}</option>
-                          ))}
-                        </select>
+                        <span className={`px-2 py-1 rounded text-xs font-medium ${getPlanColor(user.plan)}`}>
+                          {user.plan}
+                        </span>
                       </td>
                       <td className="px-3 md:px-5 py-3 md:py-4 text-center">
-                        <select
-                          value={user.subscriptionStatus}
-                          onChange={(e) => { if (!editingUser) setUsers((prev) => prev.map((u) => u.id === user.id ? { ...u, subscriptionStatus: e.target.value as any } : u)); }}
-                          disabled={!!editingUser && editingUser.id !== user.id}
-                          className={`w-auto px-2 py-1 rounded text-xs font-medium bg-transparent border-none text-white appearance-none cursor-pointer ${getStatusColor(user.subscriptionStatus)}`}
-                        >
-                          {STATUSES.map((s) => (
-                            <option key={s} value={s}>{s.toUpperCase()}</option>
-                          ))}
-                        </select>
+                        <span className={`px-2 py-1 rounded text-xs font-medium ${getStatusColor(user.subscription_status)}`}>
+                          {user.subscription_status.toUpperCase()}
+                        </span>
                       </td>
                       <td className="px-3 md:px-5 py-3 md:py-4 text-center font-mono text-text-secondary">
-                        {formatDate(user.expiryDate)}
+                        {formatDate(user.expiry_date)}
                       </td>
                       <td className="px-3 md:px-5 py-3 md:py-4 text-center">
-                        <span className={`w-3 h-3 rounded-full ${user.isActive ? "bg-neon-green" : "bg-neon-red"}`} />
+                        <span className={`w-3 h-3 rounded-full ${user.is_active ? "bg-neon-green" : "bg-neon-red"}`} />
                       </td>
                       <td className="px-3 md:px-5 py-3 md:py-4 text-center text-text-secondary text-sm">
-                        {user.lastLogin === "Never" ? "Never" : formatDateTime(user.lastLogin)}
+                        {formatDateTime(user.last_login)}
                       </td>
                       <td className="px-3 md:px-5 py-3 md:py-4 text-center font-mono text-text-secondary">
-                        {user.apiCallsToday.toLocaleString()}
+                        {user.api_calls_today.toLocaleString()}
                       </td>
                       <td className="px-3 md:px-5 py-3 md:py-4 text-center">
                         <div className="flex items-center justify-center gap-1">
@@ -547,7 +504,7 @@ export default function AdminPage() {
                               >
                                 <Edit className="w-4 h-4" strokeWidth={2.5} />
                               </motion.button>
-                              {user.isActive ? (
+                              {user.is_active ? (
                                 <motion.button
                                   onClick={() => handleRevoke(user.id)}
                                   disabled={isLoading}
@@ -633,43 +590,29 @@ export default function AdminPage() {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label className="text-xs text-text-muted uppercase tracking-wider block mb-1">Plan</label>
+<label className="text-xs text-text-muted uppercase tracking-wider block mb-1">Plan</label>
                     <select
-                      value={grantForm.plan}
-                      onChange={(e) => setGrantForm((prev) => ({ ...prev, plan: e.target.value as any }))}
-                      className="w-full pl-4 pr-10 py-3 bg-card-bg border border-glow-border focus:border-neon-cyan focus:outline-none rounded-xl text-white text-base cursor-pointer appearance-none"
-                    >
-                      {PLANS.map((p) => (
-                        <option key={p} value={p}>{p.toUpperCase()}</option>
-                      ))}
-                    </select>
-                    <ChevronDown className="absolute right-4 top-9 -translate-y-1/2 w-4 h-4 text-text-muted" strokeWidth={2} />
-                  </div>
+                       value={grantForm.plan}
+                       onChange={(e) => setGrantForm((prev) => ({ ...prev, plan: e.target.value as "Basic" | "Pro" }))}
+                       className="w-full pl-4 pr-10 py-3 bg-card-bg border border-glow-border focus:border-neon-cyan focus:outline-none rounded-xl text-white text-base cursor-pointer appearance-none"
+                     >
+                       {PLANS.map((p) => (
+                         <option key={p} value={p}>{p.toUpperCase()}</option>
+                       ))}
+                     </select>
+                     <ChevronDown className="absolute right-4 top-9 -translate-y-1/2 w-4 h-4 text-text-muted" strokeWidth={2} />
+                   </div>
                   <div>
-                    <label className="text-xs text-text-muted uppercase tracking-wider block mb-1">Role</label>
-                    <select
-                      value={grantForm.role}
-                      onChange={(e) => setGrantForm((prev) => ({ ...prev, role: e.target.value as any }))}
-                      className="w-full pl-4 pr-10 py-3 bg-card-bg border border-glow-border focus:border-neon-cyan focus:outline-none rounded-xl text-white text-base cursor-pointer appearance-none"
-                    >
-                      {ROLES.map((r) => (
-                        <option key={r} value={r}>{r.toUpperCase()}</option>
-                      ))}
-                    </select>
-                    <ChevronDown className="absolute right-4 top-9 -translate-y-1/2 w-4 h-4 text-text-muted" strokeWidth={2} />
+                    <label className="text-xs text-text-muted uppercase tracking-wider block mb-1">Access Duration (Days)</label>
+                    <input
+                      type="number"
+                      value={grantForm.days}
+                      onChange={(e) => setGrantForm((prev) => ({ ...prev, days: parseInt(e.target.value) || 30 }))}
+                      min={1}
+                      max={365}
+                      className="w-full pl-4 py-3 bg-card-bg border border-glow-border focus:border-neon-cyan focus:outline-none rounded-xl text-white text-base"
+                    />
                   </div>
-                </div>
-
-                <div>
-                  <label className="text-xs text-text-muted uppercase tracking-wider block mb-1">Access Duration (Days)</label>
-                  <input
-                    type="number"
-                    value={grantForm.days}
-                    onChange={(e) => setGrantForm((prev) => ({ ...prev, days: parseInt(e.target.value) || 30 }))}
-                    min={1}
-                    max={365}
-                    className="w-full pl-4 py-3 bg-card-bg border border-glow-border focus:border-neon-cyan focus:outline-none rounded-xl text-white text-base"
-                  />
                 </div>
 
                 <div className="pt-4 border-t border-glow-border flex gap-3">
@@ -748,11 +691,11 @@ export default function AdminPage() {
                     <label className="text-xs text-text-muted uppercase tracking-wider block mb-1">Role</label>
                     <select
                       value={editingUser.role}
-                      onChange={(e) => setEditingUser((prev) => prev ? { ...prev, role: e.target.value as any } : null)}
+                      onChange={(e) => setEditingUser((prev) => prev ? { ...prev, role: e.target.value } : null)}
                       className="w-full pl-4 pr-10 py-3 bg-card-bg border border-glow-border focus:border-neon-cyan focus:outline-none rounded-xl text-white text-base cursor-pointer appearance-none"
                     >
                       {ROLES.map((r) => (
-                        <option key={r} value={r}>{r.toUpperCase()}</option>
+                        <option key={r} value={r}>{r}</option>
                       ))}
                     </select>
                     <ChevronDown className="absolute right-4 top-9 -translate-y-1/2 w-4 h-4 text-text-muted" strokeWidth={2} />
@@ -761,11 +704,11 @@ export default function AdminPage() {
                     <label className="text-xs text-text-muted uppercase tracking-wider block mb-1">Plan</label>
                     <select
                       value={editingUser.plan}
-                      onChange={(e) => setEditingUser((prev) => prev ? { ...prev, plan: e.target.value as any } : null)}
+                      onChange={(e) => setEditingUser((prev) => prev ? { ...prev, plan: e.target.value } : null)}
                       className="w-full pl-4 pr-10 py-3 bg-card-bg border border-glow-border focus:border-neon-cyan focus:outline-none rounded-xl text-white text-base cursor-pointer appearance-none"
                     >
                       {PLANS.map((p) => (
-                        <option key={p} value={p}>{p.toUpperCase()}</option>
+                        <option key={p} value={p}>{p}</option>
                       ))}
                     </select>
                     <ChevronDown className="absolute right-4 top-9 -translate-y-1/2 w-4 h-4 text-text-muted" strokeWidth={2} />
@@ -775,8 +718,8 @@ export default function AdminPage() {
                   <div>
                     <label className="text-xs text-text-muted uppercase tracking-wider block mb-1">Subscription</label>
                     <select
-                      value={editingUser.subscriptionStatus}
-                      onChange={(e) => setEditingUser((prev) => prev ? { ...prev, subscriptionStatus: e.target.value as any } : null)}
+                      value={editingUser.subscription_status}
+                      onChange={(e) => setEditingUser((prev) => prev ? { ...prev, subscription_status: e.target.value } : null)}
                       className="w-full pl-4 pr-10 py-3 bg-card-bg border border-glow-border focus:border-neon-cyan focus:outline-none rounded-xl text-white text-base cursor-pointer appearance-none"
                     >
                       {STATUSES.map((s) => (
@@ -787,10 +730,10 @@ export default function AdminPage() {
                   </div>
                   <div>
                     <label className="text-xs text-text-muted uppercase tracking-wider block mb-1">Expiry Date</label>
-                    <input
-                      type="date"
-                      value={editingUser.expiryDate}
-                      onChange={(e) => setEditingUser((prev) => prev ? { ...prev, expiryDate: e.target.value } : null)}
+<input
+                       type="date"
+                       value={editingUser.expiry_date || ""}
+                       onChange={(e) => setEditingUser((prev) => prev ? { ...prev, expiry_date: e.target.value } : null)}
                       className="w-full pl-4 py-3 bg-card-bg border border-glow-border focus:border-neon-cyan focus:outline-none rounded-xl text-white text-base"
                     />
                   </div>
@@ -799,8 +742,8 @@ export default function AdminPage() {
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input
                       type="checkbox"
-                      checked={editingUser.isActive}
-                      onChange={(e) => setEditingUser((prev) => prev ? { ...prev, isActive: e.target.checked } : null)}
+                      checked={editingUser.is_active}
+                      onChange={(e) => setEditingUser((prev) => prev ? { ...prev, is_active: e.target.checked } : null)}
                       className="w-4 h-4 rounded border-glow-border bg-card-bg text-neon-cyan focus:ring-neon-cyan"
                     />
                     <span className="text-sm text-text-secondary">Active</span>

@@ -1,71 +1,80 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Maximize2, Search, Filter } from "lucide-react";
-import useSWR from "swr";
-import { api, formatFyersSymbol } from "@/lib/api";
-
-interface OptionChainStrike {
-  strike: number;
-  call_ltp: number | null;
-  call_change_percent: number | null;
-  call_oi: number | null;
-  put_ltp: number | null;
-  put_change_percent: number | null;
-  put_oi: number | null;
-}
-
-interface OptionChainData {
-  symbol: string;
-  expiry: string;
-  spot_price: number;
-  atm_strike: number;
-  option_chain: OptionChainStrike[];
-}
-
-// Default index for dashboard
-const DEFAULT_INDEX = "NIFTY";
+import { Maximize2, AlertCircle, ChevronDown, Search } from "lucide-react";
+import { useState, useMemo, useCallback } from "react";
+import { useOptionChain, useExpiries } from "@/lib/hooks";
 
 export function OptionsChain() {
-  // Fetch option chain for default index
-  const { data: chainData, isLoading, error, mutate } = useSWR<OptionChainData>(
-    `dashboard-option-chain-${DEFAULT_INDEX}`,
-    async () => {
-      // We need to fetch expiry first, then option chain
-      // For dashboard, use a simple approach - fetch from the option-chain endpoint
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://ai-trading-9qoa.onrender.com"}/api/v1/market/option-chain?symbol=${DEFAULT_INDEX}`, {
-        signal: AbortSignal.timeout(10000),
-      });
-      if (!response.ok) {
-        // If no expiry provided, backend will auto-find nearest expiry
-        throw new Error(`HTTP ${response.status}`);
-      }
-      return response.json();
-    },
-    {
-      refreshInterval: 5000,
-      revalidateOnFocus: false,
-      dedupingInterval: 3000,
-    }
-  );
+  const [selectedSymbol, setSelectedSymbol] = useState("NIFTY");
+  const [selectedExpiry, setSelectedExpiry] = useState("");
+  const [strikes, setStrikes] = useState(10);
+  const [searchQuery, setSearchQuery] = useState("");
 
-  // Transform backend data to UI format
-  const transformedStrikes = chainData?.option_chain?.map((strike: any) => ({
-    strike: strike.strike,
-    isATM: strike.strike === chainData.atm_strike,
-    ceLtp: strike.call_ltp ?? 0,
-    ceChange: strike.call_change_percent ?? 0,
-    ceOI: strike.call_oi ?? 0,
-    ceOIChange: strike.call_change_percent ?? 0,
-    peLtp: strike.put_ltp ?? 0,
-    peChange: strike.put_change_percent ?? 0,
-    peOI: strike.put_oi ?? 0,
-    peOIChange: strike.put_change_percent ?? 0,
-  })) || [];
+  // Fetch expiries for the selected symbol
+  const { expiries, isLoading: expiriesLoading } = useExpiries(selectedSymbol);
+
+  // Auto-select first expiry when expiries load
+  const handleExpiriesChange = useCallback(() => {
+    if (expiries.length > 0 && !selectedExpiry) {
+      setSelectedExpiry(expiries[0]);
+    }
+  }, [expiries, selectedExpiry]);
+
+  handleExpiriesChange();
+
+  // Fetch option chain
+  const { 
+    chainData, 
+    isLoading, 
+    isError, 
+    error, 
+    errorCode, 
+    isFyersNotConnected, 
+    isFyersError, 
+    isFyersUnreachable,
+    mutate 
+  } = useOptionChain(selectedSymbol, selectedExpiry, strikes);
+
+  // Transform data
+  const transformedStrikes = useMemo(() => {
+    if (!chainData?.option_chain) return [];
+    
+    return chainData.option_chain.map((strike) => ({
+      strike: strike.strike,
+      isATM: strike.is_atm,
+      callITM: strike.call_itm,
+      putITM: strike.put_itm,
+      ceSymbol: strike.call?.symbol,
+      ceLtp: strike.call?.ltp ?? 0,
+      ceChange: strike.call?.oi_change_pct ?? 0,
+      ceOI: strike.call?.oi ?? 0,
+      ceOIChange: strike.call?.oi_change_pct ?? 0,
+      ceVolume: strike.call?.volume ?? 0,
+      ceBid: strike.call?.bid ?? 0,
+      ceAsk: strike.call?.ask ?? 0,
+      peSymbol: strike.put?.symbol,
+      peLtp: strike.put?.ltp ?? 0,
+      peChange: strike.put?.oi_change_pct ?? 0,
+      peOI: strike.put?.oi ?? 0,
+      peOIChange: strike.put?.oi_change_pct ?? 0,
+      peVolume: strike.put?.volume ?? 0,
+      peBid: strike.put?.bid ?? 0,
+      peAsk: strike.put?.ask ?? 0,
+    }));
+  }, [chainData]);
 
   const formatNumber = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const formatOI = (n: number) => n.toLocaleString();
 
+  // Filter strikes based on search
+  const filteredStrikes = useMemo(() => {
+    if (!transformedStrikes.length) return [];
+    if (!searchQuery.trim()) return transformedStrikes;
+    return transformedStrikes.filter((s) => s.strike.toString().includes(searchQuery.trim()));
+  }, [transformedStrikes, searchQuery]);
+
+  // Loading state
   if (isLoading) {
     return (
       <motion.div
@@ -77,8 +86,8 @@ export function OptionsChain() {
         <div className="flex items-center justify-between px-4 py-3 border-b border-glow-border bg-card-bg/50">
           <div className="flex items-center gap-2">
             <h3 className="font-semibold text-white">Options Chain</h3>
-            <span className="text-[10px] px-2 py-0.5 rounded bg-neon-cyan/20 text-neon-cyan font-medium">NIFTY</span>
-            <span className="text-[10px] px-2 py-0.5 rounded bg-neon-orange/20 text-neon-orange font-medium">{chainData?.expiry || "LOADING..."}</span>
+            <span className="text-[10px] px-2 py-0.5 rounded bg-neon-cyan/20 text-neon-cyan font-medium">{selectedSymbol}</span>
+            <span className="text-[10px] px-2 py-0.5 rounded bg-neon-orange/20 text-neon-orange font-medium">{selectedExpiry || "LOADING..."}</span>
           </div>
         </div>
         <div className="flex-1 flex items-center justify-center">
@@ -91,7 +100,10 @@ export function OptionsChain() {
     );
   }
 
-  if (error) {
+  // Error state
+  if (isError) {
+    const showConnectCard = isFyersNotConnected || isFyersError || isFyersUnreachable;
+    
     return (
       <motion.div
         initial={{ opacity: 0, y: 20 }}
@@ -102,20 +114,31 @@ export function OptionsChain() {
         <div className="flex items-center justify-between px-4 py-3 border-b border-glow-border bg-card-bg/50">
           <div className="flex items-center gap-2">
             <h3 className="font-semibold text-white">Options Chain</h3>
-            <span className="text-[10px] px-2 py-0.5 rounded bg-neon-cyan/20 text-neon-cyan font-medium">NIFTY</span>
+            <span className="text-[10px] px-2 py-0.5 rounded bg-neon-cyan/20 text-neon-cyan font-medium">{selectedSymbol}</span>
             <span className="text-[10px] px-2 py-0.5 rounded bg-neon-red/20 text-neon-red font-medium">ERROR</span>
           </div>
         </div>
         <div className="flex-1 flex items-center justify-center p-4">
           <div className="text-center text-text-secondary">
             <p className="mb-2">Failed to load option chain</p>
-            <p className="text-sm text-neon-red/80">{error.message}</p>
+            <p className="text-sm text-neon-red/80 mb-4">{error}</p>
+            {showConnectCard && (
+              <motion.a
+                href="/settings"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-neon-cyan to-neon-purple text-true-black font-bold transition-all duration-300 shadow-glow-cyan hover:opacity-90"
+              >
+                Connect Fyers
+              </motion.a>
+            )}
           </div>
         </div>
       </motion.div>
     );
   }
 
+  // Empty state
   if (!chainData || !transformedStrikes.length) {
     return (
       <motion.div
@@ -127,18 +150,27 @@ export function OptionsChain() {
         <div className="flex items-center justify-between px-4 py-3 border-b border-glow-border bg-card-bg/50">
           <div className="flex items-center gap-2">
             <h3 className="font-semibold text-white">Options Chain</h3>
-            <span className="text-[10px] px-2 py-0.5 rounded bg-neon-cyan/20 text-neon-cyan font-medium">NIFTY</span>
-            <span className="text-[10px] px-2 py-0.5 rounded bg-neon-orange/20 text-neon-orange font-medium">{chainData?.expiry || "NO DATA"}</span>
+            <span className="text-[10px] px-2 py-0.5 rounded bg-neon-cyan/20 text-neon-cyan font-medium">{selectedSymbol}</span>
+            <span className="text-[10px] px-2 py-0.5 rounded bg-neon-orange/20 text-neon-orange font-medium">{selectedExpiry || "NO DATA"}</span>
           </div>
         </div>
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center text-text-muted">
             <p>No live data. Please connect Fyers.</p>
+            <motion.a
+              href="/settings"
+              className="mt-4 inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-neon-cyan to-neon-purple text-true-black font-bold transition-all duration-300 shadow-glow-cyan hover:opacity-90"
+            >
+              Connect Fyers
+            </motion.a>
           </div>
         </div>
       </motion.div>
     );
   }
+
+  // Calculate ATM strike index for auto-scroll
+  const atmIndex = transformedStrikes.findIndex(s => s.isATM);
 
   return (
     <motion.div
@@ -147,46 +179,111 @@ export function OptionsChain() {
       transition={{ duration: 0.5, delay: 0.5 }}
       className="glass rounded-2xl border border-glow-border overflow-hidden h-full min-h-[350px] flex flex-col"
     >
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-glow-border bg-card-bg/50">
+      {/* Header with controls */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-glow-border bg-card-bg/50 flex-wrap gap-2">
         <div className="flex items-center gap-2">
           <h3 className="font-semibold text-white">Options Chain</h3>
-          <span className="text-[10px] px-2 py-0.5 rounded bg-neon-cyan/20 text-neon-cyan font-medium">NIFTY</span>
+          <span className="text-[10px] px-2 py-0.5 rounded bg-neon-cyan/20 text-neon-cyan font-medium">{selectedSymbol}</span>
           <span className="text-[10px] px-2 py-0.5 rounded bg-neon-orange/20 text-neon-orange font-medium">{chainData.expiry}</span>
+          <span className="text-[10px] px-2 py-0.5 rounded bg-neon-purple/20 text-neon-purple font-medium">ATM: {chainData.atm_strike.toLocaleString()}</span>
         </div>
-        <div className="flex items-center gap-2">
-          <button 
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Symbol selector */}
+          <select
+            value={selectedSymbol}
+            onChange={(e) => {
+              setSelectedSymbol(e.target.value);
+              setSelectedExpiry(""); // Will auto-select first expiry
+            }}
+            className="px-2 py-1.5 bg-card-bg border border-glow-border rounded-lg text-white text-sm focus:border-neon-cyan focus:outline-none"
+          >
+            <option value="NIFTY">NIFTY</option>
+            <option value="BANKNIFTY">BANKNIFTY</option>
+            <option value="FINNIFTY">FINNIFTY</option>
+            <option value="MIDCPNIFTY">MIDCPNIFTY</option>
+            <option value="SENSEX">SENSEX</option>
+          </select>
+          
+          {/* Expiry selector */}
+          <select
+            value={selectedExpiry}
+            onChange={(e) => setSelectedExpiry(e.target.value)}
+            disabled={expiriesLoading || expiries.length === 0}
+            className="px-2 py-1.5 bg-card-bg border border-glow-border rounded-lg text-white text-sm focus:border-neon-cyan focus:outline-none"
+          >
+            {expiries.map((exp: string) => (
+              <option key={exp} value={exp}>{exp}</option>
+            ))}
+            {expiries.length === 0 && <option value="">Loading...</option>}
+          </select>
+          
+          {/* Strikes selector */}
+          <select
+            value={strikes}
+            onChange={(e) => setStrikes(parseInt(e.target.value))}
+            className="px-2 py-1.5 bg-card-bg border border-glow-border rounded-lg text-white text-sm focus:border-neon-cyan focus:outline-none"
+          >
+            <option value={5}>5 ITM/OTM</option>
+            <option value={10}>10 ITM/OTM</option>
+            <option value={15}>15 ITM/OTM</option>
+            <option value={20}>20 ITM/OTM</option>
+          </select>
+          
+          {/* Search */}
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search strike..."
+            className="px-2 py-1.5 bg-card-bg border border-glow-border rounded-lg text-white text-sm focus:border-neon-cyan focus:outline-none w-32"
+          />
+          
+          <motion.button
             onClick={() => mutate()}
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
             className="p-1.5 rounded-lg bg-card-bg border border-glow-border hover:border-neon-cyan/50 transition-colors" 
             title="Refresh"
           >
             <Maximize2 className="w-4 h-4 text-text-secondary" strokeWidth={2} />
-          </button>
+          </motion.button>
         </div>
       </div>
 
       {/* Table */}
-      <div className="flex-1 overflow-x-auto overflow-y-auto p-2">
-        <table className="w-full text-sm" role="grid">
+      <div className="flex-1 overflow-x-auto overflow-y-auto p-2" ref={(el) => {
+        // Auto-scroll to ATM row on mount
+        if (el && atmIndex >= 0) {
+          const rows = el.querySelectorAll('tbody tr');
+          if (rows[atmIndex]) {
+            rows[atmIndex].scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+        }
+      }}>
+        <table className="w-full text-sm min-w-[800px]" role="grid">
           <thead>
-            <tr className="border-b border-glow-border text-text-muted">
-              <th className="px-2 py-2 text-left font-medium">Call LTP</th>
+            <tr className="border-b border-glow-border text-text-muted sticky top-0 bg-card-bg/80 backdrop-blur-sm">
+              <th className="px-2 py-2 text-right font-medium">Call LTP</th>
               <th className="px-2 py-2 text-right font-medium">Call OI</th>
-              <th className="px-2 py-2 text-right font-medium">Δ OI</th>
-              <th className="px-2 py-2 text-center font-medium w-20">STRIKE</th>
-              <th className="px-2 py-2 text-right font-medium">Δ OI</th>
+              <th className="px-2 py-2 text-right font-medium">Δ OI %</th>
+              <th className="px-2 py-2 text-center font-medium w-24">STRIKE</th>
+              <th className="px-2 py-2 text-right font-medium">Δ OI %</th>
               <th className="px-2 py-2 text-right font-medium">Put OI</th>
               <th className="px-2 py-2 text-right font-medium">Put LTP</th>
             </tr>
           </thead>
           <tbody>
-            {transformedStrikes.map((row, index) => (
+            {filteredStrikes.map((row, index) => (
               <motion.tr
                 key={row.strike}
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.5 + index * 0.04 }}
-                className={`transition-colors ${row.isATM ? "bg-gradient-to-r from-neon-cyan/5 via-neon-yellow/5 to-transparent" : "hover:bg-card-bg"}`}
+                transition={{ delay: 0.5 + index * 0.02 }}
+                className={`transition-colors ${
+                  row.isATM 
+                    ? "bg-gradient-to-r from-neon-cyan/8 via-neon-yellow/8 to-transparent border border-neon-cyan/20" 
+                    : "hover:bg-card-bg/50"
+                }`}
                 style={row.isATM ? { boxShadow: "inset 0 0 0 1px rgba(0, 240, 255, 0.1)" } : undefined}
               >
                 <td className="px-2 py-1.5 font-mono font-medium text-neon-green">{formatNumber(row.ceLtp)}</td>
@@ -197,6 +294,7 @@ export function OptionsChain() {
                 <td className={`px-2 py-1.5 text-center font-mono font-bold ${row.isATM ? "text-neon-cyan text-glow-cyan" : "text-white"}`}>
                   {row.strike.toLocaleString()}
                   {row.isATM && <span className="ml-1 text-[10px] bg-neon-cyan/20 text-neon-cyan px-1 rounded">ATM</span>}
+                  {row.callITM && <span className="ml-1 text-[9px] bg-neon-green/20 text-neon-green px-1 rounded">ITM</span>}
                 </td>
                 <td className={`px-2 py-1.5 text-right font-mono text-xs ${row.peOIChange >= 0 ? "text-neon-green" : "text-neon-red"}`}>
                   {row.peOIChange >= 0 ? "+" : ""}{row.peOIChange.toFixed(1)}%
@@ -210,4 +308,12 @@ export function OptionsChain() {
       </div>
     </motion.div>
   );
+}
+
+function formatNumber(n: number) {
+  return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function formatOI(n: number) {
+  return n.toLocaleString();
 }

@@ -1,12 +1,12 @@
 "use client";
 
+import { useState, useCallback, useEffect, useMemo } from "react";
 import useSWR from "swr";
-import { useState, useCallback, useEffect } from "react";
 import { motion } from "framer-motion";
 import { TrendingUp, TrendingDown, Search, RefreshCw, Loader2, X, AlertCircle, Sparkles, Wifi } from "lucide-react";
 import { Sidebar } from "@/components/Sidebar";
 import { Header } from "@/components/Header";
-import { api, formatFyersSymbol } from "@/lib/api";
+import { useMarketQuotes, useExpiries, formatFyersSymbol } from "@/lib/hooks";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://ai-trading-9qoa.onrender.com";
 
@@ -19,122 +19,12 @@ interface SearchResult {
   lot_size: number | null;
 }
 
-interface QuoteData {
-  ltp: number | null;
-  change: number | null;
-  change_percent: number | null;
-  source: string;
-  updated_at: string | null;
-}
-
 interface DisplayItem extends SearchResult {
   ltp: number | null;
   change: number | null;
   changePercent: number | null;
-  sparkline: number[];
-  priceSource: "live" | "none";
-}
-
-function generateSparkline(basePrice: number): number[] {
-  return Array(8).fill(0).map((_, i) => basePrice + (Math.random() - 0.5) * basePrice * 0.02);
-}
-
-function SparklineChart({ data, color }: { data: number[]; color: string }) {
-  const width = 80;
-  const height = 28;
-  const min = Math.min(...data);
-  const max = Math.max(...data);
-  const range = max - min || 1;
-  
-  const points = data.map((value, i) => {
-    const x = (i / (data.length - 1)) * width;
-    const y = height - ((value - min) / range) * height;
-    return `${x},${y}`;
-  }).join(" ");
-
-  return (
-    <svg width={width} height={height} className="block">
-      <defs>
-        <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="0%">
-          <stop offset="0%" stopColor={color} stopOpacity={0.3} />
-          <stop offset="100%" stopColor={color} stopOpacity={0.8} />
-        </linearGradient>
-      </defs>
-      <path
-        d={`M${points}`}
-        stroke="url(#gradient)"
-        strokeWidth={2}
-        fill="none"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        className="drop-shadow-[0_0_6px_currentColor]"
-      />
-      <circle cx={points.split(" ").slice(-1)[0].split(",")[0]} cy={points.split(" ").slice(-1)[0].split(",")[1]} r={3} fill={color} className="animate-pulse" />
-    </svg>
-  );
-}
-
-function MarketRow({ item, index }: { item: DisplayItem; index: number }) {
-  const hasPrice = item.ltp !== null && item.ltp !== undefined;
-  const isPositive = hasPrice && (item.change ?? 0) >= 0;
-  const Icon = isPositive ? TrendingUp : TrendingDown;
-  const color = isPositive ? "#00FF66" : "#FF003C";
-  
-  return (
-    <motion.tr
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: index * 0.03 }}
-      className="border-b border-glow-border hover:bg-card-bg/50 transition-colors cursor-pointer"
-    >
-      <td className="px-5 py-4">
-        <div className="flex items-center gap-3">
-          <span className="font-mono font-semibold text-white text-base">{item.symbol}</span>
-          <span className="text-[11px] text-text-muted uppercase tracking-wider">{item.name}</span>
-          {item.instrument_type && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-neon-purple/20 text-neon-purple font-medium">
-              {item.instrument_type === "13" ? "INDEX" : item.instrument_type === "11" ? "FUT" : item.instrument_type === "12" ? "OPT" : item.instrument_type}
-            </span>
-          )}
-          {item.priceSource === "live" && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-neon-green/20 text-neon-green font-medium flex items-center gap-1">
-              <Wifi className="w-3 h-3" strokeWidth={2.5} />
-              LIVE
-            </span>
-          )}
-        </div>
-      </td>
-      <td className="px-5 py-4 font-mono tabular-nums">
-        {hasPrice ? (
-          <span className="text-white">₹{item.ltp!.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-        ) : (
-          <span className="text-text-muted">—</span>
-        )}
-      </td>
-      <td className="px-5 py-4">
-        {hasPrice ? (
-          <div className="flex items-center gap-2">
-            <Icon className={`w-4 h-4 text-${isPositive ? "neon-green" : "neon-red"}`} strokeWidth={2.5} />
-            <span className={`font-mono font-medium text-${isPositive ? "neon-green" : "neon-red"}`}>
-              {isPositive ? "+" : ""}{item.changePercent!.toFixed(2)}%
-            </span>
-            <span className={`text-[11px] font-mono text-${isPositive ? "neon-green" : "neon-red"}`}>
-              ({isPositive ? "+" : ""}₹{Math.abs(item.change!).toFixed(2)})
-            </span>
-          </div>
-        ) : (
-          <span className="text-text-muted text-sm">No live data. Please connect Fyers.</span>
-        )}
-      </td>
-      <td className="px-5 py-4">
-        {hasPrice ? (
-          <SparklineChart data={item.sparkline} color={color} />
-        ) : (
-          <span className="text-text-muted text-sm">—</span>
-        )}
-      </td>
-    </motion.tr>
-  );
+  priceSource: "live" | "stale" | "none";
+  isLoading: boolean;
 }
 
 const fetcher = async (url: string) => {
@@ -147,31 +37,11 @@ const fetcher = async (url: string) => {
   return response.json();
 };
 
-const quotesFetcher = async ([, symbols]: [string, string[]]) => {
-  if (symbols.length === 0) return {};
-  
-  const response = await fetch(`${API_URL}/api/v1/market/quotes`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ symbols }),
-    signal: AbortSignal.timeout(8000),
-  });
-  
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}`);
-  }
-  
-  const data = await response.json();
-  return data.quotes || {};
-};
-
 export default function MarketWatchPage() {
   const [query, setQuery] = useState("NIFTY");
   const [results, setResults] = useState<DisplayItem[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   // SWR for search - fetches on query change
   const { data: searchData, error: searchError, isLoading: isSearchLoading, mutate: mutateSearch } = useSWR(
@@ -183,38 +53,27 @@ export default function MarketWatchPage() {
     }
   );
 
-  // SWR for quotes - auto-refreshes every 5 seconds
+  // SWR for quotes - auto-refreshes
   const topSymbols = searchData?.results?.slice(0, 10) || [];
-  const fyersSymbols = topSymbols.map((s: SearchResult) => {
-    // Send user-friendly symbols (e.g., "NIFTY 50") - backend will map to "NSE:NIFTY50-INDEX"
-    return s.symbol;
-  });
+  const fyersSymbols = topSymbols.map((s: SearchResult) => s.symbol);
 
-  const { data: quotesData, isLoading: isQuotesLoading, error: quotesError } = useSWR(
-    fyersSymbols.length > 0 ? [`${API_URL}/api/v1/market/quotes`, fyersSymbols] : null,
-    quotesFetcher,
-    {
-      refreshInterval: 5000,
-      revalidateOnFocus: false,
-      dedupingInterval: 2000,
-      fallbackData: {},
-    }
-  );
+  const { quotes, isLoading: isQuotesLoading, isError: quotesError, isFyersNotConnected, isFyersError, isFyersUnreachable } = useMarketQuotes(fyersSymbols);
 
   // Combine search results with quotes
   useEffect(() => {
     if (searchData?.results) {
       const initialItems: DisplayItem[] = searchData.results.map((item: SearchResult, idx: number) => {
-        const quote = quotesData?.[fyersSymbols[idx]] || quotesData?.[item.symbol] || quotesData?.[item.fyers_token];
+        const quote = quotes[fyersSymbols[idx]] || quotes[item.symbol] || quotes[item.fyers_token];
         
         if (quote && quote.ltp !== null && quote.ltp !== undefined) {
+          const isStale = quote.updated_at ? (Date.now() - new Date(quote.updated_at).getTime()) > 60000 : false;
           return {
             ...item,
             ltp: quote.ltp,
             change: quote.change ?? 0,
             changePercent: quote.change_percent ?? 0,
-            sparkline: generateSparkline(quote.ltp),
-            priceSource: "live" as const,
+            priceSource: isStale ? "stale" : "live",
+            isLoading: false,
           };
         } else {
           return {
@@ -222,8 +81,8 @@ export default function MarketWatchPage() {
             ltp: null,
             change: null,
             changePercent: null,
-            sparkline: Array(8).fill(0),
-            priceSource: "none" as const,
+            priceSource: "none",
+            isLoading: isQuotesLoading,
           };
         }
       });
@@ -232,7 +91,7 @@ export default function MarketWatchPage() {
       setLastUpdated(new Date());
       setHasSearched(true);
     }
-  }, [searchData, quotesData, fyersSymbols]);
+  }, [searchData, quotes, fyersSymbols]);
 
   useEffect(() => {
     if (searchError) {
@@ -244,12 +103,7 @@ export default function MarketWatchPage() {
     }
   }, [searchError]);
 
-  // Handle quotes error - show clear message
-  useEffect(() => {
-    if (quotesError && !isQuotesLoading) {
-      console.warn("Quotes fetch error:", quotesError);
-    }
-  }, [quotesError, isQuotesLoading]);
+  const [error, setError] = useState<string | null>(null);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -265,6 +119,8 @@ export default function MarketWatchPage() {
   const clearSearch = () => {
     setQuery("NIFTY");
   };
+
+  const showConnectCard = isFyersNotConnected || isFyersError || isFyersUnreachable;
 
   return (
     <div className="min-h-screen bg-true-black text-white">
@@ -342,7 +198,18 @@ export default function MarketWatchPage() {
                   Error: {error}
                 </motion.span>
               )}
-              {!error && hasSearched && (
+              {showConnectCard && !error && hasSearched && (
+                <motion.span
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-neon-orange/10 border border-neon-orange/30 text-neon-orange text-sm glass"
+                >
+                  <Wifi className="w-4 h-4" strokeWidth={2.5} />
+                  Fyers not connected - quotes unavailable
+                  <motion.a href="/settings" className="text-neon-cyan hover:underline ml-2">Connect Fyers</motion.a>
+                </motion.span>
+              )}
+              {!error && hasSearched && !showConnectCard && (
                 <motion.span
                   initial={{ opacity: 0, scale: 0.9 }}
                   animate={{ opacity: 1, scale: 1 }}
@@ -383,7 +250,7 @@ export default function MarketWatchPage() {
                     <th className="px-3 md:px-5 py-3 md:py-4 text-left">Symbol</th>
                     <th className="px-3 md:px-5 py-3 md:py-4 text-right">LTP</th>
                     <th className="px-3 md:px-5 py-3 md:py-4 text-right">Change</th>
-                    <th className="px-3 md:px-5 py-3 md:py-4 text-left">Sparkline</th>
+                    <th className="px-3 md:px-5 py-3 md:py-4 text-left">Status</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -405,7 +272,80 @@ export default function MarketWatchPage() {
                       </td>
                     </tr>
                   ) : (
-                    results.map((item, index) => <MarketRow key={item.symbol} item={item} index={index} />)
+                    results.map((item, index) => (
+                      <motion.tr
+                        key={item.symbol}
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: index * 0.03 }}
+                        className="border-b border-glow-border hover:bg-card-bg/50 transition-colors cursor-pointer"
+                      >
+                        <td className="px-5 py-4">
+                          <div className="flex items-center gap-3">
+                            <span className="font-mono font-semibold text-white text-base">{item.symbol}</span>
+                            <span className="text-[11px] text-text-muted uppercase tracking-wider">{item.name}</span>
+                            {item.instrument_type && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-neon-purple/20 text-neon-purple font-medium">
+                                {item.instrument_type === "13" ? "INDEX" : item.instrument_type === "11" ? "FUT" : item.instrument_type === "12" ? "OPT" : item.instrument_type}
+                              </span>
+                            )}
+                            {item.priceSource === "live" && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-neon-green/20 text-neon-green font-medium flex items-center gap-1">
+                                <Wifi className="w-3 h-3" strokeWidth={2.5} />
+                                LIVE
+                              </span>
+                            )}
+                            {item.priceSource === "stale" && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-neon-orange/20 text-neon-orange font-medium">
+                                STALE
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-5 py-4 font-mono tabular-nums">
+                          {item.ltp !== null ? (
+                            <span className="text-white">₹{item.ltp.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                          ) : (
+                            <span className="text-text-muted">—</span>
+                          )}
+                        </td>
+                        <td className="px-5 py-4">
+                          {item.ltp !== null ? (
+                            <div className="flex items-center gap-2">
+                              {item.changePercent !== null ? (
+                                <>
+                                  <TrendingUp className={`w-4 h-4 text-${item.changePercent >= 0 ? "neon-green" : "neon-red"}`} strokeWidth={2.5} />
+                                  <span className={`font-mono font-medium text-${item.changePercent >= 0 ? "neon-green" : "neon-red"}`}>
+                                    {item.changePercent >= 0 ? "+" : ""}{item.changePercent.toFixed(2)}%
+                                  </span>
+                                  <span className={`text-[11px] font-mono text-${item.changePercent >= 0 ? "neon-green" : "neon-red"}`}>
+                                    ({item.changePercent >= 0 ? "+" : ""}₹{Math.abs(item.change || 0).toFixed(2)})
+                                  </span>
+                                </>
+                              ) : (
+                                <span className="text-text-muted text-sm">—</span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-text-muted text-sm">No live data</span>
+                          )}
+                        </td>
+                        <td className="px-5 py-4">
+                          {item.priceSource === "live" ? (
+                            <span className="text-[10px] px-2 py-0.5 rounded bg-neon-green/20 text-neon-green font-medium flex items-center gap-1">
+                              <Wifi className="w-3 h-3" strokeWidth={2.5} />
+                              LIVE
+                            </span>
+                          ) : item.priceSource === "stale" ? (
+                            <span className="text-[10px] px-2 py-0.5 rounded bg-neon-orange/20 text-neon-orange font-medium">
+                              STALE
+                            </span>
+                          ) : (
+                            <span className="text-text-muted text-sm">No data</span>
+                          )}
+                        </td>
+                      </motion.tr>
+                    ))
                   )}
                 </tbody>
               </table>

@@ -2,14 +2,17 @@
 
 import { motion } from "framer-motion";
 import { TrendingUp, Sparkles, Zap, Brain, Shield, Globe, BarChart3 } from "lucide-react";
-import { useMarketCalendar } from "@/lib/market-calendar";
+import { useMarketStatus } from "@/lib/hooks";
 
 export function HeroBanner() {
-  const { isMarketOpen, isTradingDay, timeToClose, nextTradingDay } = useMarketCalendar();
+  const { status, isLoading } = useMarketStatus();
+  const isMarketOpen = status?.is_open || false;
+  const isTradingDay = status?.is_trading_day || false;
+  const timeToClose = status?.time_to_close_minutes || 0;
+  const nextTradingDay = status?.next_open ? new Date(status.next_open) : new Date();
   
   const marketStatus = isMarketOpen ? "OPEN" : "CLOSED";
   const marketStatusColor = isMarketOpen ? "neon-green" : "neon-red";
-  const marketStatusIcon = isMarketOpen ? "●" : "○";
 
   return (
     <motion.div

@@ -2,47 +2,30 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
-import { Wifi, Bell, User, Circle, ChevronDown, Menu, X } from "lucide-react";
-import { api } from "@/lib/api";
+import { Wifi, Bell, User, Circle, ChevronDown, Menu, X, Shield, AlertCircle, CheckCircle } from "lucide-react";
+import { useFullStatus } from "@/lib/hooks";
 import { useSidebar } from "./Sidebar";
-import { useMarketCalendar } from "@/lib/market-calendar";
 
 interface BrokerStatus {
   label: string;
   connected: boolean;
+  valid?: boolean;
+  message?: string;
 }
 
 export function Header() {
   const { isOpen, toggle } = useSidebar();
-  const [brokers, setBrokers] = useState<BrokerStatus[]>([
-    { label: "Fyers", connected: false },
-    { label: "Kotak", connected: false },
-  ]);
-  const [isLoading, setIsLoading] = useState(true);
-  const { isMarketOpen } = useMarketCalendar();
+  const { status, isLoading, mutate } = useFullStatus();
+  const { isMarketOpen, isTradingDay, timeToCloseMinutes } = status?.market || { isMarketOpen: false, isTradingDay: false, timeToCloseMinutes: 0 };
+  const fyersConnected = status?.fyers?.connected && status?.fyers?.valid;
+  const kotakConfigured = status?.kotak?.configured;
+  const kotakConnected = status?.kotak?.connected;
 
-  const fetchStatus = useCallback(async () => {
-    try {
-      const data = await api.getBrokerStatus();
-      if (data) {
-        setBrokers([
-          { label: "Fyers", connected: data.fyers?.connected ?? false },
-          { label: "Kotak", connected: data.kotak?.connected ?? false },
-        ]);
-      }
-    } catch (err) {
-      console.warn("Failed to fetch broker status:", err);
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
+  // Auto-refresh every 30 seconds
   useEffect(() => {
-    fetchStatus();
-    // Refresh every 10 seconds
-    const interval = setInterval(fetchStatus, 10000);
+    const interval = setInterval(() => mutate(), 30000);
     return () => clearInterval(interval);
-  }, [fetchStatus]);
+  }, [mutate]);
 
   return (
     <motion.header
@@ -70,33 +53,49 @@ export function Header() {
         
         <div>
           <h1 className="text-xl md:text-2xl font-bold text-white tracking-tight">Dashboard</h1>
-          <p className="hidden md:block text-xs text-text-muted">Welcome back, Abdul</p>
+          <p className="hidden md:block text-xs text-text-muted">Welcome back, Trader</p>
         </div>
       </div>
 
       {/* Right: Actions */}
       <div className="flex items-center gap-3 md:gap-4">
-        {/* Broker Status */}
+        {/* Broker Status Badges */}
         <div className="hidden md:flex items-center gap-4 px-3 py-1.5 rounded-full bg-card-bg border border-glow-border glass">
-          {brokers.map((broker) => (
-            <motion.div
-              key={broker.label}
-              initial={{ opacity: 0, scale: 0.8 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ delay: 0.3 }}
-              className="flex items-center gap-1.5"
-            >
-              <motion.span
-                className={`w-2 h-2 rounded-full ${broker.connected ? "bg-neon-green" : "bg-neon-red"}`}
-                animate={broker.connected ? { boxShadow: ["0 0 0 0 rgba(0, 255, 102, 0.7)", "0 0 0 8px rgba(0, 255, 102, 0)"] } : undefined}
-                transition={{ duration: 2, repeat: Infinity }}
-              />
-              <span className="text-xs font-medium text-white capitalize">{broker.label}</span>
-              <span className={`text-[10px] font-medium ${broker.connected ? "text-neon-green" : "text-neon-red"}`}>
-                {broker.connected ? "Connected" : "Offline"}
-              </span>
-            </motion.div>
-          ))}
+          {/* Fyers */}
+          <motion.div
+            initial={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ delay: 0.3 }}
+            className="flex items-center gap-1.5"
+          >
+            <motion.span
+              className={`w-2 h-2 rounded-full ${fyersConnected ? "bg-neon-green" : "bg-neon-red"}`}
+              animate={fyersConnected ? { boxShadow: ["0 0 0 0 rgba(0, 255, 102, 0.7)", "0 0 0 8px rgba(0, 255, 102, 0)"] } : undefined}
+              transition={{ duration: 2, repeat: Infinity }}
+            />
+            <span className="text-xs font-medium text-white capitalize">Fyers</span>
+            <span className={`text-[10px] font-medium ${fyersConnected ? "text-neon-green" : "text-neon-red"}`}>
+              {fyersConnected ? "Connected" : "Offline"}
+            </span>
+          </motion.div>
+
+          {/* Kotak */}
+          <motion.div
+            initial={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ delay: 0.3 }}
+            className="flex items-center gap-1.5"
+          >
+            <motion.span
+              className={`w-2 h-2 rounded-full ${kotakConfigured ? (kotakConnected ? "bg-neon-green" : "bg-neon-orange") : "bg-neon-red"}`}
+              animate={kotakConnected ? { boxShadow: ["0 0 0 0 rgba(0, 255, 102, 0.7)", "0 0 0 8px rgba(0, 255, 102, 0)"] } : undefined}
+              transition={{ duration: 2, repeat: Infinity }}
+            />
+            <span className="text-xs font-medium text-white capitalize">Kotak</span>
+            <span className={`text-[10px] font-medium ${kotakConnected ? "text-neon-green" : kotakConfigured ? "text-neon-orange" : "text-neon-red"}`}>
+              {kotakConnected ? "Connected" : kotakConfigured ? "Config'd" : "Offline"}
+            </span>
+          </motion.div>
         </div>
 
         {/* Market Status */}
@@ -109,10 +108,17 @@ export function Header() {
           <motion.span
             className={`w-2 h-2 rounded-full ${isMarketOpen ? "bg-neon-green animate-pulse-glow" : "bg-neon-red"}`}
           />
-          <span className="text-xs font-medium text-white">{isMarketOpen ? "Market Open" : "Market Closed"}</span>
+          <span className="text-xs font-medium text-white">
+            {isMarketOpen 
+              ? `Market Open • ${timeToCloseMinutes}m to close` 
+              : isTradingDay 
+                ? "Market Closed" 
+                : "Weekend / Holiday"
+            }
+          </span>
         </motion.div>
 
-        {/* Daily PnL - Only show if we have real data */}
+        {/* Daily PnL - placeholder until backend has it */}
         <motion.div
           initial={{ opacity: 0, x: 20 }}
           animate={{ opacity: 1, x: 0 }}
@@ -147,11 +153,11 @@ export function Header() {
         >
           <button className="flex items-center gap-2 p-1.5 pr-3 rounded-xl bg-card-bg border border-glow-border hover:border-neon-cyan/50 transition-all duration-300 glass">
             <div className="w-8 h-8 rounded-full bg-gradient-to-br from-neon-purple to-neon-cyan flex items-center justify-center">
-              <span className="text-true-black font-bold text-sm">A</span>
+              <span className="text-true-black font-bold text-sm">T</span>
             </div>
             <div className="hidden md:block text-left">
-              <p className="text-sm font-medium text-white">Abdul</p>
-              <p className="text-[11px] text-text-muted">Pro Trader</p>
+              <p className="text-sm font-medium text-white">Trader</p>
+              <p className="text-[11px] text-text-muted">Pro Plan</p>
             </div>
             <ChevronDown className="w-4 h-4 text-text-muted" strokeWidth={2.5} />
           </button>

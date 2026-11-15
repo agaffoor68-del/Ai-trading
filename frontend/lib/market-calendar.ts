@@ -1,60 +1,37 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
+import { api, type MarketStatusResponse } from "@/lib/api";
 
-export function useMarketCalendar() {
-  const [isMarketOpen, setIsMarketOpen] = useState(false);
-  const [isTradingDay, setIsTradingDay] = useState(false);
-  const [timeToClose, setTimeToClose] = useState(0);
-  const [nextTradingDay, setNextTradingDay] = useState(new Date());
+export function useMarketStatus() {
+  const [status, setStatus] = useState<MarketStatusResponse | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    const updateStatus = () => {
-      const now = new Date();
-      const istOffset = 5.5 * 60 * 60 * 1000; // IST is UTC+5:30
-      const istNow = new Date(now.getTime() + istOffset);
-      
-      // Check if trading day (Mon-Fri, not holiday)
-      const day = istNow.getUTCDay();
-      const isWeekend = day === 0 || day === 6;
-      
-      // Simple holiday check (can be enhanced with actual holiday list)
-      const isHoliday = false; // TODO: Implement holiday check
-      
-      const tradingDay = !isWeekend && !isHoliday;
-      setIsTradingDay(tradingDay);
-      
-      // Market hours: 09:15 - 15:30 IST
-      const hours = istNow.getUTCHours();
-      const minutes = istNow.getUTCMinutes();
-      const marketOpen = hours > 9 || (hours === 9 && minutes >= 15);
-      const marketClose = hours < 15 || (hours === 15 && minutes <= 30);
-      const open = tradingDay && marketOpen && marketClose;
-      setIsMarketOpen(open);
-      
-      // Time to close
-      if (open) {
-        const closeTime = new Date(istNow);
-        closeTime.setUTCHours(15, 30, 0, 0);
-        const diffMs = closeTime.getTime() - istNow.getTime();
-        setTimeToClose(Math.max(0, Math.floor(diffMs / 60000)));
-      } else {
-        setTimeToClose(0);
+  const fetchStatus = useCallback(async () => {
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://ai-trading-9qoa.onrender.com"}/api/market/status`, {
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
       }
-      
-      // Next trading day
-      const nextDay = new Date(istNow);
-      nextDay.setUTCDate(nextDay.getUTCDate() + 1);
-      while (nextDay.getUTCDay() === 0 || nextDay.getUTCDay() === 6) {
-        nextDay.setUTCDate(nextDay.getUTCDate() + 1);
-      }
-      setNextTradingDay(nextDay);
-    };
-
-    updateStatus();
-    const interval = setInterval(updateStatus, 10000); // Update every 10 seconds
-    return () => clearInterval(interval);
+      const data = await response.json();
+      setStatus(data);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to fetch market status");
+    } finally {
+      setIsLoading(false);
+    }
   }, []);
 
-  return { isMarketOpen, isTradingDay, timeToClose, nextTradingDay };
+  useEffect(() => {
+    fetchStatus();
+    // Refresh every 30 seconds
+    const interval = setInterval(fetchStatus, 30000);
+    return () => clearInterval(interval);
+  }, [fetchStatus]);
+
+  return { ...status, isLoading, error };
 }

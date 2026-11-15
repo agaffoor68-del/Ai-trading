@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { motion } from "framer-motion";
 import {
   Link,
@@ -15,31 +15,21 @@ import {
   RefreshCw,
   RotateCcw,
   Save,
+  Wifi,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import { Sidebar } from "@/components/Sidebar";
 import { Header } from "@/components/Header";
-import { api } from "@/lib/api";
+import { connectFyers, isFyersNotConnected } from "@/lib/hooks";
 
-interface BrokerStatus {
-  fyers: {
-    connected: boolean;
-    tokenExpiresAt: string | null;
-  };
-  kotak: {
-    connected: boolean;
-    tokenExpiresAt: string | null;
-  };
-}
-
-interface FyersLoginResponse {
-  authorization_url: string;
+interface FyersConnectResponse {
+  auth_url: string;
   state: string;
-  client_id: string;
-  message: string;
 }
 
 export default function BrokerConnectPage() {
-  const [status, setStatus] = useState<BrokerStatus | null>(null);
+  const [status, setStatus] = useState<{ fyers: any; kotak: any; market: any } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   
@@ -47,6 +37,8 @@ export default function BrokerConnectPage() {
   const [fyersClientId, setFyersClientId] = useState("");
   const [fyersSecretKey, setFyersSecretKey] = useState("");
   const [fyersSaving, setFyersSaving] = useState(false);
+  const [fyersError, setFyersError] = useState<string | null>(null);
+  const [showSecret, setShowSecret] = useState(false);
   
   // Kotak input fields
   const [kotakConsumerKey, setKotakConsumerKey] = useState("");
@@ -56,19 +48,25 @@ export default function BrokerConnectPage() {
   const [kotakMpin, setKotakMpin] = useState("");
   const [kotakUcc, setKotakUcc] = useState("");
   const [kotakSaving, setKotakSaving] = useState(false);
+  const [kotakError, setKotakError] = useState<string | null>(null);
 
   const fetchStatus = useCallback(async () => {
     try {
       setIsLoading(true);
-      const data = await api.getBrokerStatus();
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://ai-trading-9qoa.onrender.com"}/api/fyers/status`, {
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
       setStatus(data);
       setError(null);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "Failed to fetch broker status";
       setError(errorMessage);
       setStatus({
-        fyers: { connected: false, tokenExpiresAt: null },
-        kotak: { connected: false, tokenExpiresAt: null },
+        fyers: { connected: false, valid: false, message: "Failed to load" },
+        kotak: { configured: false, connected: false, message: "Failed to load" },
+        market: { is_open: false, is_trading_day: false, time_to_close_minutes: 0 },
       });
     } finally {
       setIsLoading(false);
@@ -90,34 +88,23 @@ export default function BrokerConnectPage() {
 
   const handleFyersSaveAndConnect = async () => {
     if (!fyersClientId.trim() || !fyersSecretKey.trim()) {
-      alert("Please enter both Fyers Client ID and Secret Key");
+      setFyersError("Please enter both Fyers Client ID and Secret Key");
       return;
     }
 
     setFyersSaving(true);
+    setFyersError(null);
     try {
-      // Save credentials to backend (you may need to add this endpoint)
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://ai-trading-9qoa.onrender.com"}/api/v1/fyers/save-credentials`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          client_id: fyersClientId.trim(),
-          secret_key: fyersSecretKey.trim(),
-        }),
-        signal: AbortSignal.timeout(10000),
-      });
-
-      if (!response.ok) {
-        const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.detail || `HTTP ${response.status}`);
-      }
-
-      // Immediately redirect to Fyers OAuth
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://ai-trading-9qoa.onrender.com";
-      window.location.href = `${apiUrl}/api/v1/fyers/login`;
+      const response = await connectFyers(fyersClientId.trim(), fyersSecretKey.trim());
+      
+      // Redirect to Fyers OAuth
+      window.location.href = response.auth_url;
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : "Failed to save Fyers credentials";
-      alert(errorMessage);
+      const errorMessage = err instanceof Error ? err.message : "Failed to connect to Fyers";
+      setFyersError(errorMessage);
+      if (isFyersNotConnected(err)) {
+        setFyersError("Fyers not connected. Please check credentials and try again.");
+      }
     } finally {
       setFyersSaving(false);
     }
@@ -125,13 +112,14 @@ export default function BrokerConnectPage() {
 
   const handleKotakSaveAndConnect = async () => {
     if (!kotakConsumerKey.trim() || !kotakConsumerSecret.trim() || !kotakTotpSecret.trim() || !kotakMobileNumber.trim() || !kotakMpin.trim()) {
-      alert("Please fill all required Kotak fields");
+      setKotakError("Please fill all required Kotak fields");
       return;
     }
 
     setKotakSaving(true);
+    setKotakError(null);
     try {
-      // Save credentials to backend
+      // Save credentials to backend (endpoint would need to be created)
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://ai-trading-9qoa.onrender.com"}/api/v1/kotak/save-credentials`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -148,7 +136,7 @@ export default function BrokerConnectPage() {
 
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.detail || `HTTP ${response.status}`);
+        throw new Error(errData.message || `HTTP ${response.status}`);
       }
 
       // Initiate Kotak login
@@ -160,7 +148,7 @@ export default function BrokerConnectPage() {
 
       if (!loginResponse.ok) {
         const errData = await loginResponse.json().catch(() => ({}));
-        throw new Error(errData.detail || `HTTP ${loginResponse.status}`);
+        throw new Error(errData.message || `HTTP ${loginResponse.status}`);
       }
 
       const data = await loginResponse.json();
@@ -171,11 +159,28 @@ export default function BrokerConnectPage() {
       }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "Failed to save Kotak credentials";
-      alert(errorMessage);
+      setKotakError(errorMessage);
     } finally {
       setKotakSaving(false);
     }
   };
+
+  // Check for fyers callback
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const fyersResult = params.get("fyers");
+    if (fyersResult) {
+      if (fyersResult === "connected") {
+        setFyersError(null);
+        // Clear the URL params
+        window.history.replaceState({}, document.title, window.location.pathname);
+        fetchStatus();
+      } else {
+        setFyersError(`Fyers connection failed: ${params.get("reason") || "unknown reason"}`);
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }
+    }
+  }, [fetchStatus]);
 
   return (
     <div className="min-h-screen bg-true-black text-white">
@@ -245,12 +250,12 @@ export default function BrokerConnectPage() {
                 {/* Status Badge */}
                 <motion.div
                   className={`flex items-center gap-2 px-3 py-1.5 rounded-full font-medium text-sm ${
-                    status?.fyers.connected
+                    status?.fyers?.connected && status?.fyers?.valid
                       ? "bg-neon-green/20 text-neon-green border border-neon-green/30"
                       : "bg-neon-red/20 text-neon-red border border-neon-red/30"
                   } glass`}
                 >
-                  {status?.fyers.connected ? (
+                  {status?.fyers?.connected && status?.fyers?.valid ? (
                     <>
                       <span className="w-2 h-2 rounded-full bg-neon-green animate-pulse-glow" />
                       Connected
@@ -258,14 +263,14 @@ export default function BrokerConnectPage() {
                   ) : (
                     <>
                       <span className="w-2 h-2 rounded-full bg-neon-red" />
-                      Disconnected
+                      {status?.fyers?.message || "Disconnected"}
                     </>
                   )}
                 </motion.div>
               </div>
 
               {/* Connection Details */}
-              {status?.fyers.connected && (
+              {status?.fyers?.connected && status?.fyers?.valid && (
                 <motion.div
                   initial={{ opacity: 0, height: 0 }}
                   animate={{ opacity: 1, height: "auto" }}
@@ -273,17 +278,21 @@ export default function BrokerConnectPage() {
                 >
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-text-secondary">Token Expires</span>
-                    <span className="font-mono text-white">{formatTime(status.fyers.tokenExpiresAt)}</span>
+                    <span className="font-mono text-white">{formatTime(status.fyers.token_expires_at)}</span>
                   </div>
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-text-secondary">Data Source</span>
                     <span className="font-mono text-neon-cyan">Fyers API v3 (WebSocket)</span>
                   </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-text-secondary">User</span>
+                    <span className="font-mono text-white">{status.fyers.profile?.name || "Unknown"}</span>
+                  </div>
                 </motion.div>
               )}
 
               {/* Fyers Credentials Input Fields */}
-              {!status?.fyers.connected && (
+              {!status?.fyers?.connected && (
                 <motion.div
                   initial={{ opacity: 0, height: 0 }}
                   animate={{ opacity: 1, height: "auto" }}
@@ -301,30 +310,53 @@ export default function BrokerConnectPage() {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-text-secondary mb-2">Fyers Secret Key</label>
-                    <input
-                      type="password"
-                      value={fyersSecretKey}
-                      onChange={(e) => setFyersSecretKey(e.target.value)}
-                      placeholder="Enter your Fyers Secret Key"
-                      className="w-full px-4 py-2.5 bg-true-black border border-glow-border focus:border-neon-cyan focus:outline-none rounded-xl text-white placeholder-text-muted transition-colors"
-                    />
+                    <div className="relative">
+                      <input
+                        type={showSecret ? "text" : "password"}
+                        value={fyersSecretKey}
+                        onChange={(e) => setFyersSecretKey(e.target.value)}
+                        placeholder="Enter your Fyers Secret Key"
+                        className="w-full px-4 py-2.5 bg-true-black border border-glow-border focus:border-neon-cyan focus:outline-none rounded-xl text-white placeholder-text-muted transition-colors pr-12"
+                      />
+                      <motion.button
+                        onClick={() => setShowSecret(!showSecret)}
+                        whileHover={{ scale: 1.1 }}
+                        whileTap={{ scale: 0.9 }}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-text-muted hover:text-white transition-colors"
+                        title={showSecret ? "Hide" : "Show"}
+                      >
+                        {showSecret ? <EyeOff className="w-4 h-4" strokeWidth={2} /> : <Eye className="w-4 h-4" strokeWidth={2} />}
+                      </motion.button>
+                    </div>
                   </div>
+                </motion.div>
+              )}
+
+              {/* Error Display */}
+              {fyersError && (
+                <motion.div
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="mb-4 p-3 rounded-lg bg-neon-red/10 border border-neon-red/30 text-neon-red text-sm flex items-center gap-2"
+                >
+                  <AlertCircle className="w-4 h-4 flex-shrink-0" strokeWidth={2.5} />
+                  <span>{fyersError}</span>
                 </motion.div>
               )}
 
               {/* Save & Connect Button */}
               <motion.button
                 onClick={handleFyersSaveAndConnect}
-                disabled={status?.fyers.connected || isLoading || fyersSaving}
+                disabled={status?.fyers?.connected || isLoading || fyersSaving}
                 whileHover={{ scale: 1.02, boxShadow: "0 0 20px rgba(0, 240, 255, 0.3)" }}
                 whileTap={{ scale: 0.98 }}
                 className={`w-full py-3.5 rounded-xl font-bold text-lg transition-all duration-300 flex items-center justify-center gap-2 ${
-                  status?.fyers.connected
+                  status?.fyers?.connected
                     ? "bg-gradient-to-r from-neon-green to-neon-cyan text-true-black cursor-not-allowed opacity-60"
                     : "bg-gradient-to-r from-neon-cyan to-neon-purple text-true-black shadow-glow-cyan hover:shadow-glow-cyan/50 disabled:opacity-50"
                 }`}
               >
-                {status?.fyers.connected ? (
+                {status?.fyers?.connected ? (
                   <>
                     <CheckCircle className="w-5 h-5" strokeWidth={2.5} />
                     Fyers Connected
@@ -343,7 +375,7 @@ export default function BrokerConnectPage() {
               </motion.button>
 
               <p className="mt-4 text-center text-xs text-text-muted">
-                Enter your Fyers API credentials. Clicking "Save & Connect" will store them and redirect to Fyers OAuth for authorization.
+                Enter your Fyers API credentials. Clicking "Save & Connect" will store them securely and redirect to Fyers OAuth for authorization.
               </p>
             </motion.div>
 
@@ -370,27 +402,34 @@ export default function BrokerConnectPage() {
                 {/* Status Badge */}
                 <motion.div
                   className={`flex items-center gap-2 px-3 py-1.5 rounded-full font-medium text-sm ${
-                    status?.kotak.connected
+                    status?.kotak?.connected
                       ? "bg-neon-green/20 text-neon-green border border-neon-green/30"
-                      : "bg-neon-red/20 text-neon-red border border-neon-red/30"
+                      : status?.kotak?.configured
+                        ? "bg-neon-orange/20 text-neon-orange border border-neon-orange/30"
+                        : "bg-neon-red/20 text-neon-red border border-neon-red/30"
                   } glass`}
                 >
-                  {status?.kotak.connected ? (
+                  {status?.kotak?.connected ? (
                     <>
                       <span className="w-2 h-2 rounded-full bg-neon-green animate-pulse-glow" />
                       Connected
                     </>
+                  ) : status?.kotak?.configured ? (
+                    <>
+                      <span className="w-2 h-2 rounded-full bg-neon-orange" />
+                      Configured
+                    </>
                   ) : (
                     <>
                       <span className="w-2 h-2 rounded-full bg-neon-red" />
-                      Disconnected
+                      Not Configured
                     </>
                   )}
                 </motion.div>
               </div>
 
               {/* Connection Details */}
-              {status?.kotak.connected && (
+              {status?.kotak?.connected && (
                 <motion.div
                   initial={{ opacity: 0, height: 0 }}
                   animate={{ opacity: 1, height: "auto" }}
@@ -408,7 +447,7 @@ export default function BrokerConnectPage() {
               )}
 
               {/* Kotak Credentials Input Fields */}
-              {!status?.kotak.connected && (
+              {!status?.kotak?.connected && (
                 <motion.div
                   initial={{ opacity: 0, height: 0 }}
                   animate={{ opacity: 1, height: "auto" }}
@@ -479,19 +518,31 @@ export default function BrokerConnectPage() {
                 </motion.div>
               )}
 
+              {/* Error Display */}
+              {kotakError && (
+                <motion.div
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="mb-4 p-3 rounded-lg bg-neon-red/10 border border-neon-red/30 text-neon-red text-sm flex items-center gap-2"
+                >
+                  <AlertCircle className="w-4 h-4 flex-shrink-0" strokeWidth={2.5} />
+                  <span>{kotakError}</span>
+                </motion.div>
+              )}
+
               {/* Save & Connect Button */}
               <motion.button
                 onClick={handleKotakSaveAndConnect}
-                disabled={status?.kotak.connected || isLoading || kotakSaving}
+                disabled={status?.kotak?.connected || isLoading || kotakSaving}
                 whileHover={{ scale: 1.02, boxShadow: "0 0 20px rgba(249, 115, 22, 0.4)" }}
                 whileTap={{ scale: 0.98 }}
                 className={`w-full py-3.5 rounded-xl font-bold text-lg transition-all duration-300 flex items-center justify-center gap-2 ${
-                  status?.kotak.connected
+                  status?.kotak?.connected
                     ? "bg-gradient-to-r from-neon-green to-neon-cyan text-true-black cursor-not-allowed opacity-60"
                     : "bg-gradient-to-r from-neon-orange to-neon-red text-white shadow-glow-orange hover:shadow-glow-orange/50 disabled:opacity-50"
                 }`}
               >
-                {status?.kotak.connected ? (
+                {status?.kotak?.connected ? (
                   <>
                     <CheckCircle className="w-5 h-5" strokeWidth={2.5} />
                     Kotak Connected

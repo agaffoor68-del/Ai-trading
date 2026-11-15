@@ -1,46 +1,18 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Brain, Zap, X, Check, Settings, SlidersHorizontal } from "lucide-react";
-import { useState } from "react";
-import useSWR from "swr";
-import { api } from "@/lib/api";
-
-interface AISignal {
-  symbol: string;
-  signal: string;
-  confidence: number;
-  rsi: number;
-  ema_trend: string;
-  price: number;
-  timestamp: string;
-}
-
-interface AISignalsResponse {
-  signals: AISignal[];
-  timestamp: string;
-}
+import { Brain, Zap, X, Check, Settings, SlidersHorizontal, AlertCircle, Wifi } from "lucide-react";
+import { useAISignals } from "@/lib/hooks";
 
 export function AISignalCard() {
-  const { data: signalsData, isLoading, error, mutate } = useSWR<AISignalsResponse>(
-    "dashboard-ai-signals",
-    async () => {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://ai-trading-9qoa.onrender.com"}/api/v1/ai/signals?symbols=NIFTY,BANKNIFTY,FINNIFTY,MIDCPNIFTY`, {
-        signal: AbortSignal.timeout(10000),
-      });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      return response.json();
-    },
-    {
-      refreshInterval: 30000, // Refresh every 30 seconds for signals
-      revalidateOnFocus: false,
-      dedupingInterval: 10000,
-    }
-  );
+  const { signals, isLoading, isError, error, errorCode, isFyersNotConnected, isFyersError, isFyersUnreachable, mutate } = useAISignals(["NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY"]);
 
   // Get the first signal (NIFTY) or none
-  const signal = signalsData?.signals?.[0];
+  const signal = signals[0];
 
+  const showConnectCard = isFyersNotConnected || isFyersError || isFyersUnreachable;
+
+  // Loading state
   if (isLoading) {
     return (
       <motion.div
@@ -68,7 +40,8 @@ export function AISignalCard() {
     );
   }
 
-  if (error) {
+  // Error state
+  if (isError) {
     return (
       <motion.div
         initial={{ opacity: 0, y: 20 }}
@@ -88,13 +61,25 @@ export function AISignalCard() {
         <div className="flex-1 flex items-center justify-center p-4">
           <div className="text-center text-text-secondary">
             <p className="mb-2">Failed to load AI signals</p>
-            <p className="text-sm text-neon-red/80">{error.message}</p>
+            <p className="text-sm text-neon-red/80 mb-4">{error}</p>
+            {showConnectCard && (
+              <motion.a
+                href="/settings"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-neon-cyan to-neon-purple text-true-black font-bold transition-all duration-300 shadow-glow-cyan hover:opacity-90"
+              >
+                <Wifi className="w-4 h-4" strokeWidth={2.5} />
+                Connect Fyers
+              </motion.a>
+            )}
           </div>
         </div>
       </motion.div>
     );
   }
 
+  // No data state (backend not ready or no Fyers connection)
   if (!signal) {
     return (
       <motion.div
@@ -113,15 +98,28 @@ export function AISignalCard() {
           </div>
         </div>
         <div className="flex-1 flex items-center justify-center">
-          <div className="text-center text-text-muted">
-            <p>No signals available</p>
-            <p className="text-sm mt-1">Connect Fyers to get live AI signals</p>
+          <div className="text-center text-text-muted max-w-sm">
+            <AlertCircle className="w-10 h-10 mx-auto mb-3 text-neon-orange/50" strokeWidth={2} />
+            <p className="font-medium text-white mb-1">No AI signals available</p>
+            <p className="text-sm mb-4">Connect Fyers and enable AI signals in settings</p>
+            {showConnectCard && (
+              <motion.a
+                href="/settings"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-neon-cyan to-neon-purple text-true-black font-bold transition-all duration-300 shadow-glow-cyan hover:opacity-90"
+              >
+                <Wifi className="w-4 h-4" strokeWidth={2.5} />
+                Connect Fyers
+              </motion.a>
+            )}
           </div>
         </div>
       </motion.div>
     );
   }
 
+  // Has signal - display it
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}

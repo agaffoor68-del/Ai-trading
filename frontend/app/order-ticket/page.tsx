@@ -76,13 +76,13 @@ export default function OrderTicketPage() {
       const orderData: OrderRequest = {
         symbol: form.symbol,
         quantity: form.quantity,
-        orderType: form.orderType,
-        tradeType: form.tradeType,
-        optionType: form.optionType,
+        order_type: form.orderType,
+        trade_type: form.tradeType,
+        option_type: form.optionType,
         strike: parseInt(form.strike.replace("ATM", "24350").replace("ITM-1", "24300").replace("ITM-2", "24250").replace("OTM-1", "24400").replace("OTM-2", "24450")),
         expiry: form.expiry,
         price: form.orderType === "LIMIT" ? parseFloat(form.price) : undefined,
-        stopLoss: parseFloat(form.stopLoss),
+        stop_loss: parseFloat(form.stopLoss),
         target: parseFloat(form.target),
         mode: form.mode,
       };

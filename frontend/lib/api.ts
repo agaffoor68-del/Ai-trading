@@ -2,85 +2,115 @@ import type { SWRConfiguration } from "swr";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "https://ai-trading-9qoa.onrender.com";
 
+// Error types from backend
+export interface ApiError {
+  code: string;
+  message: string;
+}
+
 export interface BrokerStatus {
   fyers: {
     connected: boolean;
-    tokenExpiresAt: string | null;
+    valid: boolean;
+    message: string;
+    token_expires_at: string | null;
+    profile: {
+      name: string;
+      email: string;
+      client_id: string;
+      pan: string;
+    } | null;
   };
   kotak: {
+    configured: boolean;
     connected: boolean;
-    tokenExpiresAt: string | null;
+    message: string;
+  };
+  market: {
+    is_open: boolean;
+    is_trading_day: boolean;
+    next_open: string | null;
+    next_close: string | null;
+    time_to_close_minutes: number;
+    timezone: string;
   };
 }
 
-export interface FyersStatus {
-  connected: boolean;
-  valid: boolean;
-  message: string;
-  token_expires_at: string | null;
-  profile: {
-    name: string;
-    email: string;
-    client_id: string;
-    pan: string;
-  } | null;
-}
-
-export interface FyersLoginResponse {
-  authorization_url: string;
+export interface FyersConnectResponse {
+  auth_url: string;
   state: string;
-  client_id: string;
-  message: string;
-}
-
-export interface QuoteRequest {
-  symbols: string[];
 }
 
 export interface QuoteData {
+  symbol: string;
   ltp: number | null;
   change: number | null;
   change_percent: number | null;
+  open: number | null;
+  high: number | null;
+  low: number | null;
+  close: number | null;
+  volume: number | null;
   source: string;
   updated_at: string | null;
+  error?: string;
 }
 
 export interface QuotesResponse {
   quotes: Record<string, QuoteData>;
+  total: number;
 }
 
-export interface OptionChainRequest {
-  symbol: string;
-  expiry: string;
+export interface CandleData {
+  time: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
 }
 
-export interface OptionStrike {
+export interface OptionChainOption {
+  symbol: string | null;
+  ltp: number | null;
+  oi: number | null;
+  oi_change: number | null;
+  oi_change_pct: number | null;
+  volume: number | null;
+  bid: number | null;
+  ask: number | null;
+}
+
+export interface OptionChainStrike {
   strike: number;
-  isATM: boolean;
-  ceLtp: number;
-  ceChange: number;
-  ceOI: number;
-  ceOIChange: number;
-  peLtp: number;
-  peChange: number;
-  peOI: number;
-  peOIChange: number;
+  is_atm: boolean;
+  call_itm: boolean;
+  put_itm: boolean;
+  call: OptionChainOption | null;
+  put: OptionChainOption | null;
 }
 
-export interface OptionChainData {
+export interface OptionChainResponse {
   symbol: string;
   expiry: string;
-  spot: number;
-  atmStrike: number;
-  strikes: OptionStrike[];
+  spot_price: number;
+  atm_strike: number;
+  strike_interval: number;
+  option_chain: OptionChainStrike[];
+  expiries: string[];
+  timestamp: string;
+  debug?: {
+    all_quotes: Record<string, QuoteData>;
+    strike_to_symbols: Record<number, { ce: string | null; pe: string | null }>;
+  };
 }
 
 export interface AISignal {
   symbol: string;
-  signal: string;  // BUY, SELL, HOLD
+  signal: "BUY" | "SELL" | "HOLD";
   confidence: number;
   rsi: number;
-  ema_trend: string;  // BULLISH, BEARISH, NEUTRAL
+  ema_trend: "BULLISH" | "BEARISH" | "NEUTRAL";
   price: number;
   timestamp: string;
 }
@@ -93,19 +123,19 @@ export interface AISignalsResponse {
 export interface OrderRequest {
   symbol: string;
   quantity: number;
-  orderType: "MARKET" | "LIMIT";
-  tradeType: "BUY" | "SELL";
-  optionType: "CE" | "PE";
+  order_type: "MARKET" | "LIMIT";
+  trade_type: "BUY" | "SELL";
+  option_type: "CE" | "PE";
   strike: number;
   expiry: string;
   price?: number;
-  stopLoss?: number;
+  stop_loss?: number;
   target?: number;
   mode: "PAPER" | "LIVE";
 }
 
 export interface OrderResponse {
-  orderId: string;
+  order_id: string;
   status: "SUCCESS" | "FAILED" | "PENDING";
   message: string;
   timestamp: string;
@@ -114,12 +144,12 @@ export interface OrderResponse {
 export interface Position {
   symbol: string;
   quantity: number;
-  avgPrice: number;
+  avg_price: number;
   ltp: number;
   pnl: number;
-  pnlPercent: number;
+  pnl_percent: number;
   side: "LONG" | "SHORT";
-  productType: string;
+  product_type: string;
 }
 
 export interface PositionsResponse {
@@ -127,16 +157,35 @@ export interface PositionsResponse {
 }
 
 export interface AdminUser {
-  id: string;
+  id: number;
   email: string;
-  name: string;
-  plan: string;
-  createdAt: string;
-  isActive: boolean;
+  role: string;
+  is_active: boolean;
+  created_at: string;
+  subscription: {
+    plan_type: string;
+    start_date: string | null;
+    end_date: string | null;
+    is_active: boolean;
+  } | null;
 }
 
 export interface AdminUsersResponse {
   users: AdminUser[];
+  total: number;
+}
+
+export interface MarketStatusResponse {
+  is_open: boolean;
+  is_trading_day: boolean;
+  next_open: string | null;
+  next_close: string | null;
+  time_to_close_minutes: number;
+  timezone: string;
+}
+
+export interface ExpiriesResponse {
+  expiries: string[];
 }
 
 async function fetcher<T>(url: string, options?: RequestInit): Promise<T> {
@@ -149,22 +198,34 @@ async function fetcher<T>(url: string, options?: RequestInit): Promise<T> {
   });
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ message: "Unknown error" }));
-    throw new Error(error.message || `HTTP ${response.status}`);
+    const error = await response.json().catch(() => ({ code: "UNKNOWN", message: `HTTP ${response.status}` })) as ApiError;
+    const err = new Error(error.message || `HTTP ${response.status}`) as Error & { code?: string; status?: number };
+    err.code = error.code;
+    err.status = response.status;
+    throw err;
   }
 
   return response.json();
 }
 
 export const api = {
-  getBrokerStatus: () =>
-    fetcher<BrokerStatus>(`${API_BASE_URL}/api/v1/auth/broker-status`),
-
+  // Broker status
   getFyersStatus: () =>
-    fetcher<FyersStatus>(`${API_BASE_URL}/api/v1/fyers/status`),
+    fetcher<BrokerStatus["fyers"]>(`${API_BASE_URL}/api/v1/fyers/status`),
 
-  getFyersLoginUrl: () =>
-    fetcher<FyersLoginResponse>(`${API_BASE_URL}/api/v1/fyers/login`),
+  getFullStatus: () =>
+    fetcher<BrokerStatus>(`${API_BASE_URL}/api/fyers/status`),
+
+  // Fyers auth
+  connectFyers: (clientId: string, clientSecret: string) =>
+    fetcher<FyersConnectResponse>(`${API_BASE_URL}/api/v1/fyers/connect`, {
+      method: "POST",
+      body: JSON.stringify({ client_id: clientId, client_secret: clientSecret }),
+    }),
+
+  // Market data
+  getMarketStatus: () =>
+    fetcher<MarketStatusResponse>(`${API_BASE_URL}/api/market/status`),
 
   searchSymbols: (query: string) =>
     fetcher<any>(`${API_BASE_URL}/api/v1/market/search?query=${encodeURIComponent(query)}`),
@@ -175,12 +236,20 @@ export const api = {
       body: JSON.stringify({ symbols }),
     }),
 
-  getOptionChain: (symbol: string, expiry: string) =>
-    fetcher<OptionChainData>(`${API_BASE_URL}/api/v1/market/option-chain?symbol=${encodeURIComponent(symbol)}&expiry=${encodeURIComponent(expiry)}`),
+  getCandles: (symbol: string, interval: string, days: number) =>
+    fetcher<CandleData[]>(`${API_BASE_URL}/api/v1/market/candles?symbol=${encodeURIComponent(symbol)}&interval=${encodeURIComponent(interval)}&days=${days}`),
 
-  getAISignals: () =>
-    fetcher<AISignalsResponse>(`${API_BASE_URL}/api/v1/ai/signals`),
+  getOptionChain: (symbol: string, expiry: string, strikes?: number, raw?: boolean) =>
+    fetcher<OptionChainResponse>(`${API_BASE_URL}/api/v1/market/option-chain?symbol=${encodeURIComponent(symbol)}&expiry=${encodeURIComponent(expiry)}${strikes ? `&strikes=${strikes}` : ""}${raw ? `&raw=true` : ""}`),
 
+  getExpiries: (symbol: string) =>
+    fetcher<ExpiriesResponse>(`${API_BASE_URL}/api/v1/market/expiries?symbol=${encodeURIComponent(symbol)}`),
+
+  // AI signals
+  getAISignals: (symbols: string[]) =>
+    fetcher<AISignalsResponse>(`${API_BASE_URL}/api/v1/market/ai/signals?symbols=${symbols.join(",")}`),
+
+  // Execution (via backend)
   placeOrder: (orderData: OrderRequest) =>
     fetcher<OrderResponse>(`${API_BASE_URL}/api/v1/execution/order`, {
       method: "POST",
@@ -190,11 +259,23 @@ export const api = {
   getPositions: () =>
     fetcher<PositionsResponse>(`${API_BASE_URL}/api/v1/execution/positions`),
 
+  // Admin
   getAdminUsers: (token: string) =>
     fetcher<AdminUsersResponse>(`${API_BASE_URL}/api/v1/admin/users`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
+      headers: { Authorization: `Bearer ${token}` },
+    }),
+
+  grantAccess: (token: string, data: { email: string; plan: string; days: number }) =>
+    fetcher<any>(`${API_BASE_URL}/api/v1/admin/subscribe`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify(data),
+    }),
+
+  revokeAccess: (token: string, userId: number) =>
+    fetcher<any>(`${API_BASE_URL}/api/v1/admin/revoke/${userId}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
     }),
 };
 
@@ -208,36 +289,55 @@ export const swrConfig: SWRConfiguration = {
   },
 };
 
-export function formatFyersSymbol(symbol: string, exchange = "NSE"): string {
-  // Map common names to Fyers format
-  const symbolMap: Record<string, string> = {
-    "NIFTY 50": "NSE:NIFTY50-INDEX",
-    "NIFTY": "NSE:NIFTY50-INDEX",
-    "BANKNIFTY": "NSE:NIFTYBANK-INDEX",
-    "SENSEX": "BSE:SENSEX-INDEX",
-    "FINNIFTY": "NSE:FINNIFTY-INDEX",
-    "MIDCPNIFTY": "NSE:MIDCPNIFTY-INDEX",
-  };
-  
-  if (symbolMap[symbol]) {
-    return symbolMap[symbol];
-  }
-  
-  // If already has exchange prefix, return as-is
+export function formatFyersSymbol(symbol: string): string {
+  // If already a Fyers ticker (contains colon), return as-is
   if (symbol.includes(":")) {
     return symbol;
   }
   
-  // Default: assume NSE equity
-  return `${exchange}:${symbol}-EQ`;
+  // Backend will handle the mapping, so just return the user-friendly symbol
+  return symbol;
 }
 
 export function formatFyersOptionSymbol(
   symbol: string,
   expiry: string,
   strike: number,
-  optionType: "CE" | "PE",
-  exchange = "NSE"
+  optionType: "CE" | "PE"
 ): string {
-  return `${exchange}:${symbol}${expiry}${strike}${optionType}`;
+  // Backend handles this, return user-friendly format for display
+  return `${symbol} ${expiry} ${strike} ${optionType}`;
+}
+
+// Check if error is a 401 FYERS_NOT_CONNECTED
+export function isFyersNotConnected(error: unknown): boolean {
+  if (error instanceof Error && "code" in error) {
+    return (error as any).code === "FYERS_NOT_CONNECTED";
+  }
+  if (error instanceof Error && "status" in error) {
+    return (error as any).status === 401;
+  }
+  return false;
+}
+
+// Check if error is a 502 FYERS_ERROR
+export function isFyersError(error: unknown): boolean {
+  if (error instanceof Error && "code" in error) {
+    return (error as any).code === "FYERS_ERROR";
+  }
+  if (error instanceof Error && "status" in error) {
+    return (error as any).status === 502;
+  }
+  return false;
+}
+
+// Check if error is a 504 FYERS_UNREACHABLE
+export function isFyersUnreachable(error: unknown): boolean {
+  if (error instanceof Error && "code" in error) {
+    return (error as any).code === "FYERS_UNREACHABLE";
+  }
+  if (error instanceof Error && "status" in error) {
+    return (error as any).status === 504;
+  }
+  return false;
 }

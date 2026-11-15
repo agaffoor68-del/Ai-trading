@@ -203,13 +203,13 @@ export default function PositionsPage() {
                             </span>
                           </td>
                           <td className="px-3 md:px-5 py-3 md:py-4 text-right font-mono text-white">{position.quantity.toLocaleString()}</td>
-                          <td className="px-3 md:px-5 py-3 md:py-4 text-right font-mono text-text-secondary">₹{position.avgPrice.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                          <td className="px-3 md:px-5 py-3 md:py-4 text-right font-mono text-text-secondary">₹{position.avg_price.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
                           <td className="px-3 md:px-5 py-3 md:py-4 text-right font-mono text-neon-cyan">₹{position.ltp.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
                           <td className={`px-3 md:px-5 py-3 md:py-4 text-right font-mono font-medium ${isPositive ? "text-neon-green" : "text-neon-red"}`}>
                             {formatPnL(position.pnl)}
                           </td>
                           <td className={`px-3 md:px-5 py-3 md:py-4 text-right font-mono font-medium ${isPositive ? "text-neon-green" : "text-neon-red"}`}>
-                            {formatPnLPercent(position.pnlPercent)}
+                            {formatPnLPercent(position.pnl_percent)}
                           </td>
                           <td className="px-3 md:px-5 py-3 md:py-4 text-center">
                             <span className="px-3 py-1 rounded-full text-xs font-medium bg-neon-green/20 text-neon-green border border-neon-green/30">
