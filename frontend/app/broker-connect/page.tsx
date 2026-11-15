@@ -14,6 +14,7 @@ import {
   Shield,
   RefreshCw,
   RotateCcw,
+  Save,
 } from "lucide-react";
 import { Sidebar } from "@/components/Sidebar";
 import { Header } from "@/components/Header";
@@ -41,6 +42,20 @@ export default function BrokerConnectPage() {
   const [status, setStatus] = useState<BrokerStatus | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  
+  // Fyers input fields
+  const [fyersClientId, setFyersClientId] = useState("");
+  const [fyersSecretKey, setFyersSecretKey] = useState("");
+  const [fyersSaving, setFyersSaving] = useState(false);
+  
+  // Kotak input fields
+  const [kotakConsumerKey, setKotakConsumerKey] = useState("");
+  const [kotakConsumerSecret, setKotakConsumerSecret] = useState("");
+  const [kotakTotpSecret, setKotakTotpSecret] = useState("");
+  const [kotakMobileNumber, setKotakMobileNumber] = useState("");
+  const [kotakMpin, setKotakMpin] = useState("");
+  const [kotakUcc, setKotakUcc] = useState("");
+  const [kotakSaving, setKotakSaving] = useState(false);
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -64,18 +79,31 @@ export default function BrokerConnectPage() {
     fetchStatus();
   }, [fetchStatus]);
 
-  const handleFyersConnect = () => {
-    // Directly redirect to the Fyers login endpoint
-    // The backend will redirect to Fyers authorization URL
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://ai-trading-9qoa.onrender.com";
-    window.location.href = `${apiUrl}/api/v1/fyers/login`;
+  const formatTime = (isoString: string | null) => {
+    if (!isoString) return "Never";
+    try {
+      return new Date(isoString).toLocaleString();
+    } catch {
+      return isoString;
+    }
   };
 
-  const handleKotakConnect = async () => {
+  const handleFyersSaveAndConnect = async () => {
+    if (!fyersClientId.trim() || !fyersSecretKey.trim()) {
+      alert("Please enter both Fyers Client ID and Secret Key");
+      return;
+    }
+
+    setFyersSaving(true);
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://ai-trading-9qoa.onrender.com"}/api/v1/kotak/login`, {
+      // Save credentials to backend (you may need to add this endpoint)
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://ai-trading-9qoa.onrender.com"}/api/v1/fyers/save-credentials`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          client_id: fyersClientId.trim(),
+          secret_key: fyersSecretKey.trim(),
+        }),
         signal: AbortSignal.timeout(10000),
       });
 
@@ -84,24 +112,68 @@ export default function BrokerConnectPage() {
         throw new Error(errData.detail || `HTTP ${response.status}`);
       }
 
-      const data = await response.json();
+      // Immediately redirect to Fyers OAuth
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://ai-trading-9qoa.onrender.com";
+      window.location.href = `${apiUrl}/api/v1/fyers/login`;
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Failed to save Fyers credentials";
+      alert(errorMessage);
+    } finally {
+      setFyersSaving(false);
+    }
+  };
+
+  const handleKotakSaveAndConnect = async () => {
+    if (!kotakConsumerKey.trim() || !kotakConsumerSecret.trim() || !kotakTotpSecret.trim() || !kotakMobileNumber.trim() || !kotakMpin.trim()) {
+      alert("Please fill all required Kotak fields");
+      return;
+    }
+
+    setKotakSaving(true);
+    try {
+      // Save credentials to backend
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://ai-trading-9qoa.onrender.com"}/api/v1/kotak/save-credentials`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          consumer_key: kotakConsumerKey.trim(),
+          consumer_secret: kotakConsumerSecret.trim(),
+          totp_secret: kotakTotpSecret.trim(),
+          mobile_number: kotakMobileNumber.trim(),
+          mpin: kotakMpin.trim(),
+          ucc: kotakUcc.trim(),
+        }),
+        signal: AbortSignal.timeout(10000),
+      });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.detail || `HTTP ${response.status}`);
+      }
+
+      // Initiate Kotak login
+      const loginResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://ai-trading-9qoa.onrender.com"}/api/v1/kotak/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal: AbortSignal.timeout(10000),
+      });
+
+      if (!loginResponse.ok) {
+        const errData = await loginResponse.json().catch(() => ({}));
+        throw new Error(errData.detail || `HTTP ${loginResponse.status}`);
+      }
+
+      const data = await loginResponse.json();
       if (data.redirect_url) {
         window.location.href = data.redirect_url;
       } else {
         alert("Kotak login initiated. Check the backend logs.");
       }
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : "Failed to initiate Kotak login";
+      const errorMessage = err instanceof Error ? err.message : "Failed to save Kotak credentials";
       alert(errorMessage);
-    }
-  };
-
-  const formatTime = (isoString: string | null) => {
-    if (!isoString) return "Never";
-    try {
-      return new Date(isoString).toLocaleString();
-    } catch {
-      return isoString;
+    } finally {
+      setKotakSaving(false);
     }
   };
 
@@ -122,7 +194,7 @@ export default function BrokerConnectPage() {
               <Link className="w-8 h-8 text-neon-cyan" strokeWidth={2.5} />
               Broker Connect
             </h1>
-            <p className="text-text-secondary mt-1">Manage Fyers (Data) and Kotak Neo (Execution) connections</p>
+            <p className="text-text-secondary mt-1">Configure and connect Fyers (Data) and Kotak Neo (Execution)</p>
           </motion.div>
 
           {/* Error Banner */}
@@ -210,10 +282,40 @@ export default function BrokerConnectPage() {
                 </motion.div>
               )}
 
-              {/* Connect Button */}
+              {/* Fyers Credentials Input Fields */}
+              {!status?.fyers.connected && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  className="space-y-4 mb-6 p-4 rounded-xl bg-card-bg/50 border border-glow-border glass"
+                >
+                  <div>
+                    <label className="block text-sm font-medium text-text-secondary mb-2">Fyers Client ID</label>
+                    <input
+                      type="text"
+                      value={fyersClientId}
+                      onChange={(e) => setFyersClientId(e.target.value)}
+                      placeholder="Enter your Fyers Client ID"
+                      className="w-full px-4 py-2.5 bg-true-black border border-glow-border focus:border-neon-cyan focus:outline-none rounded-xl text-white placeholder-text-muted transition-colors"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-text-secondary mb-2">Fyers Secret Key</label>
+                    <input
+                      type="password"
+                      value={fyersSecretKey}
+                      onChange={(e) => setFyersSecretKey(e.target.value)}
+                      placeholder="Enter your Fyers Secret Key"
+                      className="w-full px-4 py-2.5 bg-true-black border border-glow-border focus:border-neon-cyan focus:outline-none rounded-xl text-white placeholder-text-muted transition-colors"
+                    />
+                  </div>
+                </motion.div>
+              )}
+
+              {/* Save & Connect Button */}
               <motion.button
-                onClick={handleFyersConnect}
-                disabled={status?.fyers.connected || isLoading}
+                onClick={handleFyersSaveAndConnect}
+                disabled={status?.fyers.connected || isLoading || fyersSaving}
                 whileHover={{ scale: 1.02, boxShadow: "0 0 20px rgba(0, 240, 255, 0.3)" }}
                 whileTap={{ scale: 0.98 }}
                 className={`w-full py-3.5 rounded-xl font-bold text-lg transition-all duration-300 flex items-center justify-center gap-2 ${
@@ -227,21 +329,21 @@ export default function BrokerConnectPage() {
                     <CheckCircle className="w-5 h-5" strokeWidth={2.5} />
                     Fyers Connected
                   </>
-                ) : isLoading ? (
+                ) : fyersSaving ? (
                   <>
                     <Loader2 className="w-5 h-5 animate-spin" strokeWidth={2.5} />
-                    Connecting...
+                    Saving & Connecting...
                   </>
                 ) : (
                   <>
-                    <ExternalLink className="w-5 h-5" strokeWidth={2.5} />
-                    Login with Fyers
+                    <Save className="w-5 h-5" strokeWidth={2.5} />
+                    Save & Connect to Fyers
                   </>
                 )}
               </motion.button>
 
               <p className="mt-4 text-center text-xs text-text-muted">
-                Redirects to Fyers OAuth for token authorization. Required for market data & quotes.
+                Enter your Fyers API credentials. Clicking "Save & Connect" will store them and redirect to Fyers OAuth for authorization.
               </p>
             </motion.div>
 
@@ -305,10 +407,82 @@ export default function BrokerConnectPage() {
                 </motion.div>
               )}
 
-              {/* Connect Button */}
+              {/* Kotak Credentials Input Fields */}
+              {!status?.kotak.connected && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  className="space-y-3 mb-6 p-4 rounded-xl bg-card-bg/50 border border-glow-border glass"
+                >
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium text-text-secondary mb-2">Consumer Key</label>
+                      <input
+                        type="text"
+                        value={kotakConsumerKey}
+                        onChange={(e) => setKotakConsumerKey(e.target.value)}
+                        placeholder="Kotak Consumer Key"
+                        className="w-full px-3 py-2 bg-true-black border border-glow-border focus:border-neon-orange focus:outline-none rounded-lg text-white placeholder-text-muted transition-colors text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-text-secondary mb-2">Consumer Secret</label>
+                      <input
+                        type="password"
+                        value={kotakConsumerSecret}
+                        onChange={(e) => setKotakConsumerSecret(e.target.value)}
+                        placeholder="Kotak Consumer Secret"
+                        className="w-full px-3 py-2 bg-true-black border border-glow-border focus:border-neon-orange focus:outline-none rounded-lg text-white placeholder-text-muted transition-colors text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-text-secondary mb-2">TOTP Secret</label>
+                      <input
+                        type="text"
+                        value={kotakTotpSecret}
+                        onChange={(e) => setKotakTotpSecret(e.target.value)}
+                        placeholder="TOTP Secret"
+                        className="w-full px-3 py-2 bg-true-black border border-glow-border focus:border-neon-orange focus:outline-none rounded-lg text-white placeholder-text-muted transition-colors text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-text-secondary mb-2">Mobile Number</label>
+                      <input
+                        type="text"
+                        value={kotakMobileNumber}
+                        onChange={(e) => setKotakMobileNumber(e.target.value)}
+                        placeholder="Registered Mobile"
+                        className="w-full px-3 py-2 bg-true-black border border-glow-border focus:border-neon-orange focus:outline-none rounded-lg text-white placeholder-text-muted transition-colors text-sm"
+                      />
+                    </div>
+                    <div className="col-span-2">
+                      <label className="block text-sm font-medium text-text-secondary mb-2">MPIN</label>
+                      <input
+                        type="password"
+                        value={kotakMpin}
+                        onChange={(e) => setKotakMpin(e.target.value)}
+                        placeholder="MPIN"
+                        className="w-full px-3 py-2 bg-true-black border border-glow-border focus:border-neon-orange focus:outline-none rounded-lg text-white placeholder-text-muted transition-colors text-sm"
+                      />
+                    </div>
+                    <div className="col-span-2">
+                      <label className="block text-sm font-medium text-text-secondary mb-2">UCC (Optional)</label>
+                      <input
+                        type="text"
+                        value={kotakUcc}
+                        onChange={(e) => setKotakUcc(e.target.value)}
+                        placeholder="UCC"
+                        className="w-full px-3 py-2 bg-true-black border border-glow-border focus:border-neon-orange focus:outline-none rounded-lg text-white placeholder-text-muted transition-colors text-sm"
+                      />
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+
+              {/* Save & Connect Button */}
               <motion.button
-                onClick={handleKotakConnect}
-                disabled={status?.kotak.connected || isLoading}
+                onClick={handleKotakSaveAndConnect}
+                disabled={status?.kotak.connected || isLoading || kotakSaving}
                 whileHover={{ scale: 1.02, boxShadow: "0 0 20px rgba(249, 115, 22, 0.4)" }}
                 whileTap={{ scale: 0.98 }}
                 className={`w-full py-3.5 rounded-xl font-bold text-lg transition-all duration-300 flex items-center justify-center gap-2 ${
@@ -322,21 +496,21 @@ export default function BrokerConnectPage() {
                     <CheckCircle className="w-5 h-5" strokeWidth={2.5} />
                     Kotak Connected
                   </>
-                ) : isLoading ? (
+                ) : kotakSaving ? (
                   <>
                     <Loader2 className="w-5 h-5 animate-spin" strokeWidth={2.5} />
-                    Connecting...
+                    Saving & Connecting...
                   </>
                 ) : (
                   <>
-                    <Shield className="w-5 h-5" strokeWidth={2.5} />
-                    Login with Kotak
+                    <Save className="w-5 h-5" strokeWidth={2.5} />
+                    Save & Connect to Kotak
                   </>
                 )}
               </motion.button>
 
               <p className="mt-4 text-center text-xs text-text-muted">
-                Uses TOTP + MPIN for secure login. Required for order placement & position management.
+                Enter your Kotak Neo API credentials. Uses TOTP + MPIN for secure login. Required for order placement & position management.
               </p>
             </motion.div>
           </div>

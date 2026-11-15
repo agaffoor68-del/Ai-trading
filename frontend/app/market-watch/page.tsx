@@ -6,6 +6,7 @@ import { motion } from "framer-motion";
 import { TrendingUp, TrendingDown, Search, RefreshCw, Loader2, X, AlertCircle, Sparkles, Wifi } from "lucide-react";
 import { Sidebar } from "@/components/Sidebar";
 import { Header } from "@/components/Header";
+import { api, formatFyersSymbol } from "@/lib/api";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://ai-trading-9qoa.onrender.com";
 
@@ -31,7 +32,7 @@ interface DisplayItem extends SearchResult {
   change: number | null;
   changePercent: number | null;
   sparkline: number[];
-  priceSource: "live" | "fetching" | "none";
+  priceSource: "live" | "none";
 }
 
 function generateSparkline(basePrice: number): number[] {
@@ -101,12 +102,6 @@ function MarketRow({ item, index }: { item: DisplayItem; index: number }) {
               LIVE
             </span>
           )}
-          {item.priceSource === "fetching" && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-neon-orange/20 text-neon-orange font-medium animate-pulse flex items-center gap-1">
-              <Loader2 className="w-3 h-3 animate-spin" strokeWidth={2.5} />
-              Fetching...
-            </span>
-          )}
         </div>
       </td>
       <td className="px-5 py-4 font-mono tabular-nums">
@@ -128,7 +123,7 @@ function MarketRow({ item, index }: { item: DisplayItem; index: number }) {
             </span>
           </div>
         ) : (
-          <span className="text-text-muted text-sm">No live data</span>
+          <span className="text-text-muted text-sm">No live data. Please connect Fyers.</span>
         )}
       </td>
       <td className="px-5 py-4">
@@ -191,8 +186,8 @@ export default function MarketWatchPage() {
   // SWR for quotes - auto-refreshes every 5 seconds
   const topSymbols = searchData?.results?.slice(0, 10) || [];
   const fyersSymbols = topSymbols.map((s: SearchResult) => {
-    const exchange = s.exchange === "NSE_FO" ? "NSE" : s.exchange === "NSE_CM" ? "NSE" : s.exchange;
-    return `${exchange}:${s.symbol}`;
+    // Send user-friendly symbols (e.g., "NIFTY 50") - backend will map to "NSE:NIFTY50-INDEX"
+    return s.symbol;
   });
 
   const { data: quotesData, isLoading: isQuotesLoading, error: quotesError } = useSWR(
@@ -228,7 +223,7 @@ export default function MarketWatchPage() {
             change: null,
             changePercent: null,
             sparkline: Array(8).fill(0),
-            priceSource: "fetching" as const,
+            priceSource: "none" as const,
           };
         }
       });
@@ -249,7 +244,7 @@ export default function MarketWatchPage() {
     }
   }, [searchError]);
 
-  // Handle quotes error - show toast
+  // Handle quotes error - show clear message
   useEffect(() => {
     if (quotesError && !isQuotesLoading) {
       console.warn("Quotes fetch error:", quotesError);
@@ -313,7 +308,7 @@ export default function MarketWatchPage() {
                   type="text"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Search symbols... (e.g., NIFTY, SBIN, RELIANCE)"
+                  placeholder="Search symbols... (e.g., NIFTY 50, BANKNIFTY, RELIANCE)"
                   className="w-full pl-12 pr-4 py-3.5 bg-card-bg border border-glow-border focus:border-neon-cyan focus:outline-none rounded-xl text-white placeholder-text-muted text-base"
                 />
                 {query && query !== "NIFTY" && (
@@ -406,7 +401,7 @@ export default function MarketWatchPage() {
                       <td colSpan={4} className="px-5 py-12 text-center text-text-muted">
                         <AlertCircle className="w-8 h-8 mx-auto mb-2 text-neon-red/50" strokeWidth={2} />
                         <p>No results found for "{query}"</p>
-                        <p className="text-sm mt-1">Try a different symbol (e.g., RELIANCE, SBIN, TCS)</p>
+                        <p className="text-sm mt-1">Try a different symbol (e.g., NIFTY 50, RELIANCE, SBIN, TCS)</p>
                       </td>
                     </tr>
                   ) : (

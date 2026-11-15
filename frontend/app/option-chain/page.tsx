@@ -178,6 +178,9 @@ export default function OptionChainPage() {
     return totalCE > 0 ? totalPE / totalCE : 0;
   }, [transformedStrikes]);
 
+  // Check if we have valid data
+  const hasValidData = chainData && chainData.option_chain && chainData.option_chain.length > 0;
+
   return (
     <div className="min-h-screen bg-true-black text-white">
       <Sidebar />
@@ -274,13 +277,19 @@ export default function OptionChainPage() {
               {error && (
                 <motion.span className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-neon-red/10 border border-neon-red/30 text-neon-red text-sm glass">
                   <AlertCircle className="w-4 h-4" strokeWidth={2.5} />
-                  {error.message}
+                  {error.message || "Failed to load option chain. Please connect Fyers."}
                 </motion.span>
               )}
-              {!error && chainData && (
+              {!error && hasValidData && (
                 <motion.span className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-neon-green/10 border border-neon-green/30 text-neon-green text-sm glass">
                   <span className="w-2 h-2 rounded-full bg-neon-green animate-pulse-glow" />
                   {transformedStrikes.length} strikes loaded
+                </motion.span>
+              )}
+              {!error && !hasValidData && !isLoading && (
+                <motion.span className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-neon-orange/10 border border-neon-orange/30 text-neon-orange text-sm glass">
+                  <AlertCircle className="w-4 h-4" strokeWidth={2.5} />
+                  No live data. Please connect Fyers.
                 </motion.span>
               )}
               {isLoading && (
@@ -361,7 +370,7 @@ export default function OptionChainPage() {
                         </div>
                       </td>
                     </tr>
-                  ) : chainData ? filteredStrikes.length > 0 ? filteredStrikes.map((row: OptionStrike, index: number) => {
+                  ) : hasValidData ? filteredStrikes.length > 0 ? filteredStrikes.map((row: OptionStrike, index: number) => {
                     const isPositiveCE = row.ceChange >= 0;
                     const isPositivePE = row.peChange >= 0;
                     const ceOIPositive = row.ceOIChange >= 0;
@@ -419,7 +428,7 @@ export default function OptionChainPage() {
                     <tr>
                       <td colSpan={9} className="px-4 py-16 text-center text-text-muted">
                         <AlertCircle className="w-8 h-8 mx-auto mb-2 text-neon-red/50" strokeWidth={2} />
-                        <p>Select an index and expiry to load option chain</p>
+                        <p>No live data. Please connect Fyers.</p>
                       </td>
                     </tr>
                   )}
