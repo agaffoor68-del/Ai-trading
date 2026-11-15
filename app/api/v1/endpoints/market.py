@@ -774,7 +774,7 @@ async def get_ai_signals(
         if not token:
             raise HTTPException(
                 status_code=401,
-                detail="Fyers not authenticated. Please login via /api/v1/fyers/login"
+                detail={"code": "FYERS_NOT_CONNECTED", "message": "Fyers not authenticated. Please login via /api/v1/fyers/connect"}
             )
         
         symbol_list = [s.strip().upper() for s in symbols.split(",")]

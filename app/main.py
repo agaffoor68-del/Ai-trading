@@ -233,9 +233,9 @@ async def fyers_status():
     kotak_message = "Not configured"
     if kotak_configured:
         try:
-            # Just check if credentials exist, don't actually connect
-            kotak_connected = True
-            kotak_message = "Configured"
+            # Try to actually validate Kotak credentials by attempting a session
+            # For now, just show as configured since we don't have a real session check
+            kotak_message = "Configured (session not verified)"
         except Exception:
             kotak_message = "Configuration error"
     

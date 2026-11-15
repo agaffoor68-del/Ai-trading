@@ -11,6 +11,7 @@ import {
   isFyersNotConnected,
   isFyersError,
   isFyersUnreachable,
+  isAuthError,
   formatFyersSymbol
 } from "@/lib/api";
 
@@ -53,7 +54,7 @@ const createPostFetcher = <T,>(key: string, body: any) => async (): Promise<T> =
   return response.json();
 };
 
-export { isFyersNotConnected, isFyersError, isFyersUnreachable, formatFyersSymbol } from "@/lib/api";
+export { isFyersNotConnected, isFyersError, isFyersUnreachable, isAuthError, formatFyersSymbol } from "@/lib/api";
 
 export function useMarketQuotes(symbols: string[]) {
   const symbolsKey = symbols.length > 0 ? symbols.sort().join(",") : "";

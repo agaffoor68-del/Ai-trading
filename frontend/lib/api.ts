@@ -314,9 +314,6 @@ export function isFyersNotConnected(error: unknown): boolean {
   if (error instanceof Error && "code" in error) {
     return (error as any).code === "FYERS_NOT_CONNECTED";
   }
-  if (error instanceof Error && "status" in error) {
-    return (error as any).status === 401;
-  }
   return false;
 }
 
@@ -338,6 +335,18 @@ export function isFyersUnreachable(error: unknown): boolean {
   }
   if (error instanceof Error && "status" in error) {
     return (error as any).status === 504;
+  }
+  return false;
+}
+
+// Check if error is a user auth 401 (not Fyers-related)
+export function isAuthError(error: unknown): boolean {
+  if (error instanceof Error && "code" in error) {
+    const code = (error as any).code;
+    return code === "AUTH_REQUIRED" || code === "TOKEN_EXPIRED" || code === "TOKEN_INVALID";
+  }
+  if (error instanceof Error && "status" in error) {
+    return (error as any).status === 401 && !isFyersNotConnected(error);
   }
   return false;
 }
