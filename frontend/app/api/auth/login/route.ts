@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+import { rethrowIfDynamicServerError } from "@/lib/next-runtime";
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || "https://ai-trading-9qoa.onrender.com";
+
+export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
   try {
@@ -24,37 +27,51 @@ export async function POST(request: NextRequest) {
         username: email,
         password: password,
       }),
+      cache: "no-store",
     });
 
     const data = await backendResponse.json();
 
     if (!backendResponse.ok) {
-      const errorResponse = NextResponse.json(data, { status: backendResponse.status });
-      
-      // Forward the access_token cookie if present
-      const setCookie = backendResponse.headers.get("set-cookie");
-      if (setCookie) {
-        // Extract cookie options and set on our domain
-        errorResponse.headers.set("set-cookie", setCookie.replace("SameSite=Lax", "SameSite=Lax"));
-      }
-      
-      return errorResponse;
+      return NextResponse.json(data, { status: backendResponse.status });
     }
 
-    const response = NextResponse.json(data);
-    
-    // Set httpOnly cookie
-    const setCookie = backendResponse.headers.get("set-cookie");
-    if (setCookie) {
-      response.headers.set("set-cookie", setCookie);
+    const { access_token: accessToken, expires_in: expiresIn, ...userData } = data;
+
+    if (!accessToken) {
+      return NextResponse.json(
+        { detail: "Login failed: backend did not return a session token." },
+        { status: 502 }
+      );
     }
+
+    const response = NextResponse.json(userData);
+
+    response.cookies.set({
+      name: "access_token",
+      value: accessToken,
+      httpOnly: true,
+      secure: true,
+      sameSite: "lax",
+      path: "/",
+      maxAge: typeof expiresIn === "number" ? expiresIn : 60 * 60 * 24,
+    });
 
     return response;
   } catch (error) {
-    console.error("Login proxy error:", error);
+    rethrowIfDynamicServerError(error);
+
+    const isNetworkError = error instanceof TypeError;
+    const message = error instanceof Error ? error.message : "unknown error";
+    console.error(`Login proxy error: ${message}`);
+
     return NextResponse.json(
-      { detail: "Login failed. Please try again." },
-      { status: 500 }
+      {
+        detail: isNetworkError
+          ? "Unable to reach the authentication server. Please try again later."
+          : "Login failed due to a server error. Please try again.",
+      },
+      { status: isNetworkError ? 502 : 500 }
     );
   }
 }

@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+import { rethrowIfDynamicServerError } from "@/lib/next-runtime";
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || "https://ai-trading-9qoa.onrender.com";
+
+export const dynamic = "force-dynamic";
 
 async function proxyRequest(request: NextRequest, endpoint: string) {
   try {
@@ -18,6 +21,7 @@ async function proxyRequest(request: NextRequest, endpoint: string) {
         "Content-Type": "application/json",
         "Authorization": `Bearer ${accessToken}`,
       },
+      cache: "no-store",
     };
 
     if (request.method !== "GET" && request.method !== "HEAD") {
@@ -34,7 +38,8 @@ async function proxyRequest(request: NextRequest, endpoint: string) {
 
     return NextResponse.json(data);
   } catch (error) {
-    console.error(`Admin proxy error for ${endpoint}:`, error);
+    rethrowIfDynamicServerError(error);
+    console.error(`Admin proxy error for ${endpoint}: ${error instanceof Error ? error.message : "unknown error"}`);
     return NextResponse.json({ detail: "Request failed" }, { status: 500 });
   }
 }

@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+import { rethrowIfDynamicServerError } from "@/lib/next-runtime";
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || "https://ai-trading-9qoa.onrender.com";
+
+export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
   try {
@@ -20,6 +23,7 @@ export async function POST(request: NextRequest) {
         "Authorization": `Bearer ${accessToken}`,
       },
       body: JSON.stringify(body),
+      cache: "no-store",
     });
 
     const data = await backendResponse.json();
@@ -30,7 +34,8 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(data);
   } catch (error) {
-    console.error("Fyers connect proxy error:", error);
+    rethrowIfDynamicServerError(error);
+    console.error(`Fyers connect proxy error: ${error instanceof Error ? error.message : "unknown error"}`);
     return NextResponse.json({ detail: "Failed to connect Fyers" }, { status: 500 });
   }
 }
