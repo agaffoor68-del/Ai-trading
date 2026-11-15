@@ -35,7 +35,17 @@ export default function LoginPage() {
       const data = await response.json();
 
       if (!response.ok) {
-        setError(data.detail || "Login failed. Please check your credentials.");
+        // Distinguish between wrong credentials (401), forbidden (403), and other errors
+        const status = response.status;
+        if (status === 401) {
+          setError("Invalid email or password. Please check your credentials.");
+        } else if (status === 403) {
+          setError("User account is deactivated. Please contact support.");
+        } else if (status === 429) {
+          setError("Too many login attempts. Please try again later.");
+        } else {
+          setError(`Login failed (${status}). Please try again.`);
+        }
         return;
       }
 
@@ -44,7 +54,14 @@ export default function LoginPage() {
         router.push("/");
       }, 1000);
     } catch (err) {
-      setError("An unexpected error occurred. Please try again.");
+      // Network/error type determination
+      if (err instanceof TypeError) {
+        setError("Network error. Please check your connection and try again.");
+      } else if (err instanceof DOMException && err.name === "AbortError") {
+        setError("Request timed out. Please try again.");
+      } else {
+        setError(`Error: ${err instanceof Error ? err.message : 'Unknown error'}. Please try again.`);
+      }
     } finally {
       setIsLoading(false);
     }

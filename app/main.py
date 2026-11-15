@@ -62,6 +62,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*", "Authorization", "Content-Type"],
 )
 
 app.include_router(fyers_router, prefix="/api/v1/fyers", tags=["fyers-auth"])

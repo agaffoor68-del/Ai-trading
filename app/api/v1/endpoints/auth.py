@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from zoneinfo import ZoneInfo
 
 from app.core.auth import (
-    authenticate_user,
+    verify_password,
     create_access_token,
     get_current_user,
     hash_password,
@@ -91,16 +91,28 @@ async def login(
             detail="Too many login attempts. Please try again later.",
         )
     
-    user = authenticate_user(db, form_data.username, form_data.password)
+    # Check user existence and password separately for proper logging
+    user = db.query(User).filter(User.email == form_data.username).first()
     if not user:
-        # Generic error - don't reveal if email exists
-        logger.warning(f"Failed login attempt for {form_data.username} from {client_ip}")
+        # Log the result without revealing password
+        logger.warning(f"Login attempt - email: {form_data.username}, result: unknown_user")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    
+    if not verify_password(form_data.password, user.hashed_password):
+        # Log the result without revealing password
+        logger.warning(f"Login attempt - email: {form_data.username}, result: wrong_password")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid email or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
     if not user.is_active:
+        logger.warning(f"Login attempt - email: {form_data.username}, result: account_deactivated")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="User account is deactivated",
@@ -112,7 +124,7 @@ async def login(
         expires_delta=access_token_expires,
     )
 
-    # Set httpOnly cookie
+# Set httpOnly cookie
     is_production = os.getenv("ENVIRONMENT", "development") == "production"
     cookie_options = {
         "httponly": True,
@@ -122,6 +134,8 @@ async def login(
         "path": "/",
     }
     response.set_cookie(key="access_token", value=access_token, **cookie_options)
+
+    logger.info(f"Login successful - email: {user.email}, result: ok")
 
     return {
         "access_token": access_token,
@@ -252,6 +266,7 @@ async def reset_admin_password(
     # Update password
     admin_user.hashed_password = hash_password(settings.ADMIN_PASSWORD)
     db.commit()
+    logger.info(f"Admin password reset for {admin_email}")
     
     logger.info(f"Admin password reset for {admin_email}")
     
