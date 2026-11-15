@@ -107,6 +107,61 @@ async def health_check():
 
 # Global Fyers WebSocket instance
 fyers_ws: FyersWebSocket | None = None
+symbol_sync_task: asyncio.Task | None = None
+
+
+async def sync_symbols_and_start_websocket():
+    global fyers_ws
+
+    try:
+        logger.info("Starting Fyers Symbol Master download in background...")
+        downloader = SymbolMasterDownloader()
+        try:
+            total_instruments = await downloader.load_all()
+            logger.info("Fyers Symbol Master sync complete: %s instruments loaded", total_instruments)
+        finally:
+            await downloader.close()
+    except Exception:
+        logger.exception("Fyers Symbol Master background sync failed")
+
+    try:
+        token = get_fyers_token()
+        if not token:
+            logger.warning("No Fyers token - WebSocket not started. Will start after login.")
+            return
+
+        db = SessionLocal()
+        try:
+            symbols = db.query(Instrument.symbol).filter(
+                Instrument.is_active == 1,
+                Instrument.instrument_type.in_(["10", "13", "INDEX", "EQ", "EQUITY"]),
+            ).limit(50).all()
+            symbol_list = [row[0] for row in symbols]
+        finally:
+            db.close()
+
+        fyers_ws = FyersWebSocket(access_token=token, symbols=symbol_list)
+
+        async def on_tick(tick):
+            if not fyers_ws._sample_tick_logged:
+                logger.info("Fyers sample tick: symbol=%s ltp=%s", tick["symbol"], tick["ltp"])
+                fyers_ws._sample_tick_logged = True
+            await redis_tick_store.write_tick(tick["symbol"], tick)
+
+        fyers_ws.on_tick(on_tick)
+        asyncio.create_task(fyers_ws.connect(), name="fyers-websocket")
+        logger.info("Fyers WebSocket background task started")
+    except Exception:
+        logger.exception("Fyers WebSocket startup error")
+
+
+@app.get("/api/fyers/ws-status", tags=["market-data"])
+async def fyers_ws_status():
+    return {
+        "ws_connected": bool(fyers_ws and fyers_ws.is_connected),
+        "last_tick_time": fyers_ws.last_tick_time if fyers_ws else None,
+        "symbols_subscribed": len(fyers_ws.symbols) if fyers_ws else 0,
+    }
 
 
 @app.on_event("startup")
@@ -171,70 +226,27 @@ async def startup_event():
     except Exception as e:
         logger.error(f"Fyers token load error: {str(e)}")
 
-    # 6. Download and sync Fyers Symbol Master (NSE_CM.csv, NSE_FO.csv)
-    try:
-        logger.info("Starting Fyers Symbol Master download...")
-        downloader = SymbolMasterDownloader()
-        total_instruments = await downloader.load_all()
-        await downloader.close()
-        logger.info(f"Fyers Symbol Master sync complete: {total_instruments} instruments loaded")
-    except Exception as e:
-        logger.error(f"Fyers Symbol Master download error: {str(e)}")
+    # 6. Load the large symbol master after the HTTP server has started.
+    global symbol_sync_task
+    symbol_sync_task = asyncio.create_task(
+        sync_symbols_and_start_websocket(), name="fyers-symbol-sync-and-websocket"
+    )
 
-    # 7. Start Fyers WebSocket for live ticks (if token available)
-    global fyers_ws
-    try:
-        token = get_fyers_token()
-        if token:
-            logger.info("Starting Fyers WebSocket connection...")
-            # Get symbols from database for subscription
-            db = SessionLocal()
-            try:
-                # Get active index and major equity symbols for WebSocket subscription
-                from app.core.database import Instrument
-                symbols = db.query(Instrument.symbol).filter(
-                    Instrument.is_active == 1,
-                    Instrument.instrument_type.in_(["10", "13", "INDEX", "EQ", "EQUITY"])
-                ).limit(50).all()
-                symbol_list = [s[0] for s in symbols]
-                logger.info(f"Subscribing to {len(symbol_list)} symbols on Fyers WebSocket")
-            finally:
-                db.close()
-            
-            fyers_ws = FyersWebSocket(access_token=token, symbols=symbol_list)
-            
-            # Set up callback to write ticks to Redis
-            async def on_tick(tick):
-                await redis_tick_store.write_tick(tick["symbol"], tick)
-            
-            fyers_ws.on_tick(on_tick)
-            
-            # Start WebSocket in background
-            asyncio.create_task(fyers_ws.connect())
-            logger.info("Fyers WebSocket background task started")
-        else:
-            logger.warning("No Fyers token - WebSocket not started. Will start after login.")
-    except Exception as e:
-        logger.error(f"Fyers WebSocket startup error: {str(e)}")
-
-    # 8. Log instrument count
-    db = SessionLocal()
-    try:
-        count = db.query(Instrument).count()
-        logger.info(f"Symbol master: {count} instruments loaded in PostgreSQL")
-    except Exception as e:
-        logger.error(f"Error counting instruments: {str(e)}")
-    finally:
-        db.close()
-
-    logger.info(">>> Phase 2 Startup Complete <<<")
+    logger.info(">>> Phase 2 Startup Complete; symbol sync running in background <<<")
 
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    global fyers_ws
+    global fyers_ws, symbol_sync_task
     logger.info(">>> Phase 2 Shutting Down <<<")
-    
+
+    if symbol_sync_task and not symbol_sync_task.done():
+        symbol_sync_task.cancel()
+        try:
+            await symbol_sync_task
+        except asyncio.CancelledError:
+            pass
+
     # Close Fyers WebSocket
     if fyers_ws:
         try:
@@ -263,7 +275,7 @@ async def app_info():
         "execution": "Kotak Neo (Phase 2)",
         "ai": "Grok API (Phase 3)",
         "timezone": "IST (Asia/Kolkata)",
-        "websockets": "websockets==8.1 + wsproto",
+        "websockets": "websockets client with additional_headers + wsproto server",
         "ntp_synced": time_syncer.is_synced,
         "auth": "JWT + passlib (bcrypt)",
         "admin_seeder": "agaffoor68@gmail.com",

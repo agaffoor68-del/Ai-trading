@@ -10,6 +10,7 @@ Non-Negotiable Rule: Fyers WebSocket is the ONLY source for live market data.
 import asyncio
 import json
 import logging
+from urllib.parse import urlparse
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from typing import Optional
@@ -54,16 +55,14 @@ class RedisTickStore:
             logger.error("redis not installed. Run: pip install redis")
             return False
         try:
-            self._client = aioredis.Redis(
-                host=self.host,
-                port=self.port,
-                db=self.db,
-                password=self.password,
-                decode_responses=True,
-            )
+            from app.core.config import settings
+
+            self._client = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
+            redis_address = urlparse(settings.REDIS_URL)
+            logger.info("Connecting to Redis at %s:%s", redis_address.hostname, redis_address.port or 6379)
             await self._client.ping()
             self._connected = True
-            logger.info(f"Redis connected at {self.host}:{self.port}")
+            logger.info("Redis connected at %s:%s", redis_address.hostname, redis_address.port or 6379)
             return True
         except Exception as e:
             logger.error(f"Redis connection failed: {e}")
