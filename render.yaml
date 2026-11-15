@@ -14,6 +14,11 @@ services:
           type: postgres
           name: options-trading-db
           property: connectionString
+      REDIS_URL:
+        fromService:
+          type: redis
+          name: options-redis
+          property: connectionString
       FYERS_CLIENT_ID:
         fromSecret: fyers_client_id
       FYERS_CLIENT_SECRET:
@@ -39,10 +44,9 @@ services:
     plan: free
     autoDelete: true
 
-  # Redis for caching (optional)
-  # - type: redis
-  #   name: options-redis
-  #   plan: free
+  - type: redis
+    name: options-redis
+    plan: free
 
 # Vercel Frontend Configuration
 # (Deploy separately to Vercel)

@@ -24,44 +24,59 @@ class FyersWebSocket:
         self.tick_callbacks = []
         self._connected_event = asyncio.Event()
         self._disconnect_event = asyncio.Event()
+        self.last_tick_time = None
+        self._sample_tick_logged = False
+        self._stopped = False
 
     async def connect(self):
-        try:
-            import wsproto
-            import websockets
+        import websockets
 
-            async with websockets.connect(
-                FWS_URL,
-                extra_headers={
-                    "Authorization": f"Bearer {self.access_token}",
-                    "Content-Type": "application/json",
-                },
-                ping_interval=20,
-                ping_timeout=60,
-            ) as ws:
-                self.ws_connection = ws
-                self.is_connected = True
-                self._connected_event.set()
-                logger.info(f"Fyers WS connected. Subscribing to: {self.symbols}")
+        backoff_seconds = 1
+        while not self._stopped:
+            try:
+                async with websockets.connect(
+                    FWS_URL,
+                    additional_headers={
+                        "Authorization": f"Bearer {self.access_token}",
+                        "Content-Type": "application/json",
+                    },
+                    ping_interval=20,
+                    ping_timeout=60,
+                ) as ws:
+                    self.ws_connection = ws
+                    self.is_connected = True
+                    self._connected_event.set()
+                    connected_at = asyncio.get_running_loop().time()
+                    logger.info("Fyers WS connected")
+                    if self.symbols:
+                        await ws.send(json.dumps({"action": "subscribe", "tokens": self.symbols}))
+                        logger.info("subscribed %d symbols", len(self.symbols))
+                    await self._listen_loop()
+                    if asyncio.get_running_loop().time() - connected_at >= 60:
+                        backoff_seconds = 1
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                logger.error("Fyers WS connection error: %s", e)
+            finally:
+                self.is_connected = False
+                self.ws_connection = None
+                self._connected_event.clear()
 
-                if self.symbols:
-                    msg = {"action": "subscribe", "tokens": self.symbols}
-                    await ws.send(json.dumps(msg))
+            if not self._stopped:
+                logger.info("Fyers WS reconnecting in %d seconds", backoff_seconds)
+                await asyncio.sleep(backoff_seconds)
+                backoff_seconds = min(backoff_seconds * 2, 60)
 
-                await self._listen_loop()
-        except Exception as e:
-            logger.error(f"Fyers WS connection error: {str(e)}")
-            self.is_connected = False
-            self._connected_event.clear()
-            return False
+        return False
 
     async def _listen_loop(self):
         try:
             while self.is_connected:
                 msg = await self.ws_connection.recv()
                 await self._handle_message(msg)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Fyers WS disconnected: %s", e)
         finally:
             self.is_connected = False
             self._connected_event.clear()
@@ -88,6 +103,7 @@ class FyersWebSocket:
             else:
                 dt = datetime.now(IST)
 
+            self.last_tick_time = datetime.now(IST).isoformat()
             tick = {
                 "symbol": symbol,
                 "ltp": float(tick_data.get("ltp", 0) or 0),
@@ -138,6 +154,7 @@ class FyersWebSocket:
             return False
 
     async def disconnect(self):
+        self._stopped = True
         self.is_connected = False
         if self.ws_connection:
             try:
