@@ -331,6 +331,60 @@ async def get_quotes(request: QuotesRequest):
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 
+INTERVAL_TO_RESOLUTION = {
+    "1m": "1", "2m": "2", "3m": "3", "5m": "5", "10m": "10", "15m": "15",
+    "20m": "20", "30m": "30", "45m": "45", "60m": "60", "1h": "60",
+    "2h": "120", "4h": "240", "1d": "1D", "d": "1D",
+}
+
+
+@router.get("/candles")
+async def get_candles(
+    symbol: str = Query(..., description="Fyers symbol, e.g. NSE:NIFTY50-INDEX"),
+    interval: str = Query("5m", description="Candle interval: 1m, 5m, 15m, 1h, 1d ..."),
+    days: int = Query(5, ge=1, le=100, description="Lookback in days"),
+):
+    """
+    Historical OHLCV candles via Fyers API v3 (default: last 5 days).
+
+    Returns: [{"time": epoch_seconds, "open", "high", "low", "close", "volume"}, ...]
+    """
+    from app.services.fyers_api import fyers_api_client
+
+    resolution = INTERVAL_TO_RESOLUTION.get(interval.strip().lower())
+    if not resolution:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported interval '{interval}'. Use one of: {', '.join(INTERVAL_TO_RESOLUTION)}",
+        )
+
+    symbol = symbol.strip()
+    if ":" not in symbol:
+        # Accept shorthand like NIFTY/BANKNIFTY
+        symbol = EXACT_INDEX_SYMBOLS.get(symbol.upper(), symbol)
+
+    now = int(datetime.now(IST).timestamp())
+    result = await fyers_api_client.get_history(symbol, resolution, now - days * 86400, now)
+
+    if "error" in result:
+        raise HTTPException(status_code=result.get("status", 502), detail=result["error"])
+
+    candles = []
+    for row in result["candles"]:
+        if len(row) < 5:
+            continue
+        candles.append({
+            "time": int(row[0]),
+            "open": row[1],
+            "high": row[2],
+            "low": row[3],
+            "close": row[4],
+            "volume": row[5] if len(row) > 5 else 0,
+        })
+    candles.sort(key=lambda c: c["time"])
+    return candles
+
+
 @router.get("/quote/{symbol}")
 async def get_quote(symbol: str):
     """

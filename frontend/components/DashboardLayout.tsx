@@ -5,13 +5,20 @@ import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
 import { HeroBanner } from "./HeroBanner";
 import { MarketWatch } from "./MarketWatch";
-import { ChartPlaceholder } from "./ChartPlaceholder";
+import { CandlestickChart } from "./CandlestickChart";
+import { SymbolProvider, useSelectedSymbol } from "@/lib/symbol-context";
 import { OptionsChain } from "./OptionsChain";
 import { AISignalCard } from "./AISignalCard";
 import { OrderTicket } from "./OrderTicket";
 
+function MainChart() {
+  const { selectedSymbol } = useSelectedSymbol();
+  return <CandlestickChart symbol={selectedSymbol} height={340} />;
+}
+
 export function DashboardLayout() {
   return (
+    <SymbolProvider>
     <div className="min-h-screen bg-true-black text-white">
       {/* Sidebar */}
       <Sidebar />
@@ -35,7 +42,7 @@ export function DashboardLayout() {
             
             {/* Column 2: Chart + Options Chain */}
             <div className="lg:col-span-1 space-y-4">
-              <ChartPlaceholder />
+              <MainChart />
               <OptionsChain />
             </div>
             
@@ -48,5 +55,6 @@ export function DashboardLayout() {
         </main>
       </div>
     </div>
+     </SymbolProvider>
   );
 }

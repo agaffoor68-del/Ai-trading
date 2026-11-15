@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 IST = ZoneInfo("Asia/Kolkata")
 
 FYERS_API_BASE = "https://api.fyers.in/api/v3"
+FYERS_DATA_BASE = "https://api-t1.fyers.in/data"
 
 
 class FyersAPIClient:
@@ -52,6 +53,49 @@ class FyersAPIClient:
         if self.session and not self.session.closed:
             await self.session.close()
     
+    async def get_history(
+        self, symbol: str, resolution: str, range_from: int, range_to: int
+    ) -> Dict[str, Any]:
+        """
+        Fetch historical candles from Fyers API v3.
+
+        GET https://api-t1.fyers.in/data/history
+        Returns {"candles": [[epoch, o, h, l, c, v], ...]} or {"error": str, "status": int}.
+        """
+        auth_header = self._get_auth_header()
+        if not auth_header:
+            return {"error": "Fyers not authenticated. Please login via /api/v1/fyers/login", "status": 401}
+
+        session = await self._get_session()
+        params = {
+            "symbol": symbol,
+            "resolution": resolution,
+            "date_format": "0",  # epoch seconds
+            "range_from": str(range_from),
+            "range_to": str(range_to),
+            "cont_flag": "1",
+        }
+        try:
+            async with session.get(
+                FYERS_DATA_BASE + "/history", params=params, headers={"Authorization": auth_header}
+            ) as resp:
+                try:
+                    data = await resp.json(content_type=None)
+                except Exception:
+                    data = {}
+                if resp.status == 401 or data.get("code") in (401, -16, -15):
+                    return {"error": "Fyers token expired or invalid. Please re-login.", "status": 401}
+                if resp.status != 200 or data.get("s") != "ok":
+                    msg = data.get("message") or f"HTTP {resp.status}"
+                    logger.error(f"Fyers history error for {symbol}: {msg}")
+                    return {"error": msg, "status": 400 if resp.status in (200, 400) else 502}
+                return {"candles": data.get("candles", [])}
+        except asyncio.TimeoutError:
+            return {"error": "Fyers history request timed out", "status": 504}
+        except aiohttp.ClientError as e:
+            logger.error(f"Fyers history network error: {e}")
+            return {"error": "Fyers history request failed", "status": 502}
+
     async def get_quotes(self, symbols: List[str]) -> Dict[str, Any]:
         """
         Fetch live quotes for multiple symbols from Fyers API v3.
