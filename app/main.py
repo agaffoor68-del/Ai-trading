@@ -94,15 +94,17 @@ async def health_check():
         db = SessionLocal()
         db.execute(text("SELECT 1"))
         db.close()
+        redis_connected = redis_tick_store.is_connected()
         return {
             "status": "healthy",
             "database": "connected",
+            "redis_connected": redis_connected,
             "timezone": "IST",
             "ntp_synced": time_syncer.is_synced,
         }
     except Exception as e:
         logger.error(f"Health check error: {str(e)}")
-        return {"status": "unhealthy", "database": "disconnected"}, 500
+        return {"status": "unhealthy", "database": "disconnected", "redis_connected": False}, 500
 
 
 # Global Fyers WebSocket manager (replaces old fyers_ws)
@@ -182,7 +184,9 @@ async def sync_symbols_and_start_websocket():
 @app.get("/api/fyers/ws-status", tags=["market-data"])
 @app.head("/api/fyers/ws-status", tags=["market-data"])
 async def fyers_ws_status():
-    return get_fyers_ws_status()
+    ws_status = get_fyers_ws_status()
+    ws_status["redis_connected"] = redis_tick_store.is_connected()
+    return ws_status
 
 
 @app.get("/api/fyers/status", tags=["fyers-auth"])
@@ -306,14 +310,17 @@ async def startup_event():
     except Exception as e:
         logger.error(f"NTP sync error: {str(e)}")
 
-    # 4. Connect to Redis
+    # 4. Start Redis connection manager (non-fatal, background retry)
     try:
-        logger.info("Connecting to Redis...")
-        await redis_tick_store.connect()
-        logger.info("Redis connected successfully")
+        logger.info("Starting Redis connection manager...")
+        await redis_tick_store.start()
+        if redis_tick_store.is_connected():
+            logger.info("Redis connected successfully")
+        else:
+            logger.warning("Redis not connected at startup - will retry in background")
     except Exception as e:
-        logger.error(f"CRITICAL: Redis connection error: {str(e)} - live ticks will not be cached!")
-        raise  # Fail loudly if Redis is missing
+        logger.error("Failed to start Redis manager: %s", e)
+        # Don't raise - keep server running
 
     # 5. Validate/Load Fyers token
     try:
@@ -362,10 +369,10 @@ async def shutdown_event():
     
     # Close Redis connection
     try:
-        await redis_tick_store.close()
-        logger.info("Redis connection closed")
+        await redis_tick_store.stop()
+        logger.info("Redis connection manager stopped")
     except Exception as e:
-        logger.error(f"Error closing Redis: {e}")
+        logger.error(f"Error stopping Redis manager: {e}")
 
 
 @app.get("/info", tags=["debug"])

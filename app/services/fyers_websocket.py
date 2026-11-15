@@ -25,6 +25,8 @@ from typing import Callable, List
 
 from fyers_apiv3.FyersWebsocket.data_ws import FyersDataSocket
 
+from app.services.redis_ws import redis_tick_store
+
 
 logger = logging.getLogger(__name__)
 IST = ZoneInfo("Asia/Kolkata")
@@ -327,6 +329,16 @@ def get_fyers_ws_manager() -> FyersWebSocketManager:
 async def start_fyers_websocket(client_id: str, access_token: str, symbols: List[str]) -> bool:
     """Start the Fyers WebSocket manager with the given credentials and symbols"""
     manager = get_fyers_ws_manager()
+    
+    # Register Redis tick callback (handles Redis being down gracefully)
+    async def redis_tick_callback(tick: dict):
+        try:
+            await redis_tick_store.write_tick(tick["symbol"], tick)
+        except Exception as e:
+            logger.debug("Redis tick write failed (non-fatal): %s", e)
+    
+    manager.on_tick(redis_tick_callback)
+    
     return manager.start(client_id, access_token, symbols)
 
 
