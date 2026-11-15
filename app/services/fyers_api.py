@@ -53,6 +53,33 @@ def normalize_symbol(symbol: str) -> str:
     return f"NSE:{key.replace(' ', '')}-EQ" if key else s
 
 
+def map_to_fyers_symbol(symbol: str) -> str:
+    """
+    Map user-friendly symbol names to exact Fyers ticker format.
+    
+    Args:
+        symbol: User-friendly symbol (e.g., "NIFTY 50", "BANKNIFTY", "SENSEX")
+        
+    Returns:
+        Exact Fyers ticker format (e.g., "NSE:NIFTY50-INDEX", "NSE:NIFTYBANK-INDEX", "BSE:SENSEX-INDEX")
+    """
+    if not symbol:
+        return symbol
+    
+    symbol_upper = symbol.upper().strip()
+    
+    # Handle specific index mappings
+    if symbol_upper == "NIFTY 50":
+        return "NSE:NIFTY50-INDEX"
+    elif symbol_upper == "BANKNIFTY":
+        return "NSE:NIFTYBANK-INDEX"
+    elif symbol_upper == "SENSEX":
+        return "BSE:SENSEX-INDEX"
+    
+    # For other symbols, use the existing normalize_symbol function
+    return normalize_symbol(symbol)
+
+
 class FyersAPIClient:
     """
     Fyers API v3 REST client for quotes, historical data, and profile.
@@ -134,7 +161,7 @@ class FyersAPIClient:
         """
         Fetch live quotes for multiple symbols from Fyers API v3.
         
-        Fyers Quotes API: GET /api/v3/quotes?symbols=NSE:NIFTY50-INDEX,NSE:SBIN-EQ
+        Fyers Quotes API: POST /api/v3/quotes with body {"symbols": "NSE:NIFTY50-INDEX,NSE:SBIN-EQ"}
         Authorization: client_id:access_token
         Returns: { "d": [ { "v": { "symbol": "NSE:NIFTY50-INDEX", "ltp": 24345.85, "ch": 124.35, "chp": 0.51 } } ] }
         """
@@ -146,13 +173,13 @@ class FyersAPIClient:
         
         session = await self._get_session()
         
-        # Fyers quotes endpoint expects symbols as comma-separated string
+        # Fyers quotes endpoint expects symbols as comma-separated string in POST body
         symbols_param = ",".join(normalize_symbol(x) for x in symbols)
         url = f"{FYERS_DATA_BASE}/quotes"
-        params = {"symbols": symbols_param}
+        payload = {"symbols": symbols_param}
         
         try:
-            async with session.get(url, params=params, headers={"Authorization": auth_header}) as resp:
+            async with session.post(url, json=payload, headers={"Authorization": auth_header, "Content-Type": "application/json"}) as resp:
                 if resp.status != 200:
                     error_text = await resp.text()
                     logger.error(f"Fyers quotes API error: HTTP {resp.status} - {error_text}")

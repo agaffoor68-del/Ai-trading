@@ -20,7 +20,6 @@ from app.core.auth import (
 )
 from app.core.database import get_db
 from app.core.models import User
-from app.services.fyers_token import get_fyers_token_status
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -42,22 +41,9 @@ async def get_broker_status():
     Fyers tokens expire daily at 6:30 AM IST.
     """
     # Check Fyers token status with 6:30 AM expiry check
-    fyers_status = get_fyers_token_status()
-    fyers_connected = fyers_status.get("valid", False)
-    
-    # Additional check: Fyers tokens expire at 6:30 AM IST daily
-    if fyers_connected and fyers_status.get("expires_at"):
-        try:
-            expires_at = datetime.fromisoformat(fyers_status["expires_at"])
-            now = datetime.now(IST)
-            
-            # Check if token was issued before today's 6:30 AM
-            today_630 = datetime.combine(now.date(), time(6, 30, tzinfo=IST))
-            if now >= today_630 and expires_at < today_630:
-                fyers_connected = False
-                logger.warning("Fyers token expired at 6:30 AM IST today")
-        except Exception as e:
-            logger.warning(f"Could not parse token expiry: {e}")
+    from app.services.fyers_token import get_fyers_token
+    fyers_token = get_fyers_token()
+    fyers_connected = fyers_token is not None
     
     # Check Kotak session status
     # For now, check if Kotak credentials are configured

@@ -239,7 +239,9 @@ async def get_quotes(request: QuotesRequest):
     Batches requests to avoid timeout (max 50 symbols per request).
     Returns 401 if Fyers token is missing or expired.
     """
-    symbols = request.symbols
+    # Apply symbol mapping to all incoming symbols
+    from app.services.fyers_api import map_to_fyers_symbol
+    symbols = [map_to_fyers_symbol(symbol) for symbol in request.symbols]
     
     if not symbols:
         return {"quotes": {}, "total": 0, "error": "No symbols provided"}
@@ -358,8 +360,8 @@ async def get_candles(
             detail=f"Unsupported interval '{interval}'. Use one of: {', '.join(INTERVAL_TO_RESOLUTION)}",
         )
 
-    from app.services.fyers_api import normalize_symbol
-    symbol = normalize_symbol(symbol)
+    from app.services.fyers_api import map_to_fyers_symbol
+    symbol = map_to_fyers_symbol(symbol)
 
     now = int(datetime.now(IST).timestamp())
     result = await fyers_api_client.get_history(symbol, resolution, now - days * 86400, now)
