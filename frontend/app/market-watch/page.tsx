@@ -188,7 +188,7 @@ export default function MarketWatchPage() {
     }
   );
 
-  // SWR for quotes - auto-refreshes every 3 seconds
+  // SWR for quotes - auto-refreshes every 5 seconds
   const topSymbols = searchData?.results?.slice(0, 10) || [];
   const fyersSymbols = topSymbols.map((s: SearchResult) => {
     const exchange = s.exchange === "NSE_FO" ? "NSE" : s.exchange === "NSE_CM" ? "NSE" : s.exchange;
@@ -199,7 +199,7 @@ export default function MarketWatchPage() {
     fyersSymbols.length > 0 ? [`${API_URL}/api/v1/market/quotes`, fyersSymbols] : null,
     quotesFetcher,
     {
-      refreshInterval: 3000,
+      refreshInterval: 5000,
       revalidateOnFocus: false,
       dedupingInterval: 2000,
       fallbackData: {},
@@ -248,6 +248,13 @@ export default function MarketWatchPage() {
       setError(null);
     }
   }, [searchError]);
+
+  // Handle quotes error - show toast
+  useEffect(() => {
+    if (quotesError && !isQuotesLoading) {
+      console.warn("Quotes fetch error:", quotesError);
+    }
+  }, [quotesError, isQuotesLoading]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();

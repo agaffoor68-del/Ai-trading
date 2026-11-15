@@ -64,14 +64,11 @@ export interface OptionChainData {
 
 export interface AISignal {
   symbol: string;
-  name: string;
-  action: "BUY CE" | "BUY PE" | "WAIT";
+  signal: string;  // BUY, SELL, HOLD
   confidence: number;
-  reasoning: string;
-  entry: number;
-  target: number;
-  stopLoss: number;
-  expiry: string;
+  rsi: number;
+  ema_trend: string;  // BULLISH, BEARISH, NEUTRAL
+  price: number;
   timestamp: string;
 }
 
@@ -166,7 +163,7 @@ export const api = {
     fetcher<OptionChainData>(`${API_BASE_URL}/api/v1/market/option-chain?symbol=${encodeURIComponent(symbol)}&expiry=${encodeURIComponent(expiry)}`),
 
   getAISignals: () =>
-    fetcher<AISignalsResponse>(`${API_BASE_URL}/api/v1/ai/live-analysis`),
+    fetcher<AISignalsResponse>(`${API_BASE_URL}/api/v1/ai/signals`),
 
   placeOrder: (orderData: OrderRequest) =>
     fetcher<OrderResponse>(`${API_BASE_URL}/api/v1/execution/order`, {

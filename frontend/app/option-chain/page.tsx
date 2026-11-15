@@ -20,12 +20,28 @@ import { Header } from "@/components/Header";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://ai-trading-9qoa.onrender.com";
 
-interface OptionChainData {
+interface BackendOptionChainResponse {
   symbol: string;
   expiry: string;
-  spot: number;
-  atmStrike: number;
-  strikes: OptionStrike[];
+  spot_price: number;
+  atm_strike: number;
+  strike_interval: number;
+  option_chain: BackendOptionStrike[];
+  timestamp: string;
+}
+
+interface BackendOptionStrike {
+  strike: number;
+  call_ltp: number | null;
+  call_oi: number | null;
+  call_volume: number | null;
+  call_change: number | null;
+  call_change_percent: number | null;
+  put_ltp: number | null;
+  put_oi: number | null;
+  put_volume: number | null;
+  put_change: number | null;
+  put_change_percent: number | null;
 }
 
 interface OptionStrike {
@@ -49,7 +65,8 @@ interface IndexInfo {
 const INDEXES: IndexInfo[] = [
   { label: "NIFTY", value: "NIFTY" },
   { label: "BANKNIFTY", value: "BANKNIFTY" },
-  { label: "SENSEX", value: "SENSEX" },
+  { label: "FINNIFTY", value: "FINNIFTY" },
+  { label: "MIDCPNIFTY", value: "MIDCPNIFTY" },
 ];
 
 const fetcher = async (url: string) => {
@@ -69,8 +86,8 @@ export default function OptionChainPage() {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [expiryList, setExpiryList] = useState<string[]>([]);
 
-  // SWR for option chain - auto-refreshes every 5 seconds during market hours
-  const { data: chainData, error, isLoading, mutate } = useSWR(
+  // SWR for option chain - auto-refreshes every 5 seconds
+  const { data: chainData, error, isLoading, mutate } = useSWR<BackendOptionChainResponse>(
     selectedExpiry ? `${API_URL}/api/v1/market/option-chain?symbol=${encodeURIComponent(selectedIndex.value)}&expiry=${encodeURIComponent(selectedExpiry)}` : null,
     fetcher,
     {
@@ -115,6 +132,24 @@ export default function OptionChainPage() {
     }
   }, [error]);
 
+  // Transform backend data to UI format
+  const transformedStrikes = useMemo((): OptionStrike[] => {
+    if (!chainData) return [];
+    
+    return chainData.option_chain.map((strike: BackendOptionStrike) => ({
+      strike: strike.strike,
+      isATM: strike.strike === chainData.atm_strike,
+      ceLtp: strike.call_ltp ?? 0,
+      ceChange: strike.call_change_percent ?? 0,
+      ceOI: strike.call_oi ?? 0,
+      ceOIChange: strike.call_change_percent ?? 0,
+      peLtp: strike.put_ltp ?? 0,
+      peChange: strike.put_change_percent ?? 0,
+      peOI: strike.put_oi ?? 0,
+      peOIChange: strike.put_change_percent ?? 0,
+    }));
+  }, [chainData]);
+
   const handleIndexChange = (value: string) => {
     const indexInfo = INDEXES.find((i) => i.value === value) || INDEXES[0];
     setSelectedIndex(indexInfo);
@@ -126,15 +161,22 @@ export default function OptionChainPage() {
   };
 
   const filteredStrikes = useMemo(() => {
-    if (!chainData) return [];
-    const strikes = chainData.strikes;
-    if (!searchQuery.trim()) return strikes;
+    if (!transformedStrikes.length) return [];
+    if (!searchQuery.trim()) return transformedStrikes;
     const q = searchQuery.trim();
-    return strikes.filter((s: OptionStrike) => s.strike.toString().includes(q));
-  }, [chainData, searchQuery]);
+    return transformedStrikes.filter((s: OptionStrike) => s.strike.toString().includes(q));
+  }, [transformedStrikes, searchQuery]);
 
   const formatNumber = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const formatOI = (n: number) => n.toLocaleString();
+
+  // Calculate PCR
+  const pcr = useMemo(() => {
+    if (!transformedStrikes.length) return 0;
+    const totalPE = transformedStrikes.reduce((sum, s) => sum + s.peOI, 0);
+    const totalCE = transformedStrikes.reduce((sum, s) => sum + s.ceOI, 0);
+    return totalCE > 0 ? totalPE / totalCE : 0;
+  }, [transformedStrikes]);
 
   return (
     <div className="min-h-screen bg-true-black text-white">
@@ -175,35 +217,39 @@ export default function OptionChainPage() {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
               <div className="flex flex-col gap-2">
                 <label className="text-xs text-text-muted uppercase tracking-wider font-medium">Index</label>
-                <select
-                  value={selectedIndex.value}
-                  onChange={(e) => handleIndexChange(e.target.value)}
-                  className="w-full pl-4 pr-10 py-3 bg-card-bg border border-glow-border focus:border-neon-cyan focus:outline-none rounded-xl text-white text-base cursor-pointer appearance-none relative"
-                >
-                  {INDEXES.map((idx) => (
-                    <option key={idx.value} value={idx.value}>
-                      {idx.label}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" strokeWidth={2} />
+                <div className="relative">
+                  <select
+                    value={selectedIndex.value}
+                    onChange={(e) => handleIndexChange(e.target.value)}
+                    className="w-full pl-4 pr-10 py-3 bg-card-bg border border-glow-border focus:border-neon-cyan focus:outline-none rounded-xl text-white text-base cursor-pointer appearance-none"
+                  >
+                    {INDEXES.map((idx) => (
+                      <option key={idx.value} value={idx.value}>
+                        {idx.label}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" strokeWidth={2} />
+                </div>
               </div>
 
               <div className="flex flex-col gap-2">
                 <label className="text-xs text-text-muted uppercase tracking-wider font-medium">Expiry</label>
-                <select
-                  value={selectedExpiry}
-                  onChange={(e) => setSelectedExpiry(e.target.value)}
-                  disabled={expiryList.length === 0}
-                  className="w-full pl-4 pr-10 py-3 bg-card-bg border border-glow-border focus:border-neon-cyan focus:outline-none rounded-xl text-white text-base cursor-pointer appearance-none disabled:opacity-50"
-                >
-                  {expiryList.map((exp) => (
-                    <option key={exp} value={exp}>
-                      {exp}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" strokeWidth={2} />
+                <div className="relative">
+                  <select
+                    value={selectedExpiry}
+                    onChange={(e) => setSelectedExpiry(e.target.value)}
+                    disabled={expiryList.length === 0}
+                    className="w-full pl-4 pr-10 py-3 bg-card-bg border border-glow-border focus:border-neon-cyan focus:outline-none rounded-xl text-white text-base cursor-pointer appearance-none disabled:opacity-50"
+                  >
+                    {expiryList.map((exp) => (
+                      <option key={exp} value={exp}>
+                        {exp}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" strokeWidth={2} />
+                </div>
               </div>
 
               <div className="flex flex-col gap-2 w-full">
@@ -234,7 +280,7 @@ export default function OptionChainPage() {
               {!error && chainData && (
                 <motion.span className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-neon-green/10 border border-neon-green/30 text-neon-green text-sm glass">
                   <span className="w-2 h-2 rounded-full bg-neon-green animate-pulse-glow" />
-                  {chainData.strikes.length} strikes loaded
+                  {transformedStrikes.length} strikes loaded
                 </motion.span>
               )}
               {isLoading && (
@@ -263,12 +309,12 @@ export default function OptionChainPage() {
               <div className="flex items-center justify-between flex-wrap gap-4">
                 <div className="flex items-center gap-3">
                   <span className="text-xs text-text-muted uppercase tracking-wider">Spot</span>
-                  <span className="text-xl font-mono font-bold text-white">{formatNumber(chainData.spot)}</span>
+                  <span className="text-xl font-mono font-bold text-white">{formatNumber(chainData.spot_price)}</span>
                 </div>
                 <div className="flex items-center gap-3">
                   <span className="text-xs text-text-muted uppercase tracking-wider">ATM Strike</span>
-                  <span className={`text-xl font-mono font-bold ${chainData.atmStrike ? "text-neon-cyan" : "text-white"}`}>
-                    {chainData.atmStrike?.toLocaleString()}
+                  <span className={`text-xl font-mono font-bold ${chainData.atm_strike ? "text-neon-cyan" : "text-white"}`}>
+                    {chainData.atm_strike?.toLocaleString()}
                   </span>
                 </div>
                 <div className="flex items-center gap-3">
@@ -278,7 +324,7 @@ export default function OptionChainPage() {
                 <div className="flex items-center gap-3">
                   <span className="text-xs text-text-muted uppercase tracking-wider">PCR</span>
                   <span className="text-sm font-mono font-bold text-neon-purple">
-                    {(chainData.strikes.reduce((s: number, r: OptionStrike) => s + r.peOI, 0) / chainData.strikes.reduce((s: number, r: OptionStrike) => s + r.ceOI, 0)).toFixed(2)}
+                    {pcr.toFixed(2)}
                   </span>
                 </div>
               </div>
