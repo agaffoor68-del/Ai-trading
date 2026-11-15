@@ -1,8 +1,6 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { MarketCalendar } from "@/app/core/market_calendar"; // This won't work, need to create a hook
-import { useMarketCalendar } from "@/lib/market-calendar";
 
 export function useMarketCalendar() {
   const [isMarketOpen, setIsMarketOpen] = useState(false);

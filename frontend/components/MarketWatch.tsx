@@ -66,8 +66,8 @@ function SparklineChart({ data, color }: { data: number[]; color: string }) {
 export function MarketWatch() {
   // Use SWR to fetch live quotes
   const { data: quotesData, isLoading, error } = useSWR<QuotesResponse>(
-    ["dashboard-quotes", DEFAULT_SYMBOLS],
-    async ([, symbols]: [string, string[]]) => {
+    ["dashboard-quotes", DEFAULT_SYMBOLS] as const,
+    async ([, symbols]: readonly [string, readonly string[]]) => {
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://ai-trading-9qoa.onrender.com"}/api/v1/market/quotes`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -76,19 +76,19 @@ export function MarketWatch() {
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
-      return data.quotes || {};
+      return { quotes: data.quotes || {} };
     },
     {
       refreshInterval: 5000,
       revalidateOnFocus: false,
       dedupingInterval: 2000,
-      fallbackData: {},
+      fallbackData: { quotes: {} }
     }
   );
 
   // Build display items
   const displayItems: DisplayItem[] = DEFAULT_SYMBOLS.map((symbol) => {
-    const quote = quotesData?.[formatFyersSymbol(symbol)] || quotesData?.[symbol];
+    const quote = quotesData?.quotes[formatFyersSymbol(symbol)] || quotesData?.quotes[symbol];
     
     if (quote && quote.ltp !== null && quote.ltp !== undefined) {
       return {

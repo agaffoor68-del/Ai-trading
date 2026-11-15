@@ -5,25 +5,22 @@ import { Maximize2, Search, Filter } from "lucide-react";
 import useSWR from "swr";
 import { api, formatFyersSymbol } from "@/lib/api";
 
-interface OptionStrike {
+interface OptionChainStrike {
   strike: number;
-  isATM: boolean;
-  ceLtp: number;
-  ceChange: number;
-  ceOI: number;
-  ceOIChange: number;
-  peLtp: number;
-  peChange: number;
-  peOI: number;
-  peOIChange: number;
+  call_ltp: number | null;
+  call_change_percent: number | null;
+  call_oi: number | null;
+  put_ltp: number | null;
+  put_change_percent: number | null;
+  put_oi: number | null;
 }
 
 interface OptionChainData {
   symbol: string;
   expiry: string;
-  spot: number;
-  atmStrike: number;
-  strikes: OptionStrike[];
+  spot_price: number;
+  atm_strike: number;
+  option_chain: OptionChainStrike[];
 }
 
 // Default index for dashboard
