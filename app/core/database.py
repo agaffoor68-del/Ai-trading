@@ -77,12 +77,19 @@ def get_db():
 
 
 def init_db():
-    """Create all tables."""
+    """Create all tables and migrate existing ones.
+
+    SQLAlchemy's create_all() never alters existing tables, so any columns
+    added to models after a table was first created must be added here with
+    ALTER TABLE. The fyers_tokens table is only a token cache, so if the
+    migration cannot proceed safely we drop and recreate it.
+    """
     # Register every model even when init_db is called outside app.main.
     from app.core import models  # noqa: F401
 
     try:
         Base.metadata.create_all(bind=engine)
+        _migrate_fyers_tokens_table()
         # Test the connection
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
@@ -90,3 +97,47 @@ def init_db():
     except Exception:
         logger.exception("Database initialization failed")
         raise
+
+
+def _migrate_fyers_tokens_table():
+    """Ensure fyers_tokens has the client_id / client_secret columns.
+
+    Adds the columns when missing; if that fails, drops the token cache table
+    and lets create_all rebuild it from the current model. Deleting cached
+    tokens is safe - the user simply logs in to Fyers again.
+    """
+    inspector = None
+    try:
+        from sqlalchemy import inspect
+        inspector = inspect(engine)
+        if "fyers_tokens" not in inspector.get_table_names():
+            return  # Table will be created by create_all on next start
+
+        existing = {col["name"] for col in inspector.get_columns("fyers_tokens")}
+        missing = [c for c in ("client_id", "client_secret") if c not in existing]
+        if not missing:
+            return
+
+        with engine.begin() as conn:
+            for col in missing:
+                logger.info(
+                    "Migrating fyers_tokens: adding missing column %s", col
+                )
+                conn.execute(
+                    text(f"ALTER TABLE fyers_tokens ADD COLUMN {col} TEXT")
+                )
+        logger.info("fyers_tokens migration complete (columns: %s)", sorted(existing | set(missing)))
+    except Exception as e:
+        logger.warning(
+            "Could ALTER TABLE fyers_tokens (%s); dropping token cache and "
+            "recreating from model. Users will need to log in to Fyers again.",
+            e,
+        )
+        try:
+            with engine.begin() as conn:
+                conn.execute(text("DROP TABLE IF EXISTS fyers_tokens"))
+            Base.metadata.create_all(bind=engine, tables=[models.FyersToken.__table__])
+            logger.info("fyers_tokens table recreated with current schema")
+        except Exception:
+            logger.exception("Failed to recreate fyers_tokens table")
+            raise

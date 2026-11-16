@@ -76,9 +76,12 @@ class Settings(BaseSettings):
     # -------------------------------------------------------------------------
     # 4. FYERS API v3 (Market Data - ONLY data source)
     # -------------------------------------------------------------------------
+    # FYERS_CLIENT_ID is persisted in the fyers_tokens table after OAuth and
+    # restored into settings at startup (see restore_fyers_credentials). It is
+    # declared explicitly here so WebSocket startup never sees an undefined key.
     FYERS_CLIENT_ID: Optional[str] = Field(
         default=None,
-        description="Fyers API client ID",
+        description="Fyers API client ID (app ID, e.g. ABCDEFG-100)",
     )
     FYERS_CLIENT_SECRET: Optional[str] = Field(
         default=None,

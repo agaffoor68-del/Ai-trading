@@ -159,8 +159,19 @@ async def sync_symbols_and_start_websocket():
             logger.warning("No Fyers token - WebSocket not started. Will start after login.")
             return
 
-        # Get client_id from settings
+        # Ensure FYERS_CLIENT_ID is available before starting the WebSocket.
+        # restore_fyers_credentials() rehydrates settings from the encrypted
+        # credentials stored in PostgreSQL by the OAuth callback, so the WS
+        # still starts after a restart (no re-login needed).
         client_id = settings.FYERS_CLIENT_ID
+        if not client_id:
+            try:
+                from app.api.v1.endpoints.fyers_auth import restore_fyers_credentials
+                if restore_fyers_credentials():
+                    client_id = settings.FYERS_CLIENT_ID
+            except Exception as re:
+                logger.warning(f"Could not restore Fyers credentials: {re}")
+
         if not client_id:
             logger.warning("FYERS_CLIENT_ID not configured - WebSocket not started")
             return
