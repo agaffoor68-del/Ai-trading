@@ -6,10 +6,12 @@ Endpoints for symbol search, quotes, and historical data via Fyers.
 """
 
 import logging
+import asyncio
 from typing import List, Optional
 from fastapi import APIRouter, Query, HTTPException, status
 from pydantic import BaseModel
 from datetime import datetime, time
+from asyncio import to_thread as run_in_threadpool
 
 from app.core.config import settings
 from app.core.symbol_map import to_fyers
@@ -174,106 +176,109 @@ async def search_symbols(
         from app.core.database import SessionLocal, Instrument
         from sqlalchemy import or_
 
-        db = SessionLocal()
-        try:
-            query_upper = query.upper()
-            
-            # Check if query is an exact index keyword
-            is_exact_index = query_upper in EXACT_INDEX_SYMBOLS
-            target_index_symbol = EXACT_INDEX_SYMBOLS.get(query_upper)
-            
-            # Fetch more results for better ranking
-            fetch_limit = min(limit * 5, 200)
-            
-            filter_condition = or_(
-                Instrument.symbol.ilike(f"%{query}%"),
-                Instrument.name.ilike(f"%{query}%"),
-            )
-            if exchange:
-                filter_condition = filter_condition & (Instrument.exchange == exchange)
+        def _search_db():
+            db = SessionLocal()
+            try:
+                query_upper = query.upper()
 
-            results = (
-                db.query(Instrument)
-                .filter(filter_condition)
-                .filter(Instrument.is_active == 1)
-                .limit(fetch_limit)
-                .all()
-            )
+                # Check if query is an exact index keyword
+                is_exact_index = query_upper in EXACT_INDEX_SYMBOLS
+                target_index_symbol = EXACT_INDEX_SYMBOLS.get(query_upper)
 
-            # Convert to list of dicts for ranking
-            result_dicts = [
-                {
-                    "symbol": inst.symbol,
-                    "exchange": inst.exchange,
-                    "name": inst.name,
-                    "fyers_token": inst.fyers_token,
-                    "instrument_type": inst.instrument_type,
-                    "lot_size": inst.lot_size,
+                # Fetch more results for better ranking
+                fetch_limit = min(limit * 5, 200)
+
+                filter_condition = or_(
+                    Instrument.symbol.ilike(f"%{query}%"),
+                    Instrument.name.ilike(f"%{query}%"),
+                )
+                if exchange:
+                    filter_condition = filter_condition & (Instrument.exchange == exchange)
+
+                results = (
+                    db.query(Instrument)
+                    .filter(filter_condition)
+                    .filter(Instrument.is_active == 1)
+                    .limit(fetch_limit)
+                    .all()
+                )
+
+                # Convert to list of dicts for ranking
+                result_dicts = [
+                    {
+                        "symbol": inst.symbol,
+                        "exchange": inst.exchange,
+                        "name": inst.name,
+                        "fyers_token": inst.fyers_token,
+                        "instrument_type": inst.instrument_type,
+                        "lot_size": inst.lot_size,
+                    }
+                    for inst in results
+                ]
+
+                # FILTER OUT NOISE before ranking (unless explicitly searched)
+                filtered_results = [
+                    item for item in result_dicts 
+                    if not is_noise(item.get("symbol", ""), query)
+                ]
+
+                # Rank results
+                def rank_score(item: dict) -> tuple:
+                    symbol = item.get("symbol", "").upper()
+                    inst_type = item.get("instrument_type", "")
+                    
+                    # Score components (lower = better)
+                    
+                    # 0. MAIN INDEX EXACT MATCH (highest priority)
+                    # If query is "NIFTY", boost NSE:NIFTY50-INDEX to absolute top
+                    main_index_match = 0
+                    if is_exact_index and target_index_symbol:
+                        target_clean = target_index_symbol.replace("NSE:", "").replace("-INDEX", "")
+                        main_index_match = 0 if symbol == target_clean or symbol == target_index_symbol else 1
+                    else:
+                        main_index_match = 1
+                    
+                    # 1. Exact match on symbol
+                    exact_match = 0 if symbol == query_upper else 1
+                    
+                    # 2. Starts with query (prefix match)
+                    prefix_match = 0 if symbol.startswith(query_upper) else 1
+                    
+                    # 3. Index keyword exact match (NIFTY, BANKNIFTY, etc.)
+                    index_priority = 0 if is_index_like(query, item.get("symbol", "")) else 1
+                    
+                    # 4. Instrument type priority (Index > FUT > OPT > EQ > Others)
+                    type_priority = get_instrument_priority(inst_type)
+                    
+                    # 5. F&O boost (instrument_type 11/12) for index queries
+                    fo_boost = 0
+                    if is_index_like(query, item.get("symbol", "")) and inst_type.upper() in ["11", "12", "FUT", "OPT"]:
+                        fo_boost = -1  # Boost F&O for index searches
+                    
+                    # 6. ETF deprioritization
+                    etf_penalty = 10 if is_etf_like(symbol) else 0
+                    
+                    # 7. Segment priority (FO before CM for indices)
+                    segment_priority = 0 if item.get("exchange") == "NSE_FO" else 1
+                    
+                    return (main_index_match, exact_match, prefix_match, index_priority, type_priority + fo_boost, etf_penalty, segment_priority, symbol)
+
+                # Sort by ranking
+                ranked_results = sorted(filtered_results, key=rank_score)
+
+                # Apply limit after ranking
+                final_results = ranked_results[:limit]
+
+                return {
+                    "query": query,
+                    "exchange": exchange or "all",
+                    "results": final_results,
+                    "total": len(final_results),
                 }
-                for inst in results
-            ]
+            finally:
+                db.close()
 
-            # FILTER OUT NOISE before ranking (unless explicitly searched)
-            filtered_results = [
-                item for item in result_dicts 
-                if not is_noise(item.get("symbol", ""), query)
-            ]
-
-            # Rank results
-            def rank_score(item: dict) -> tuple:
-                symbol = item.get("symbol", "").upper()
-                inst_type = item.get("instrument_type", "")
-                
-                # Score components (lower = better)
-                
-                # 0. MAIN INDEX EXACT MATCH (highest priority)
-                # If query is "NIFTY", boost NSE:NIFTY50-INDEX to absolute top
-                main_index_match = 0
-                if is_exact_index and target_index_symbol:
-                    target_clean = target_index_symbol.replace("NSE:", "").replace("-INDEX", "")
-                    main_index_match = 0 if symbol == target_clean or symbol == target_index_symbol else 1
-                else:
-                    main_index_match = 1
-                
-                # 1. Exact match on symbol
-                exact_match = 0 if symbol == query_upper else 1
-                
-                # 2. Starts with query (prefix match)
-                prefix_match = 0 if symbol.startswith(query_upper) else 1
-                
-                # 3. Index keyword exact match (NIFTY, BANKNIFTY, etc.)
-                index_priority = 0 if is_index_like(query, item.get("symbol", "")) else 1
-                
-                # 4. Instrument type priority (Index > FUT > OPT > EQ > Others)
-                type_priority = get_instrument_priority(inst_type)
-                
-                # 5. F&O boost (instrument_type 11/12) for index queries
-                fo_boost = 0
-                if is_index_like(query, item.get("symbol", "")) and inst_type.upper() in ["11", "12", "FUT", "OPT"]:
-                    fo_boost = -1  # Boost F&O for index searches
-                
-                # 6. ETF deprioritization
-                etf_penalty = 10 if is_etf_like(symbol) else 0
-                
-                # 7. Segment priority (FO before CM for indices)
-                segment_priority = 0 if item.get("exchange") == "NSE_FO" else 1
-                
-                return (main_index_match, exact_match, prefix_match, index_priority, type_priority + fo_boost, etf_penalty, segment_priority, symbol)
-
-            # Sort by ranking
-            ranked_results = sorted(filtered_results, key=rank_score)
-            
-            # Apply limit after ranking
-            final_results = ranked_results[:limit]
-
-            return {
-                "query": query,
-                "exchange": exchange or "all",
-                "results": final_results,
-                "total": len(final_results),
-            }
-        finally:
-            db.close()
+        return await run_in_threadpool(_search_db)
     except Exception as e:
         logger.error(f"Symbol search error: {str(e)}")
         return {"query": query, "results": [], "total": 0, "error": str(e)}
@@ -309,6 +314,10 @@ async def get_candles(
     symbol = to_fyers(symbol)
 
     now = int(now_ist().timestamp())
+
+    # Graceful market-closed handling: on weekends/holidays Fyers REST may
+    # return stale or empty data. Cap the lookback so we always get the last
+    # available session's candles instead of hanging on an empty window.
     result = await fyers_api_client.get_history(symbol, resolution, now - days * 86400, now)
 
     if "error" in result:
@@ -327,7 +336,14 @@ async def get_candles(
             "volume": row[5] if len(row) > 5 else 0,
         })
     candles.sort(key=lambda c: c["time"])
-    return candles
+
+    market_cal = MarketCalendar()
+    market_open = market_cal.is_market_open(now_ist())
+    return {
+        "candles": candles,
+        "market_open": market_open,
+        "note": None if market_open else "Market closed - showing last available session data",
+    }
 
 
 @router.get("/quote/{symbol}")
@@ -384,7 +400,7 @@ async def get_quotes(request: QuotesRequest):
     from app.services.fyers_token import get_fyers_token
     
     # Try to get token from persistent storage first
-    token = get_fyers_token()
+    token = await run_in_threadpool(get_fyers_token)
     if not token:
         logger.warning("Fyers quotes requested but no access token available")
         raise HTTPException(
@@ -443,9 +459,13 @@ async def get_quotes(request: QuotesRequest):
                     results[symbol] = quote
         
         # Return all results (live + cached)
+        market_cal = MarketCalendar()
+        market_open = market_cal.is_market_open(now_ist())
         response = {
             "quotes": results,
             "total": len(symbols),
+            "market_open": market_open,
+            "note": None if market_open else "Market closed - showing last available cached data",
         }
         
         logger.info(f"Returned quotes for {len(results)} symbols (cache + Fyers)")
@@ -467,24 +487,27 @@ async def get_expiries(
     """
     try:
         from app.core.database import SessionLocal, Instrument
-        
-        db = SessionLocal()
-        try:
-            symbol_upper = symbol.upper()
-            today = now_ist().date()
-            
-            # Get unique expiry dates for the symbol's options
-            expiries = db.query(Instrument.expiry).filter(
-                Instrument.symbol.ilike(f"%{symbol_upper}%"),
-                Instrument.expiry >= today,
-                Instrument.instrument_type.in_(["12", "OPT", "OPTION"]),
-            ).distinct().order_by(Instrument.expiry.asc()).all()
-            
-            expiry_list = [exp[0].strftime("%Y-%m-%d") for exp in expiries if exp[0]]
-            
-            return {"expiries": expiry_list}
-        finally:
-            db.close()
+
+        def _expiries_db():
+            db = SessionLocal()
+            try:
+                symbol_upper = symbol.upper()
+                today = now_ist().date()
+
+                # Get unique expiry dates for the symbol's options
+                expiries = db.query(Instrument.expiry).filter(
+                    Instrument.symbol.ilike(f"%{symbol_upper}%"),
+                    Instrument.expiry >= today,
+                    Instrument.instrument_type.in_(["12", "OPT", "OPTION"]),
+                ).distinct().order_by(Instrument.expiry.asc()).all()
+
+                expiry_list = [exp[0].strftime("%Y-%m-%d") for exp in expiries if exp[0]]
+
+                return {"expiries": expiry_list}
+            finally:
+                db.close()
+
+        return await run_in_threadpool(_expiries_db)
     except Exception as e:
         logger.error(f"Expiries error for {symbol}: {str(e)}")
         raise HTTPException(status_code=502, detail={"code": "FYERS_ERROR", "message": f"Failed to fetch expiries: {str(e)}"})
@@ -539,7 +562,7 @@ async def get_option_chain(
         from app.services.fyers_token import get_fyers_token
         
         # Check Fyers authentication
-        token = get_fyers_token()
+        token = await run_in_threadpool(get_fyers_token)
         if not token:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -586,68 +609,72 @@ async def get_option_chain(
         logger.info(f"ATM strike for {symbol_upper}: {atm_strike}")
         
         # 3. Determine expiry date
-        db = SessionLocal()
-        try:
-            today = now_ist().date()
-            
-            if not expiry:
-                # Find nearest expiry from database
-                from sqlalchemy import func
-                nearest_expiry = db.query(func.min(Instrument.expiry)).filter(
+        def _option_chain_db():
+            db = SessionLocal()
+            try:
+                today = now_ist().date()
+                
+                if not expiry:
+                    # Find nearest expiry from database
+                    from sqlalchemy import func
+                    nearest_expiry = db.query(func.min(Instrument.expiry)).filter(
+                        Instrument.symbol.ilike(f"%{symbol_upper}%"),
+                        Instrument.expiry >= today,
+                        Instrument.instrument_type.in_(["12", "OPT", "OPTION"]),
+                    ).scalar()
+                    
+                    if nearest_expiry:
+                        expiry = nearest_expiry.strftime("%Y-%m-%d")
+                    else:
+                        raise HTTPException(status_code=404, detail="No expiry found for symbol")
+                
+                # Also get all available expiries for the response
+                all_expiries = db.query(Instrument.expiry).filter(
                     Instrument.symbol.ilike(f"%{symbol_upper}%"),
                     Instrument.expiry >= today,
                     Instrument.instrument_type.in_(["12", "OPT", "OPTION"]),
-                ).scalar()
+                ).distinct().order_by(Instrument.expiry.asc()).all()
+                expiry_list = [exp[0].strftime("%Y-%m-%d") for exp in all_expiries if exp[0]]
                 
-                if nearest_expiry:
-                    expiry = nearest_expiry.strftime("%Y-%m-%d")
-                else:
-                    raise HTTPException(status_code=404, detail="No expiry found for symbol")
-            
-            # Also get all available expiries for the response
-            all_expiries = db.query(Instrument.expiry).filter(
-                Instrument.symbol.ilike(f"%{symbol_upper}%"),
-                Instrument.expiry >= today,
-                Instrument.instrument_type.in_(["12", "OPT", "OPTION"]),
-            ).distinct().order_by(Instrument.expiry.asc()).all()
-            expiry_list = [exp[0].strftime("%Y-%m-%d") for exp in all_expiries if exp[0]]
-            
-            logger.info(f"Using expiry: {expiry} for {symbol_upper}")
-            
-            # 4. Fetch strikes (strikes ITM + ATM + strikes OTM) from symbol master
-            strike_list = []
-            for i in range(-strikes, strikes + 1):
-                strike = atm_strike + (i * strike_interval)
-                strike_list.append(strike)
-            
-            expiry_date = datetime.strptime(expiry, "%Y-%m-%d")
-            
-            # Fetch CE options
-            ce_options = db.query(Instrument).filter(
-                Instrument.symbol.ilike(f"%{symbol_upper}%"),
-                Instrument.expiry == expiry_date,
-                Instrument.instrument_type.in_(["12", "OPT", "OPTION"]),
-                Instrument.option_type == "CE",
-                Instrument.strike.in_([str(s) for s in strike_list]),
-            ).all()
-            
-            # Fetch PE options
-            pe_options = db.query(Instrument).filter(
-                Instrument.symbol.ilike(f"%{symbol_upper}%"),
-                Instrument.expiry == expiry_date,
-                Instrument.instrument_type.in_(["12", "OPT", "OPTION"]),
-                Instrument.option_type == "PE",
-                Instrument.strike.in_([str(s) for s in strike_list]),
-            ).all()
-            
-            logger.info(f"Found {len(ce_options)} CE and {len(pe_options)} PE options")
-            
-            # Build symbol to token mapping
-            ce_tokens = {float(opt.strike): opt.symbol for opt in ce_options if opt.strike}
-            pe_tokens = {float(opt.strike): opt.symbol for opt in pe_options if opt.strike}
-            
-        finally:
-            db.close()
+                logger.info(f"Using expiry: {expiry} for {symbol_upper}")
+                
+                # 4. Fetch strikes (strikes ITM + ATM + strikes OTM) from symbol master
+                strike_list = []
+                for i in range(-strikes, strikes + 1):
+                    strike = atm_strike + (i * strike_interval)
+                    strike_list.append(strike)
+                
+                expiry_date = datetime.strptime(expiry, "%Y-%m-%d")
+                
+                # Fetch CE options
+                ce_options = db.query(Instrument).filter(
+                    Instrument.symbol.ilike(f"%{symbol_upper}%"),
+                    Instrument.expiry == expiry_date,
+                    Instrument.instrument_type.in_(["12", "OPT", "OPTION"]),
+                    Instrument.option_type == "CE",
+                    Instrument.strike.in_([str(s) for s in strike_list]),
+                ).all()
+                
+                # Fetch PE options
+                pe_options = db.query(Instrument).filter(
+                    Instrument.symbol.ilike(f"%{symbol_upper}%"),
+                    Instrument.expiry == expiry_date,
+                    Instrument.instrument_type.in_(["12", "OPT", "OPTION"]),
+                    Instrument.option_type == "PE",
+                    Instrument.strike.in_([str(s) for s in strike_list]),
+                ).all()
+                
+                logger.info(f"Found {len(ce_options)} CE and {len(pe_options)} PE options")
+                
+                # Build symbol to token mapping
+                ce_tokens = {float(opt.strike): opt.symbol for opt in ce_options if opt.strike}
+                pe_tokens = {float(opt.strike): opt.symbol for opt in pe_options if opt.strike}
+                
+                return strike_list, expiry, expiry_list, ce_tokens, pe_tokens
+            finally:
+                db.close()
+        
+        strike_list, expiry, expiry_list, ce_tokens, pe_tokens = await run_in_threadpool(_option_chain_db)
         
         # 5. Fetch quotes for all tokens in batches
         all_symbols = []
@@ -771,7 +798,7 @@ async def get_ai_signals(
         from app.services.fyers_token import get_fyers_token
         
         # Check Fyers authentication
-        token = get_fyers_token() or settings.FYERS_ACCESS_TOKEN
+        token = await run_in_threadpool(get_fyers_token) or settings.FYERS_ACCESS_TOKEN
         if not token:
             raise HTTPException(
                 status_code=401,

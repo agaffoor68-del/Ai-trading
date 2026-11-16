@@ -33,7 +33,11 @@ class FyersAPIClient:
     
     def __init__(self):
         self.session: Optional[aiohttp.ClientSession] = None
-    
+
+    # Strict timeout for all Fyers REST calls so a hung API never blocks
+    # the event loop or the frontend ("signal timed out" errors).
+    FYERS_TIMEOUT = aiohttp.ClientTimeout(total=5.0)
+
     def _get_auth_header(self) -> Optional[str]:
         """Get Authorization header value with current token."""
         # Priority: 1. Persistent storage, 2. Settings (in-memory)
@@ -51,7 +55,7 @@ class FyersAPIClient:
     async def _get_session(self) -> aiohttp.ClientSession:
         if self.session is None or self.session.closed:
             self.session = aiohttp.ClientSession(
-                timeout=aiohttp.ClientTimeout(total=15),
+                timeout=self.FYERS_TIMEOUT,
             )
         return self.session
     
@@ -84,7 +88,7 @@ class FyersAPIClient:
         }
         try:
             async with session.get(
-                FYERS_DATA_BASE + "/history", params=params, headers={"Authorization": auth_header}
+                FYERS_DATA_BASE + "/history", params=params, headers={"Authorization": auth_header}, timeout=self.FYERS_TIMEOUT
             ) as resp:
                 try:
                     data = await resp.json(content_type=None)
@@ -138,7 +142,7 @@ class FyersAPIClient:
                     url, 
                     params=params, 
                     headers={"Authorization": auth_header, "Content-Type": "application/json"},
-                    timeout=aiohttp.ClientTimeout(total=15)
+                    timeout=self.FYERS_TIMEOUT
                 ) as resp:
                     if resp.status != 200:
                         error_text = await resp.text()
@@ -209,7 +213,7 @@ class FyersAPIClient:
             async with session.get(
                 url, 
                 headers={"Authorization": auth_header, "Content-Type": "application/json"},
-                timeout=aiohttp.ClientTimeout(total=10)
+                timeout=self.FYERS_TIMEOUT
             ) as resp:
                 if resp.status != 200:
                     logger.warning(f"Fyers profile API returned {resp.status}")

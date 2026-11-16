@@ -77,19 +77,23 @@ def get_db():
 
 
 def init_db():
-    """Create all tables and migrate existing ones.
+    """Create all tables from current models.
 
-    SQLAlchemy's create_all() never alters existing tables, so any columns
-    added to models after a table was first created must be added here with
-    ALTER TABLE. The fyers_tokens table is only a token cache, so if the
-    migration cannot proceed safely we drop and recreate it.
+    fyers_tokens is only a token cache, so we drop and recreate it to pick up
+    schema changes (client_id / client_secret columns). create_all() never
+    alters existing tables, and cached tokens are safe to lose (re-login).
     """
     # Register every model even when init_db is called outside app.main.
     from app.core import models  # noqa: F401
 
     try:
+        # Drop the token cache first so the new model schema is applied cleanly
+        # even when the live table was created by an older version.
+        with engine.begin() as conn:
+            conn.execute(text("DROP TABLE IF EXISTS fyers_tokens"))
+        logger.info("Dropped fyers_tokens table (token cache; will be recreated)")
+
         Base.metadata.create_all(bind=engine)
-        _migrate_fyers_tokens_table()
         # Test the connection
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
@@ -100,13 +104,12 @@ def init_db():
 
 
 def _migrate_fyers_tokens_table():
-    """Ensure fyers_tokens has the client_id / client_secret columns.
+    """Kept for reference: add client_id/client_secret without dropping.
 
-    Adds the columns when missing; if that fails, drops the token cache table
-    and lets create_all rebuild it from the current model. Deleting cached
-    tokens is safe - the user simply logs in to Fyers again.
+    init_db() now drops/recreates the cache table directly, so this runs only
+    if called explicitly. Deleting cached tokens is safe - the user simply
+    logs in to Fyers again.
     """
-    inspector = None
     try:
         from sqlalchemy import inspect
         inspector = inspect(engine)
