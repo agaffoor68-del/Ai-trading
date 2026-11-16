@@ -18,7 +18,7 @@ import { Header } from "@/components/Header";
 import useSWR from "swr";
 import { api, type Position, type PositionsResponse } from "@/lib/api";
 
-const fetcher = (url: string) => fetch(url, { credentials: "same-origin" }).then((res) => {
+const fetcher = (url: string) => fetch(url, { credentials: "include" }).then((res) => {
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 });
@@ -28,7 +28,7 @@ export default function PositionsPage() {
 
   const { data, error, isLoading, mutate } = useSWR<PositionsResponse>(
     "/api/v1/execution/positions",
-    (url) => fetcher(`${process.env.NEXT_PUBLIC_API_URL || "https://ai-trading-9qoa.onrender.com"}${url}`),
+    fetcher,
     {
       refreshInterval: 5000,
       revalidateOnFocus: true,

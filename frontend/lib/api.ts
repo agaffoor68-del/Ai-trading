@@ -1,6 +1,10 @@
 import type { SWRConfiguration } from "swr";
 
-const API_BASE_URL = "https://ai-trading-9qoa.onrender.com/api/v1";
+// All API calls go through the Next.js same-origin proxy at /api/v1.
+// The proxy (frontend/app/api/v1/...) forwards the httpOnly access_token
+// cookie as an Authorization: Bearer header to the backend, so browser
+// requests stay same-origin (no CORS) and always authenticated.
+const API_BASE_URL = "/api/v1";
 
 // Error types from backend
 export interface ApiError {
@@ -191,6 +195,7 @@ export interface ExpiriesResponse {
 async function fetcher<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(url, {
     ...options,
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
       ...options?.headers,

@@ -34,7 +34,7 @@ import {
 } from "lucide-react";
 import { Sidebar } from "@/components/Sidebar";
 import { Header } from "@/components/Header";
-import { api } from "@/lib/api";
+import { api } from "@/lib/api-client";
 
 interface AdminUser {
   id: number;
@@ -96,7 +96,7 @@ export default function AdminPage() {
     const checkAdmin = async () => {
       try {
         // Session is the httpOnly cookie forwarded by the Next.js proxy.
-        const data = await api.getAdminUsers();
+        const data = await api.getAdminUsers() as { users: AdminUser[]; total: number };
         setIsAdmin(true);
         setUsers(data.users as AdminUser[]);
       } catch (err) {
