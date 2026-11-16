@@ -8,13 +8,79 @@ const RAW_API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "https://ai-trading-
 // Normalize the configured backend base so it never carries a trailing slash.
 const API_BASE_URL = RAW_API_BASE_URL.replace(/\/+$/, "");
 
+// Backend on Render sleeps when idle, so cold requests can take a while.
+export const API_TIMEOUT_MS = 15000;
+export const SERVER_WAKING_MESSAGE = "Server is waking up. Please wait...";
+
 export interface ApiError {
   code: string;
   message: string;
+  status?: number;
 }
 
 interface FetchOptions extends RequestInit {
   requireAuth?: boolean;
+}
+
+function isAbortError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { name?: string; code?: string; message?: string };
+  return (
+    candidate.name === "AbortError" ||
+    candidate.name === "TimeoutError" ||
+    candidate.code === "ABORT_ERR" ||
+    candidate.code === "TIMEOUT" ||
+    candidate.code === "NETWORK_ERROR" ||
+    /timed?\s*out|aborted/i.test(candidate.message ?? "")
+  );
+}
+
+export function isServerWakingUp(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { code?: string; status?: number };
+  if (candidate.code === "TIMEOUT" || candidate.code === "NETWORK_ERROR") return true;
+  if (typeof candidate.status === "number" && candidate.status >= 500) return true;
+  return false;
+}
+
+// Backend errors come back as {detail: {code, message}}, {detail: "text"},
+// {code, message} or {error: "text"} depending on the route, so normalize all
+// of them into a single shape.
+export function parseApiError(payload: unknown, status: number): ApiError {
+  let code = status >= 500 ? "SERVER_ERROR" : "ERROR";
+  let message = `HTTP ${status}`;
+
+  const assign = (source: unknown) => {
+    if (!source || typeof source !== "object") return;
+    const record = source as Record<string, unknown>;
+    if (typeof record.code === "string" && record.code) code = record.code;
+    if (typeof record.message === "string" && record.message) message = record.message;
+    else if (typeof record.error === "string" && record.error) message = record.error;
+    else if (typeof record.detail === "string" && record.detail) message = record.detail;
+  };
+
+  assign(payload);
+  if (payload && typeof payload === "object" && "detail" in payload) {
+    assign((payload as { detail: unknown }).detail);
+  }
+
+  return { code, message, status };
+}
+
+export async function fetchWithTimeout(url: string, init: RequestInit = {}): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (isAbortError(error) || controller.signal.aborted) {
+      throw { code: "TIMEOUT", message: SERVER_WAKING_MESSAGE, status: 408 } as ApiError;
+    }
+    throw { code: "NETWORK_ERROR", message: SERVER_WAKING_MESSAGE, status: 0 } as ApiError;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 export async function apiFetch<T>(endpoint: string, options: FetchOptions = {}): Promise<T> {
@@ -33,7 +99,7 @@ export async function apiFetch<T>(endpoint: string, options: FetchOptions = {}):
       ? endpoint
       : `${API_BASE_URL}${endpoint}`;
 
-  const response = await fetch(url, {
+  const response = await fetchWithTimeout(url, {
     ...fetchOptions,
     headers: headersObj,
     credentials: "same-origin",
@@ -41,31 +107,30 @@ export async function apiFetch<T>(endpoint: string, options: FetchOptions = {}):
 
   // Handle 401 - redirect to login
   if (response.status === 401) {
-    const error = await response.json().catch(() => ({ code: "AUTH_REQUIRED", message: "Authentication required" }));
-    
+    const error = parseApiError(
+      await response.json().catch(() => null),
+      401
+    );
+
     // Check if it's a Fyers-specific 401
-    if (error.code === "FYERS_NOT_CONNECTED") {
-      throw { ...error, status: 401 };
+    if (isFyersNotConnected(error)) {
+      throw error;
     }
     
     // User auth failure - redirect to login
     window.location.href = `/login?redirect=${encodeURIComponent(window.location.pathname)}`;
-    throw { ...error, status: 401 };
+    throw error;
   }
 
   // Handle 403 - forbidden
   if (response.status === 403) {
-    const error = await response.json().catch(() => ({ code: "FORBIDDEN", message: "Access denied" }));
-    throw { ...error, status: 403 };
+    const error = parseApiError(await response.json().catch(() => null), 403);
+    throw error;
   }
 
   // Handle other errors
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ 
-      code: "ERROR", 
-      message: `HTTP ${response.status}` 
-    }));
-    throw { ...error, status: response.status };
+    throw parseApiError(await response.json().catch(() => null), response.status);
   }
 
   if (response.status === 204) {
@@ -142,10 +207,16 @@ export const api = {
 
 // Error code helpers
 export function isFyersNotConnected(error: unknown): boolean {
-  if (error && typeof error === "object" && "code" in error) {
-    return (error as any).code === "FYERS_NOT_CONNECTED";
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { code?: string; status?: number; message?: string };
+  if (candidate.code === "FYERS_NOT_CONNECTED" || candidate.code === "FYERS_TOKEN_EXPIRED") {
+    return true;
   }
-  return false;
+  const message = candidate.message ?? "";
+  if (/fyers/i.test(message) && /not authenticated|not connected|expired|offline/i.test(message)) {
+    return true;
+  }
+  return candidate.status === 401 && /fyers/i.test(message);
 }
 
 export function isAuthError(error: unknown): boolean {

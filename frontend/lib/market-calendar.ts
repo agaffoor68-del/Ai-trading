@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { api, type MarketStatusResponse } from "@/lib/api";
+import { type MarketStatusResponse } from "@/lib/api";
+import { fetchWithTimeout, isServerWakingUp, SERVER_WAKING_MESSAGE } from "@/lib/api-client";
 
 export function useMarketStatus() {
   const [status, setStatus] = useState<MarketStatusResponse | null>(null);
@@ -10,8 +11,7 @@ export function useMarketStatus() {
 
   const fetchStatus = useCallback(async () => {
     try {
-      const response = await fetch("/api/v1/market/status", {
-        signal: AbortSignal.timeout(5000),
+      const response = await fetchWithTimeout("/api/v1/market/status", {
         credentials: "same-origin",
       });
       if (!response.ok) {
@@ -21,7 +21,7 @@ export function useMarketStatus() {
       setStatus(data);
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to fetch market status");
+      setError(isServerWakingUp(err) ? SERVER_WAKING_MESSAGE : err instanceof Error ? err.message : "Failed to fetch market status");
     } finally {
       setIsLoading(false);
     }

@@ -1,9 +1,9 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { TrendingUp, TrendingDown, Minus, Wifi, AlertCircle } from "lucide-react";
+import { TrendingUp, TrendingDown, Minus, Wifi, AlertCircle, Loader2 } from "lucide-react";
 import useSWR from "swr";
-import { useMarketQuotes, formatFyersSymbol } from "@/lib/hooks";
+import { useMarketQuotes, formatFyersSymbol, isServerWakingUp, SERVER_WAKING_MESSAGE } from "@/lib/hooks";
 
 interface DisplayItem {
   symbol: string;
@@ -57,7 +57,7 @@ function SparklineChart({ data, color }: { data: number[] | null; color: string 
 
 export function MarketWatch() {
   // Use SWR to fetch live quotes
-  const { quotes, isLoading, isError, error, errorCode, isFyersNotConnected, isFyersError, isFyersUnreachable, mutate } = useMarketQuotes(DEFAULT_SYMBOLS);
+  const { quotes, isLoading, isError, error, isFyersNotConnected, isServerWakingUp: wakingUp, mutate } = useMarketQuotes(DEFAULT_SYMBOLS);
 
   // Build display items
   const displayItems: DisplayItem[] = DEFAULT_SYMBOLS.map((symbol) => {
@@ -124,8 +124,9 @@ export function MarketWatch() {
 
   // Error state
   if (isError) {
-    const showConnectCard = isFyersNotConnected || isFyersError || isFyersUnreachable;
-    
+    const showConnectCard = isFyersNotConnected;
+    const friendlyError = wakingUp ? SERVER_WAKING_MESSAGE : error;
+
     return (
       <motion.div
         initial={{ opacity: 0, y: 20 }}
@@ -139,24 +140,45 @@ export function MarketWatch() {
             Market Watch
           </h3>
           <span className="text-xs text-text-muted flex items-center gap-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-neon-red" />
-            ERROR
+            <span className={`w-1.5 h-1.5 rounded-full ${wakingUp ? "bg-neon-orange animate-pulse" : "bg-neon-red"}`} />
+            {wakingUp ? "CONNECTING" : "ERROR"}
           </span>
         </div>
         <div className="flex-1 flex items-center justify-center p-4">
           <div className="text-center text-text-secondary max-w-md">
-            <p className="mb-2">Failed to load market data</p>
-            <p className="text-sm text-neon-red/80 mb-4">{error}</p>
-            {showConnectCard && (
-              <motion.a
-                href="/settings"
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-neon-cyan to-neon-purple text-true-black font-bold transition-all duration-300 shadow-glow-cyan hover:opacity-90"
-              >
-                <Wifi className="w-4 h-4" strokeWidth={2.5} />
-                Connect Fyers
-              </motion.a>
+            {wakingUp ? (
+              <>
+                <Loader2 className="w-8 h-8 mx-auto mb-3 text-neon-cyan animate-spin" strokeWidth={2.5} />
+                <p className="font-medium text-white mb-1">{SERVER_WAKING_MESSAGE}</p>
+                <p className="text-sm text-text-muted">The backend is spinning up. This can take a few seconds.</p>
+              </>
+            ) : (
+              <>
+                <p className="mb-2">{showConnectCard ? "Fyers is not connected" : "Failed to load market data"}</p>
+                <p className={`text-sm mb-4 ${showConnectCard ? "text-neon-orange/90" : "text-neon-red/80"}`}>
+                  {showConnectCard ? "Connect your Fyers account to load live quotes." : friendlyError}
+                </p>
+                {showConnectCard ? (
+                  <motion.a
+                    href="/settings"
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-gradient-to-r from-neon-cyan to-neon-purple text-true-black font-bold transition-all duration-300 shadow-glow-cyan hover:opacity-90"
+                  >
+                    <Wifi className="w-4 h-4" strokeWidth={2.5} />
+                    Connect Fyers
+                  </motion.a>
+                ) : (
+                  <motion.button
+                    onClick={() => mutate()}
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-card-bg border border-glow-border text-white font-medium hover:border-neon-cyan/50 transition-all duration-300"
+                  >
+                    Retry
+                  </motion.button>
+                )}
+              </>
             )}
           </div>
         </div>

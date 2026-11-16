@@ -1,30 +1,36 @@
 "use client";
 
 import useSWR, { mutate } from "swr";
-import { api, isFyersNotConnected, isFyersError, isFyersUnreachable, isAuthError, formatFyersSymbol } from "@/lib/api-client";
+import {
+  api,
+  fetchWithTimeout,
+  parseApiError,
+  isServerWakingUp,
+  isFyersNotConnected,
+  isFyersError,
+  isFyersUnreachable,
+  isAuthError,
+  formatFyersSymbol,
+} from "@/lib/api-client";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "https://ai-trading-9qoa.onrender.com";
 
 // Helper to create fetcher with proper error handling
 const createFetcher = <T,>(key: string) => async (): Promise<T> => {
-  const response = await fetch(key, {
-    signal: AbortSignal.timeout(10000),
+  const response = await fetchWithTimeout(key, {
     credentials: "same-origin",
   });
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ code: "UNKNOWN", message: `HTTP ${response.status}` })) as { code: string; message: string };
-    const err = new Error(error.message || `HTTP ${response.status}`) as Error & { code?: string; status?: number };
-    err.code = error.code;
-    err.status = response.status;
+    const error = parseApiError(await response.json().catch(() => null), response.status);
 
-    if (response.status === 401 && error.code !== "FYERS_NOT_CONNECTED") {
+    if (response.status === 401 && !isFyersNotConnected(error)) {
       if (typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
         window.location.href = `/login?redirect=${encodeURIComponent(window.location.pathname)}`;
       }
     }
 
-    throw err;
+    throw error;
   }
 
   return response.json();
@@ -32,22 +38,25 @@ const createFetcher = <T,>(key: string) => async (): Promise<T> => {
 
 // Helper for POST requests
 const createPostFetcher = <T,>(key: string, body: any) => async (): Promise<T> => {
-  const response = await fetch(key, {
+  const response = await fetchWithTimeout(key, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(10000),
     credentials: "same-origin",
   });
-  
+
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ code: "UNKNOWN", message: `HTTP ${response.status}` })) as { code: string; message: string };
-    const err = new Error(error.message || `HTTP ${response.status}`) as Error & { code?: string; status?: number };
-    err.code = error.code;
-    err.status = response.status;
-    throw err;
+    const error = parseApiError(await response.json().catch(() => null), response.status);
+
+    if (response.status === 401 && !isFyersNotConnected(error)) {
+      if (typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
+        window.location.href = `/login?redirect=${encodeURIComponent(window.location.pathname)}`;
+      }
+    }
+
+    throw error;
   }
-  
+
   return response.json();
 };
 
@@ -84,6 +93,7 @@ export function useMarketQuotes(symbols: string[]) {
     isFyersNotConnected: isFyersNotConnected(error),
     isFyersError: isFyersError(error),
     isFyersUnreachable: isFyersUnreachable(error),
+    isServerWakingUp: isServerWakingUp(error),
     mutate,
   };
 }
@@ -127,6 +137,7 @@ export function useOptionChain(symbol: string, expiry: string, strikes = 10) {
     isFyersNotConnected: isFyersNotConnected(error),
     isFyersError: isFyersError(error),
     isFyersUnreachable: isFyersUnreachable(error),
+    isServerWakingUp: isServerWakingUp(error),
     mutate,
   };
 }
@@ -175,6 +186,7 @@ export function useAISignals(symbols: string[] = ["NIFTY", "BANKNIFTY", "FINNIFT
     isFyersNotConnected: isFyersNotConnected(error),
     isFyersError: isFyersError(error),
     isFyersUnreachable: isFyersUnreachable(error),
+    isServerWakingUp: isServerWakingUp(error),
     mutate,
   };
 }
@@ -200,6 +212,7 @@ export function useCandles(symbol: string, interval: string = "5m", days: number
     isFyersNotConnected: isFyersNotConnected(error),
     isFyersError: isFyersError(error),
     isFyersUnreachable: isFyersUnreachable(error),
+    isServerWakingUp: isServerWakingUp(error),
     mutate,
   };
 }
@@ -344,4 +357,12 @@ export function useMe() {
   };
 }
 
-export { isFyersNotConnected, isFyersError, isFyersUnreachable, isAuthError, formatFyersSymbol } from "@/lib/api-client";
+export {
+  isFyersNotConnected,
+  isFyersError,
+  isFyersUnreachable,
+  isServerWakingUp,
+  isAuthError,
+  formatFyersSymbol,
+  SERVER_WAKING_MESSAGE,
+} from "@/lib/api-client";

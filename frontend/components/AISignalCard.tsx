@@ -1,16 +1,16 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Brain, Zap, X, Check, Settings, SlidersHorizontal, AlertCircle, Wifi } from "lucide-react";
-import { useAISignals } from "@/lib/hooks";
+import { Brain, Zap, X, Check, Settings, SlidersHorizontal, AlertCircle, Wifi, Loader2 } from "lucide-react";
+import { useAISignals, SERVER_WAKING_MESSAGE } from "@/lib/hooks";
 
 export function AISignalCard() {
-  const { signals, isLoading, isError, error, errorCode, isFyersNotConnected, isFyersError, isFyersUnreachable, mutate } = useAISignals(["NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY"]);
+  const { signals, isLoading, isError, error, isFyersNotConnected, isServerWakingUp: wakingUp, mutate } = useAISignals(["NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY"]);
 
   // Get the first signal (NIFTY) or none
   const signal = signals[0];
 
-  const showConnectCard = isFyersNotConnected || isFyersError || isFyersUnreachable;
+  const showConnectCard = isFyersNotConnected;
 
   // Loading state
   if (isLoading) {
@@ -59,19 +59,31 @@ export function AISignalCard() {
           </div>
         </div>
         <div className="flex-1 flex items-center justify-center p-4">
-          <div className="text-center text-text-secondary">
-            <p className="mb-2">Failed to load AI signals</p>
-            <p className="text-sm text-neon-red/80 mb-4">{error}</p>
-            {showConnectCard && (
-              <motion.a
-                href="/settings"
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-neon-cyan to-neon-purple text-true-black font-bold transition-all duration-300 shadow-glow-cyan hover:opacity-90"
-              >
-                <Wifi className="w-4 h-4" strokeWidth={2.5} />
-                Connect Fyers
-              </motion.a>
+          <div className="text-center text-text-secondary max-w-sm">
+            {wakingUp ? (
+              <>
+                <Loader2 className="w-7 h-7 mx-auto mb-3 text-neon-cyan animate-spin" strokeWidth={2.5} />
+                <p className="font-medium text-white mb-1">{SERVER_WAKING_MESSAGE}</p>
+                <p className="text-sm text-text-muted">The backend is spinning up. This can take a few seconds.</p>
+              </>
+            ) : (
+              <>
+                <p className="mb-2">{showConnectCard ? "Fyers is not connected" : "Failed to load AI signals"}</p>
+                <p className={`text-sm mb-4 ${showConnectCard ? "text-neon-orange/90" : "text-neon-red/80"}`}>
+                  {showConnectCard ? "Connect your Fyers account to generate AI signals." : error}
+                </p>
+                {showConnectCard && (
+                  <motion.a
+                    href="/settings"
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-gradient-to-r from-neon-cyan to-neon-purple text-true-black font-bold transition-all duration-300 shadow-glow-cyan hover:opacity-90"
+                  >
+                    <Wifi className="w-4 h-4" strokeWidth={2.5} />
+                    Connect Fyers
+                  </motion.a>
+                )}
+              </>
             )}
           </div>
         </div>

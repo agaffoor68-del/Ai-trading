@@ -14,10 +14,11 @@ import {
   AlertCircle,
   ChevronDown,
   Maximize2,
+  Wifi,
 } from "lucide-react";
 import { Sidebar } from "@/components/Sidebar";
 import { Header } from "@/components/Header";
-import { useOptionChain, useExpiries } from "@/lib/hooks";
+import { useOptionChain, useExpiries, SERVER_WAKING_MESSAGE } from "@/lib/hooks";
 
 interface OptionStrike {
   strike: number;
@@ -80,9 +81,8 @@ export default function OptionChainPage() {
     isLoading, 
     isError, 
     error, 
-    isFyersNotConnected, 
-    isFyersError, 
-    isFyersUnreachable,
+    isFyersNotConnected,
+    isServerWakingUp: wakingUp,
     mutate 
   } = useOptionChain(selectedIndex.value, selectedExpiry, strikes);
 
@@ -155,7 +155,7 @@ export default function OptionChainPage() {
 
   // Error state
   if (isError) {
-    const showConnectCard = isFyersNotConnected || isFyersError || isFyersUnreachable;
+    const showConnectCard = isFyersNotConnected;
     
     return (
       <motion.div
@@ -168,22 +168,37 @@ export default function OptionChainPage() {
           <div className="flex items-center gap-2">
             <h3 className="font-semibold text-white">Options Chain</h3>
             <span className="text-[10px] px-2 py-0.5 rounded bg-neon-cyan/20 text-neon-cyan font-medium">{selectedIndex.label}</span>
-            <span className="text-[10px] px-2 py-0.5 rounded bg-neon-red/20 text-neon-red font-medium">ERROR</span>
+            <span className={`text-[10px] px-2 py-0.5 rounded font-medium ${wakingUp ? "bg-neon-orange/20 text-neon-orange" : "bg-neon-red/20 text-neon-red"}`}>
+              {wakingUp ? "CONNECTING" : "ERROR"}
+            </span>
           </div>
         </div>
         <div className="flex-1 flex items-center justify-center p-4">
-          <div className="text-center text-text-secondary">
-            <p className="mb-2">Failed to load option chain</p>
-            <p className="text-sm text-neon-red/80 mb-4">{error}</p>
-            {showConnectCard && (
-              <motion.a
-                href="/settings"
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-neon-cyan to-neon-purple text-true-black font-bold transition-all duration-300 shadow-glow-cyan hover:opacity-90"
-              >
-                Connect Fyers
-              </motion.a>
+          <div className="text-center text-text-secondary max-w-md">
+            {wakingUp ? (
+              <>
+                <Loader2 className="w-7 h-7 mx-auto mb-3 text-neon-cyan animate-spin" strokeWidth={2.5} />
+                <p className="font-medium text-white mb-1">{SERVER_WAKING_MESSAGE}</p>
+                <p className="text-sm text-text-muted">The backend is spinning up. This can take a few seconds.</p>
+              </>
+            ) : (
+              <>
+                <p className="mb-2">{showConnectCard ? "Fyers is not connected" : "Failed to load option chain"}</p>
+                <p className={`text-sm mb-4 ${showConnectCard ? "text-neon-orange/90" : "text-neon-red/80"}`}>
+                  {showConnectCard ? "Connect your Fyers account to load the option chain." : error}
+                </p>
+                {showConnectCard && (
+                  <motion.a
+                    href="/settings"
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-gradient-to-r from-neon-cyan to-neon-purple text-true-black font-bold transition-all duration-300 shadow-glow-cyan hover:opacity-90"
+                  >
+                    <Wifi className="w-4 h-4" strokeWidth={2.5} />
+                    Connect Fyers
+                  </motion.a>
+                )}
+              </>
             )}
           </div>
         </div>

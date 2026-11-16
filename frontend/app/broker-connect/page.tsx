@@ -21,7 +21,7 @@ import {
 } from "lucide-react";
 import { Sidebar } from "@/components/Sidebar";
 import { Header } from "@/components/Header";
-import { api, isFyersNotConnected } from "@/lib/api-client";
+import { api, isFyersNotConnected, fetchWithTimeout, isServerWakingUp, SERVER_WAKING_MESSAGE } from "@/lib/api-client";
 
 interface FyersConnectResponse {
   auth_url: string;
@@ -53,8 +53,7 @@ export default function BrokerConnectPage() {
   const fetchStatus = useCallback(async () => {
     try {
       setIsLoading(true);
-      const response = await fetch("/api/v1/fyers/status", {
-        signal: AbortSignal.timeout(5000),
+      const response = await fetchWithTimeout("/api/v1/fyers/status", {
         credentials: "same-origin",
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -63,7 +62,7 @@ export default function BrokerConnectPage() {
       setError(null);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "Failed to fetch broker status";
-      setError(errorMessage);
+      setError(isServerWakingUp(err) ? SERVER_WAKING_MESSAGE : errorMessage);
       setStatus({
         fyers: { connected: false, valid: false, message: "Failed to load" },
         kotak: { configured: false, connected: false, message: "Failed to load" },
@@ -121,7 +120,7 @@ export default function BrokerConnectPage() {
     setKotakError(null);
     try {
       // Save credentials to backend (endpoint would need to be created)
-      const response = await fetch("/api/v1/kotak/save-credentials", {
+      const response = await fetchWithTimeout("/api/v1/kotak/save-credentials", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "same-origin",
@@ -133,7 +132,6 @@ export default function BrokerConnectPage() {
           mpin: kotakMpin.trim(),
           ucc: kotakUcc.trim(),
         }),
-        signal: AbortSignal.timeout(10000),
       });
 
       if (!response.ok) {
@@ -142,11 +140,10 @@ export default function BrokerConnectPage() {
       }
 
       // Initiate Kotak login
-      const loginResponse = await fetch("/api/v1/kotak/login", {
+      const loginResponse = await fetchWithTimeout("/api/v1/kotak/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "same-origin",
-        signal: AbortSignal.timeout(10000),
       });
 
       if (!loginResponse.ok) {

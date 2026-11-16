@@ -6,7 +6,8 @@ import { motion } from "framer-motion";
 import { TrendingUp, TrendingDown, Search, RefreshCw, Loader2, X, AlertCircle, Sparkles, Wifi } from "lucide-react";
 import { Sidebar } from "@/components/Sidebar";
 import { Header } from "@/components/Header";
-import { useMarketQuotes, useExpiries, formatFyersSymbol } from "@/lib/hooks";
+import { useMarketQuotes, useExpiries, formatFyersSymbol, isServerWakingUp, SERVER_WAKING_MESSAGE } from "@/lib/hooks";
+import { fetchWithTimeout } from "@/lib/api-client";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://ai-trading-9qoa.onrender.com";
 
@@ -28,8 +29,7 @@ interface DisplayItem extends SearchResult {
 }
 
 const fetcher = async (url: string) => {
-  const response = await fetch(url, {
-    signal: AbortSignal.timeout(10000),
+  const response = await fetchWithTimeout(url, {
     credentials: "same-origin",
   });
   if (!response.ok) {
@@ -58,7 +58,7 @@ export default function MarketWatchPage() {
   const topSymbols = searchData?.results?.slice(0, 10) || [];
   const fyersSymbols = topSymbols.map((s: SearchResult) => s.symbol);
 
-  const { quotes, isLoading: isQuotesLoading, isError: quotesError, isFyersNotConnected, isFyersError, isFyersUnreachable } = useMarketQuotes(fyersSymbols);
+  const { quotes, isLoading: isQuotesLoading, isFyersNotConnected } = useMarketQuotes(fyersSymbols);
 
   // Combine search results with quotes
   useEffect(() => {
@@ -121,7 +121,8 @@ export default function MarketWatchPage() {
     setQuery("NIFTY");
   };
 
-  const showConnectCard = isFyersNotConnected || isFyersError || isFyersUnreachable;
+  const showConnectCard = isFyersNotConnected;
+  const wakingUp = isServerWakingUp(searchError);
 
   return (
     <div className="min-h-screen bg-true-black text-white">
@@ -196,10 +197,10 @@ export default function MarketWatchPage() {
                   className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-neon-red/10 border border-neon-red/30 text-neon-red text-sm glass"
                 >
                   <AlertCircle className="w-4 h-4" strokeWidth={2.5} />
-                  Error: {error}
+                  {wakingUp ? SERVER_WAKING_MESSAGE : `Error: ${error}`}
                 </motion.span>
               )}
-              {showConnectCard && !error && hasSearched && (
+              {showConnectCard && !error && (
                 <motion.span
                   initial={{ opacity: 0, scale: 0.9 }}
                   animate={{ opacity: 1, scale: 1 }}
@@ -207,7 +208,15 @@ export default function MarketWatchPage() {
                 >
                   <Wifi className="w-4 h-4" strokeWidth={2.5} />
                   Fyers not connected - quotes unavailable
-                  <motion.a href="/settings" className="text-neon-cyan hover:underline ml-2">Connect Fyers</motion.a>
+                  <motion.a
+                    href="/settings"
+                    whileHover={{ scale: 1.03 }}
+                    whileTap={{ scale: 0.97 }}
+                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-gradient-to-r from-neon-cyan to-neon-purple text-true-black font-bold ml-1"
+                  >
+                    <Wifi className="w-3.5 h-3.5" strokeWidth={2.5} />
+                    Connect Fyers
+                  </motion.a>
                 </motion.span>
               )}
               {!error && hasSearched && !showConnectCard && (

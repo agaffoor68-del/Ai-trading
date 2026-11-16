@@ -1,28 +1,37 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { Loader2, Wifi } from "lucide-react";
 import { Sidebar } from "@/components/Sidebar";
 import { Header } from "@/components/Header";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://ai-trading-9qoa.onrender.com";
+import { fetchWithTimeout, parseApiError, isFyersNotConnected, isServerWakingUp, SERVER_WAKING_MESSAGE } from "@/lib/api-client";
 
 export default function AISignalsPage() {
   const [signals, setSignals] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [lastScan, setLastScan] = useState<Date | null>(null);
+  const [fyersOffline, setFyersOffline] = useState(false);
 
   const fetchSignals = async () => {
+    setIsLoading(true);
+    setError(null);
+    setFyersOffline(false);
     try {
-      const res = await fetch("/api/v1/market/ai/signals?symbols=NIFTY,BANKNIFTY,FINNIFTY,MIDCPNIFTY", {
+      const res = await fetchWithTimeout("/api/v1/market/ai/signals?symbols=NIFTY,BANKNIFTY,FINNIFTY,MIDCPNIFTY", {
         credentials: "same-origin",
       });
-      if (!res.ok) throw new Error("HTTP " + res.status);
+      if (!res.ok) {
+        const apiError = parseApiError(await res.json().catch(() => null), res.status);
+        if (isFyersNotConnected(apiError)) {
+          setFyersOffline(true);
+        }
+        throw new Error(apiError.message);
+      }
       const data = await res.json();
       setSignals(data.signals || []);
-      setLastScan(new Date());
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to fetch AI signals");
+      const message = err instanceof Error ? err.message : "Failed to fetch AI signals";
+      setError(isServerWakingUp(err) ? SERVER_WAKING_MESSAGE : message);
     } finally {
       setIsLoading(false);
     }
@@ -39,8 +48,26 @@ export default function AISignalsPage() {
         <Header />
         <main className="flex-1 p-8">
           <h1 className="text-3xl font-bold text-white mb-4">AI Signals</h1>
-          {isLoading && <p className="text-neon-orange">Loading signals...</p>}
-          {error && <p className="text-neon-red">Error: {error}</p>}
+          {isLoading && (
+            <p className="text-neon-orange flex items-center gap-2">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Loading signals...
+            </p>
+          )}
+          {error && (
+            <div className="flex flex-col items-start gap-3">
+              <p className="text-neon-red">Error: {error}</p>
+              {fyersOffline && (
+                <a
+                  href="/settings"
+                  className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-gradient-to-r from-neon-cyan to-neon-purple text-true-black font-bold shadow-glow-cyan hover:opacity-90"
+                >
+                  <Wifi className="w-4 h-4" strokeWidth={2.5} />
+                  Connect Fyers
+                </a>
+              )}
+            </div>
+          )}
           {!isLoading && !error && (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               {signals.length === 0 ? (

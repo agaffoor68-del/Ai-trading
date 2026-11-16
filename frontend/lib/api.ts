@@ -1,4 +1,5 @@
 import type { SWRConfiguration } from "swr";
+import { fetchWithTimeout, parseApiError } from "@/lib/api-client";
 
 // All API calls go through the Next.js same-origin proxy at /api/v1.
 // The proxy (frontend/app/api/v1/...) forwards the httpOnly access_token
@@ -193,7 +194,7 @@ export interface ExpiriesResponse {
 }
 
 async function fetcher<T>(url: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(url, {
+  const response = await fetchWithTimeout(url, {
     ...options,
     credentials: "include",
     headers: {
@@ -203,11 +204,8 @@ async function fetcher<T>(url: string, options?: RequestInit): Promise<T> {
   });
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ code: "UNKNOWN", message: `HTTP ${response.status}` })) as ApiError;
-    const err = new Error(error.message || `HTTP ${response.status}`) as Error & { code?: string; status?: number };
-    err.code = error.code;
-    err.status = response.status;
-    throw err;
+    const error = parseApiError(await response.json().catch(() => null), response.status);
+    throw error;
   }
 
   return response.json();

@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import { ShoppingBag, TrendingUp, Target, Shield, Radio, Check, AlertCircle, X, Maximize2, Loader2 } from "lucide-react";
 import { useState, useCallback } from "react";
 import { useCandles, useMarketQuotes, useMarketStatus, formatFyersSymbol } from "@/lib/hooks";
+import { fetchWithTimeout } from "@/lib/api-client";
 
 export function OrderTicket() {
   const [side, setSide] = useState<"BUY" | "SELL">("BUY");
@@ -83,9 +84,10 @@ export function OrderTicket() {
     setSuccess(null);
 
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "https://ai-trading-9qoa.onrender.com"}/api/v1/execution/order`, {
+      const response = await fetchWithTimeout("/api/v1/execution/order", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
         body: JSON.stringify({
           symbol: selectedSymbol,
           quantity: effectiveQty,
@@ -99,7 +101,6 @@ export function OrderTicket() {
           target: target ? parseFloat(target) : undefined,
           mode,
         }),
-        signal: AbortSignal.timeout(15000),
       });
 
       if (!response.ok) {
