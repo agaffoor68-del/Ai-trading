@@ -327,6 +327,14 @@ async def startup_event():
 
     # 5. Validate/Load Fyers token
     try:
+        # Rehydrate FYERS_CLIENT_ID / SECRET from the stored token row so the
+        # WebSocket and profile API work after a restart without re-login.
+        try:
+            from app.api.v1.endpoints.fyers_auth import restore_fyers_credentials
+            restore_fyers_credentials()
+        except Exception as re:
+            logger.warning(f"Could not restore Fyers credentials at startup: {re}")
+
         token = get_fyers_token()
         if token:
             logger.info(f"Fyers token loaded from storage (length: {len(token)})")
@@ -337,7 +345,7 @@ async def startup_event():
                 if profile:
                     logger.info(f"Fyers token validated - User: {profile.get('name', 'Unknown')}")
                 else:
-                    logger.warning("Fyers token validation failed - token may be expired")
+                    logger.warning("Fyers token validation failed - profile API returned no data (token may be expired, or FYERS_CLIENT_ID missing)")
             except Exception as e:
                 logger.warning(f"Fyers token validation error: {str(e)}")
         else:

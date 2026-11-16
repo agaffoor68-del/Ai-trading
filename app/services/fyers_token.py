@@ -7,10 +7,17 @@ Persists Fyers access token to a JSON file for persistence across restarts.
 import json
 import logging
 from pathlib import Path
-from datetime import datetime, timedelta, time
+from datetime import datetime, timedelta, time, timezone
 from typing import Optional
 
-from app.core.datetime_utils import IST, now_ist
+from app.core.datetime_utils import IST, now_ist, to_utc
+
+
+def _as_utc(dt: datetime) -> datetime:
+    """Return a UTC-aware datetime from any datetime (naive treated as UTC)."""
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
 
 logger = logging.getLogger(__name__)
 
@@ -76,12 +83,9 @@ def get_fyers_token() -> Optional[str]:
                 expires_at_str = token_data.get("expires_at")
                 if expires_at_str:
                     expires_at = datetime.fromisoformat(expires_at_str)
-                    # Ensure timezone-aware
-                    if expires_at.tzinfo is None:
-                        expires_at = expires_at.replace(tzinfo=IST)
-                    else:
-                        expires_at = expires_at.astimezone(IST)
-                    now = now_ist()
+                    # Ensure timezone-aware, normalized to UTC for comparison
+                    expires_at = _as_utc(expires_at)
+                    now = to_utc(now_ist())
                     
                     # Check if token was issued before today's 6:30 AM
                     today_630 = datetime.combine(now.date(), time(6, 30, tzinfo=IST))
@@ -111,13 +115,10 @@ def get_fyers_token() -> Optional[str]:
                 expires_in = db_token.get("expires_in", 86400)
                 if created_at_str:
                     created_at = datetime.fromisoformat(created_at_str)
-                    # Ensure timezone-aware
-                    if created_at.tzinfo is None:
-                        created_at = created_at.replace(tzinfo=IST)
-                    else:
-                        created_at = created_at.astimezone(IST)
+                    # Ensure timezone-aware, normalized to UTC for comparison
+                    created_at = _as_utc(created_at)
                     expires_at = created_at + timedelta(seconds=expires_in)
-                    now = now_ist()
+                    now = to_utc(now_ist())
                     
                     today_630 = datetime.combine(now.date(), time(6, 30, tzinfo=IST))
                     if now >= today_630 and expires_at < today_630:
@@ -163,12 +164,9 @@ def get_fyers_token_status() -> dict:
                 # Check expiry - Fyers tokens expire daily at 6:30 AM IST
                 if expires_at_str:
                     expires_at = datetime.fromisoformat(expires_at_str)
-                    # Ensure timezone-aware
-                    if expires_at.tzinfo is None:
-                        expires_at = expires_at.replace(tzinfo=IST)
-                    else:
-                        expires_at = expires_at.astimezone(IST)
-                    now = now_ist()
+                    # Ensure timezone-aware, normalized to UTC for comparison
+                    expires_at = _as_utc(expires_at)
+                    now = to_utc(now_ist())
                     
                     # Check if token was issued before today's 6:30 AM
                     today_630 = datetime.combine(now.date(), time(6, 30, tzinfo=IST))
@@ -198,13 +196,10 @@ def get_fyers_token_status() -> dict:
                 expires_in = db_token.get("expires_in", 86400)
                 if created_at_str:
                     created_at = datetime.fromisoformat(created_at_str)
-                    # Ensure timezone-aware
-                    if created_at.tzinfo is None:
-                        created_at = created_at.replace(tzinfo=IST)
-                    else:
-                        created_at = created_at.astimezone(IST)
+                    # Ensure timezone-aware, normalized to UTC for comparison
+                    created_at = _as_utc(created_at)
                     expires_at = created_at + timedelta(seconds=expires_in)
-                    now = now_ist()
+                    now = to_utc(now_ist())
                     
                     today_630 = datetime.combine(now.date(), time(6, 30, tzinfo=IST))
                     if now >= today_630 and expires_at < today_630:

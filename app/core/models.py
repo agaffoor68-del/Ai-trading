@@ -68,6 +68,8 @@ class FyersToken(Base):
     id = Column(Integer, primary_key=True, index=True)
     access_token = Column(Text, nullable=False)
     refresh_token = Column(Text, nullable=True)
+    client_id = Column(Text, nullable=True)
+    client_secret = Column(Text, nullable=True)
     expires_in = Column(Integer, nullable=False)
     created_at = Column(DateTime, default=lambda: datetime.now(IST), nullable=False)
     updated_at = Column(DateTime, default=lambda: datetime.now(IST), onupdate=lambda: datetime.now(IST), nullable=False)

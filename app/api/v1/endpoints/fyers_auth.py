@@ -55,14 +55,18 @@ def generate_app_id_hash(client_id: str, client_secret: str) -> str:
     return hashlib.sha256(f"{client_id}:{client_secret}".encode()).hexdigest()
 
 
-def save_fyers_token_to_db(access_token: str, expires_in: int, refresh_token: str = "") -> bool:
-    """Save Fyers access token to PostgreSQL database for persistence across restarts."""
+def save_fyers_token_to_db(access_token: str, expires_in: int, refresh_token: str = "", client_id: str = "", client_secret: str = "") -> bool:
+    """Save Fyers access token (and OAuth credentials) to PostgreSQL for persistence across restarts."""
     try:
         encrypted_access = _encrypt(access_token)
         encrypted_refresh = _encrypt(refresh_token) if refresh_token else ""
+        encrypted_client_id = _encrypt(client_id) if client_id else ""
+        encrypted_client_secret = _encrypt(client_secret) if client_secret else ""
         token_record = FyersToken(
             access_token=encrypted_access,
             refresh_token=encrypted_refresh,
+            client_id=encrypted_client_id,
+            client_secret=encrypted_client_secret,
             expires_in=expires_in
         )
         with SessionLocal() as db:
@@ -88,6 +92,8 @@ def get_fyers_token_from_db() -> dict:
             return {
                 "access_token": _decrypt(token.access_token) if token.access_token else "",
                 "refresh_token": _decrypt(token.refresh_token) if token.refresh_token else "",
+                "client_id": _decrypt(token.client_id) if token.client_id else "",
+                "client_secret": _decrypt(token.client_secret) if token.client_secret else "",
                 "expires_in": token.expires_in,
                 "created_at": token.created_at.isoformat() if token.created_at else None
             }
@@ -102,6 +108,29 @@ def get_fyers_token_from_db() -> dict:
     except Exception as e:
         logger.error("DB Error loading Fyers token: %s (%s)", str(e), type(e).__name__, exc_info=True)
         return {}
+
+
+def restore_fyers_credentials() -> bool:
+    """Restore FYERS_CLIENT_ID / FYERS_CLIENT_SECRET into settings from the stored token row.
+
+    The OAuth callback persists credentials encrypted in PostgreSQL; on boot we
+    rehydrate the in-memory settings so the WebSocket and profile API work after
+    a restart without re-login. Returns True when a client_id was restored.
+    """
+    try:
+        db_token = get_fyers_token_from_db()
+        client_id = db_token.get("client_id", "")
+        if not client_id:
+            return False
+        if not settings.FYERS_CLIENT_ID:
+            settings.FYERS_CLIENT_ID = client_id
+        if db_token.get("client_secret") and not settings.FYERS_CLIENT_SECRET:
+            settings.FYERS_CLIENT_SECRET = db_token["client_secret"]
+        logger.info("Restored Fyers client_id from database storage")
+        return True
+    except Exception as e:
+        logger.warning("Could not restore Fyers credentials from database: %s", e)
+        return False
 
 
 class FyersConnectRequest(BaseModel):
@@ -335,7 +364,7 @@ async def fyers_callback(request: Request):
         expires_in = response.get("expires_in", 86400) if isinstance(response, dict) else 86400
         
         # Save token to PostgreSQL database for persistence across restarts
-        saved = save_fyers_token_to_db(access_token, expires_in, refresh_token)
+        saved = save_fyers_token_to_db(access_token, expires_in, refresh_token, client_id, client_secret)
         if not saved:
             logger.error("Failed to save Fyers token to database")
             frontend_url = settings.FRONTEND_URL or "http://localhost:3000"

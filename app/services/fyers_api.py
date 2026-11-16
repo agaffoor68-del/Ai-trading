@@ -199,6 +199,7 @@ class FyersAPIClient:
         """
         auth_header = f"{settings.FYERS_CLIENT_ID}:{access_token}"
         if not settings.FYERS_CLIENT_ID:
+            logger.warning("get_profile called without FYERS_CLIENT_ID configured")
             return {}
         
         session = await self._get_session()
