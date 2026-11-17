@@ -79,8 +79,9 @@ export default function AdminPage() {
   const [editingUser, setEditingUser] = useState<AdminUser | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  const filteredUsers = users.filter(
+  const filteredUsers = (users || []).filter(
     (u) =>
       u.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
       u.name.toLowerCase().includes(searchQuery.toLowerCase())
@@ -95,12 +96,15 @@ export default function AdminPage() {
   useEffect(() => {
     const checkAdmin = async () => {
       try {
-        // Session is the httpOnly cookie forwarded by the Next.js proxy.
-        const data = await api.getAdminUsers() as { users: AdminUser[]; total: number };
+        // The Next.js proxy forwards the httpOnly session cookie as a Bearer token.
+        const data = await api.getAdminUsers();
+        const responseUsers = Array.isArray(data?.users) ? data.users as AdminUser[] : [];
         setIsAdmin(true);
-        setUsers(data.users as AdminUser[]);
-      } catch (err) {
-        // Not admin or error
+        setUsers(responseUsers);
+        setLoadError(null);
+      } catch {
+        setUsers([]);
+        setLoadError("Failed to load users. Please check your admin session.");
         setIsAdmin(false);
       } finally {
         setIsLoading(false);
@@ -120,8 +124,8 @@ export default function AdminPage() {
           className="text-center p-8 max-w-md"
         >
           <ShieldAlert className="w-16 h-16 mx-auto mb-4 text-neon-red/50" strokeWidth={1.5} />
-          <h1 className="text-2xl font-bold text-white mb-2">Access Denied</h1>
-          <p className="text-text-secondary mb-6">Admin panel is only accessible to administrators.</p>
+          <h1 className="text-2xl font-bold text-white mb-2">{loadError ? "Unable to load users" : "Access Denied"}</h1>
+          <p className="text-text-secondary mb-6">{loadError || "Admin panel is only accessible to administrators."}</p>
           <motion.button
             onClick={() => window.history.back()}
             whileHover={{ scale: 1.02 }}
@@ -411,7 +415,7 @@ setGrantForm({ email: "", plan: "Pro", days: 30 });
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredUsers.map((user, index) => (
+                  {(filteredUsers || []).map((user, index) => (
                     <motion.tr
                       key={user.id}
                       initial={{ opacity: 0, y: 10 }}
