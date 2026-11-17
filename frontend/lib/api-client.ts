@@ -191,10 +191,10 @@ export const api = {
   getAdminUsers: () => 
     apiFetch("/api/v1/admin/users", { requireAuth: true }),
 
-  grantAccess: (email: string, plan: string, days: number) => 
+  grantAccess: (data: { email: string; plan: string; days: number }) => 
     apiFetch("/api/v1/admin/subscribe", {
       method: "POST",
-      body: JSON.stringify({ email, plan, days }),
+      body: JSON.stringify(data),
       requireAuth: true,
     }),
 
