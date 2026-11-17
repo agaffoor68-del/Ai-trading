@@ -268,8 +268,11 @@ function BrokerConfigTab() {
     }
 
     try {
-      const response = await api.connectFyers(fyersConfig.clientId.trim(), fyersConfig.clientSecret.trim()) as { auth_url: string };
-      window.location.href = response.auth_url;
+      const response = await api.connectFyers(fyersConfig.clientId.trim(), fyersConfig.clientSecret.trim());
+      if (!response.authorization_url) {
+        throw new Error("Fyers did not return an authorization URL");
+      }
+      window.location.href = response.authorization_url;
     } catch (err) {
       showToastMsg(err instanceof Error ? err.message : "Failed to connect Fyers", "error");
     }
@@ -302,7 +305,7 @@ function BrokerConfigTab() {
             onToggleSecret={() => setFyersConfig(prev => ({ ...prev, showSecret: !prev.showSecret }))}
           />
           <ConfigRow
-            label="Client Secret"
+            label="Secret Key"
             value={fyersConfig.clientSecret}
             onChange={(v) => setFyersConfig(prev => ({ ...prev, clientSecret: v }))}
             placeholder="Enter your Fyers Secret Key"

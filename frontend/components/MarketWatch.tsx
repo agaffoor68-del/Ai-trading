@@ -160,7 +160,7 @@ export function MarketWatch() {
                 </p>
                 {showConnectCard ? (
                   <motion.a
-                    href="/settings"
+                    href="/broker-connect"
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-gradient-to-r from-neon-cyan to-neon-purple text-true-black font-bold transition-all duration-300 shadow-glow-cyan hover:opacity-90"
@@ -272,7 +272,7 @@ export function MarketWatch() {
             <p className="font-medium text-white mb-1">No live market data</p>
             <p className="text-sm">Connect Fyers to see real-time quotes</p>
             <motion.a
-              href="/settings"
+              href="/broker-connect"
               className="mt-4 inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-neon-cyan to-neon-purple text-true-black font-bold transition-all duration-300 shadow-glow-cyan hover:opacity-90"
             >
               <Wifi className="w-4 h-4" strokeWidth={2.5} />

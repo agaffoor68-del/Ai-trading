@@ -279,7 +279,7 @@ export function CandlestickChart({ symbol: initialSymbol = "NIFTY 50", height = 
               <p className="text-sm text-neon-red/80 mb-3">{errorMessage || error}</p>
               {showConnectCard && (
                 <motion.a
-                  href="/settings"
+                  href="/broker-connect"
                   className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-neon-cyan to-neon-purple text-true-black font-bold transition-all duration-300 shadow-glow-cyan hover:opacity-90"
                 >
                   <Wifi className="w-4 h-4" strokeWidth={2.5} />

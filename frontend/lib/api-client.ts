@@ -18,6 +18,11 @@ export interface ApiError {
   status?: number;
 }
 
+export interface FyersConnectResponse {
+  authorization_url: string;
+  state?: string;
+}
+
 interface FetchOptions extends RequestInit {
   requireAuth?: boolean;
 }
@@ -180,10 +185,10 @@ export const api = {
   getFyersStatus: () => 
     apiFetch("/api/v1/fyers/status", { requireAuth: true }),
 
-  connectFyers: (clientId: string, clientSecret: string) => 
-    apiFetch("/api/v1/fyers/connect", {
+  connectFyers: (clientId: string, secretKey: string) =>
+    apiFetch<FyersConnectResponse>("/api/v1/fyers/connect", {
       method: "POST",
-      body: JSON.stringify({ client_id: clientId, client_secret: clientSecret }),
+      body: JSON.stringify({ client_id: clientId, secret_key: secretKey }),
       requireAuth: true,
     }),
 
