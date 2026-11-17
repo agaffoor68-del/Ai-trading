@@ -42,8 +42,8 @@ export interface BrokerStatus {
 }
 
 export interface FyersConnectResponse {
-  auth_url: string;
-  state: string;
+  authorization_url: string;
+  state?: string;
 }
 
 export interface QuoteData {
@@ -221,10 +221,10 @@ export const api = {
     fetcher<BrokerStatus>(`${API_BASE_URL}/fyers/status`),
 
   // Fyers auth
-  connectFyers: (clientId: string, clientSecret: string) =>
+  connectFyers: (clientId: string, secretKey: string) =>
     fetcher<FyersConnectResponse>(`${API_BASE_URL}/fyers/connect`, {
       method: "POST",
-      body: JSON.stringify({ client_id: clientId, client_secret: clientSecret }),
+      body: JSON.stringify({ client_id: clientId, secret_key: secretKey }),
     }),
 
   // Market data

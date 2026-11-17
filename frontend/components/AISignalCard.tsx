@@ -74,7 +74,7 @@ export function AISignalCard() {
                 </p>
                 {showConnectCard && (
                   <motion.a
-                    href="/settings"
+                    href="/broker-connect"
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-gradient-to-r from-neon-cyan to-neon-purple text-true-black font-bold transition-all duration-300 shadow-glow-cyan hover:opacity-90"
@@ -116,7 +116,7 @@ export function AISignalCard() {
             <p className="text-sm mb-4">Connect Fyers and enable AI signals in settings</p>
             {showConnectCard && (
               <motion.a
-                href="/settings"
+                href="/broker-connect"
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-neon-cyan to-neon-purple text-true-black font-bold transition-all duration-300 shadow-glow-cyan hover:opacity-90"

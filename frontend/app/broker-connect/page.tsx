@@ -23,11 +23,6 @@ import { Sidebar } from "@/components/Sidebar";
 import { Header } from "@/components/Header";
 import { api, isFyersNotConnected, fetchWithTimeout, isServerWakingUp, SERVER_WAKING_MESSAGE } from "@/lib/api-client";
 
-interface FyersConnectResponse {
-  auth_url: string;
-  state: string;
-}
-
 export default function BrokerConnectPage() {
   const [status, setStatus] = useState<{ fyers: any; kotak: any; market: any } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -95,10 +90,13 @@ export default function BrokerConnectPage() {
     setFyersSaving(true);
     setFyersError(null);
     try {
-      const response = await api.connectFyers(fyersClientId.trim(), fyersSecretKey.trim()) as { auth_url: string };
-      
+      const response = await api.connectFyers(fyersClientId.trim(), fyersSecretKey.trim());
+      if (!response.authorization_url) {
+        throw new Error("Fyers did not return an authorization URL");
+      }
+
       // Redirect to Fyers OAuth
-      window.location.href = response.auth_url;
+      window.location.href = response.authorization_url;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "Failed to connect to Fyers";
       setFyersError(errorMessage);
