@@ -39,20 +39,20 @@ import { api } from "@/lib/api-client";
 interface AdminUser {
   id: number;
   email: string;
-  name: string;
+  name?: string;
   role: string;
-  plan: string;
-  subscription_status: string;
-  expiry_date: string | null;
-  created_at: string;
-  is_active: boolean;
-  last_login: string | null;
-  api_calls_today: number;
-  subscription: {
-    plan_type: string;
-    start_date: string | null;
-    end_date: string | null;
-    is_active: boolean;
+  plan?: string;
+  subscription_status?: string;
+  expiry_date?: string | null;
+  created_at?: string;
+  is_active?: boolean;
+  last_login?: string | null;
+  api_calls_today?: number;
+  subscription?: {
+    plan_type?: string;
+    start_date?: string | null;
+    end_date?: string | null;
+    is_active?: boolean;
   } | null;
 }
 
@@ -81,24 +81,25 @@ export default function AdminPage() {
   const [authChecked, setAuthChecked] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  const filteredUsers = (users || []).filter(
-    (u) =>
-      u.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      u.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const safeUsers = Array.isArray(users) ? users : [];
+
+  const filteredUsers = safeUsers.filter((u) => {
+    const email = typeof u?.email === "string" ? u.email : "";
+    const name = typeof u?.name === "string" ? u.name : "";
+    const query = searchQuery.toLowerCase();
+    return email.toLowerCase().includes(query) || name.toLowerCase().includes(query);
+  });
 
   const showToast = (message: string, type: "success" | "error") => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 4000);
   };
 
-  // Check admin role on mount
   useEffect(() => {
     const checkAdmin = async () => {
       try {
-        // The Next.js proxy forwards the httpOnly session cookie as a Bearer token.
         const data = await api.getAdminUsers();
-        const responseUsers = Array.isArray(data?.users) ? data.users as AdminUser[] : [];
+        const responseUsers = Array.isArray(data?.users) ? (data.users as AdminUser[]) : [];
         setIsAdmin(true);
         setUsers(responseUsers);
         setLoadError(null);
@@ -114,7 +115,6 @@ export default function AdminPage() {
     checkAdmin();
   }, []);
 
-  // If not admin, show access denied
   if (authChecked && !isAdmin) {
     return (
       <div className="min-h-screen bg-true-black text-white flex items-center justify-center">
@@ -140,7 +140,7 @@ export default function AdminPage() {
   }
 
   const handleRevoke = async (userId: number) => {
-    const user = users.find((u) => u.id === userId);
+    const user = safeUsers.find((u) => u.id === userId);
     if (!user) return;
 
     if (!confirm(`Revoke access for ${user.email}? This will deactivate their account.`)) return;
@@ -158,14 +158,13 @@ export default function AdminPage() {
   };
 
   const handleReactivate = async (userId: number) => {
-    const user = users.find((u) => u.id === userId);
+    const user = safeUsers.find((u) => u.id === userId);
     if (!user) return;
 
     if (!confirm(`Reactivate access for ${user.email}?`)) return;
 
     setIsLoading(true);
     try {
-      // Reactivate by granting Pro for 30 days
       await api.grantAccess({ email: user.email, plan: "Pro", days: 30 });
       setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, is_active: true, subscription_status: "active" } : u)));
       showToast(`Access reactivated for ${user.email}`, "success");
@@ -182,7 +181,7 @@ export default function AdminPage() {
       return;
     }
 
-    const existingUser = users.find((u) => u.email === grantForm.email);
+    const existingUser = safeUsers.find((u) => u.email === grantForm.email);
     if (existingUser && existingUser.is_active) {
       showToast("User already has active access", "error");
       return;
@@ -191,13 +190,15 @@ export default function AdminPage() {
     setIsLoading(true);
     try {
       await api.grantAccess(grantForm);
-      
+
       if (existingUser) {
-        setUsers((prev) => prev.map((u) => 
-          u.id === existingUser.id 
-            ? { ...u, is_active: true, plan: grantForm.plan, subscription_status: "active", expiry_date: new Date(Date.now() + grantForm.days * 86400000).toISOString().split("T")[0] }
-            : u
-        ));
+        setUsers((prev) =>
+          prev.map((u) =>
+            u.id === existingUser.id
+              ? { ...u, is_active: true, plan: grantForm.plan, subscription_status: "active", expiry_date: new Date(Date.now() + grantForm.days * 86400000).toISOString().split("T")[0] }
+              : u
+          )
+        );
       } else {
         const newUser: AdminUser = {
           id: Date.now(),
@@ -220,10 +221,10 @@ export default function AdminPage() {
         };
         setUsers((prev) => [newUser, ...prev]);
       }
-      
+
       showToast(`Access granted to ${grantForm.email} (${grantForm.plan}, ${grantForm.days} days)`, "success");
       setGrantModalOpen(false);
-setGrantForm({ email: "", plan: "Pro", days: 30 });
+      setGrantForm({ email: "", plan: "Pro", days: 30 });
     } catch {
       showToast("Failed to grant access", "error");
     } finally {
@@ -239,7 +240,6 @@ setGrantForm({ email: "", plan: "Pro", days: 30 });
     if (!editingUser) return;
     setIsLoading(true);
     try {
-      // Backend update would go here
       await new Promise((resolve) => setTimeout(resolve, 800));
       setUsers((prev) => prev.map((u) => (u.id === editingUser.id ? editingUser : u)));
       showToast(`Updated ${editingUser.email}`, "success");
@@ -277,7 +277,7 @@ setGrantForm({ email: "", plan: "Pro", days: 30 });
     }
   };
 
-  const formatDate = (dateStr: string | null) => {
+  const formatDate = (dateStr: string | null | undefined) => {
     if (!dateStr) return "N/A";
     try {
       return new Date(dateStr).toLocaleDateString();
@@ -286,7 +286,7 @@ setGrantForm({ email: "", plan: "Pro", days: 30 });
     }
   };
 
-  const formatDateTime = (dateStr: string | null) => {
+  const formatDateTime = (dateStr: string | null | undefined) => {
     if (!dateStr) return "Never";
     try {
       return new Date(dateStr).toLocaleString();
@@ -295,7 +295,6 @@ setGrantForm({ email: "", plan: "Pro", days: 30 });
     }
   };
 
-  // Show loading while checking auth
   if (isLoading && !authChecked) {
     return (
       <div className="min-h-screen bg-true-black text-white flex items-center justify-center">
@@ -314,7 +313,6 @@ setGrantForm({ email: "", plan: "Pro", days: 30 });
         <Header />
 
         <main className="flex-1 p-4 md:p-8 lg:p-10 pt-20 lg:pt-24 space-y-8 max-w-7xl mx-auto w-full">
-          {/* Page Header */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -332,7 +330,7 @@ setGrantForm({ email: "", plan: "Pro", days: 30 });
                 onClick={() => { setGrantForm({ email: "", plan: "Pro", days: 30 }); setGrantModalOpen(true); }}
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
-                className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-neon-purple to-neon-cyan text-true-black font-medium hover:opacity-90 transition-opacity shadow-glow-purple"
+                className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-neon-purple to-neon-cyan text-true-black font-medium hover:opacity-90 transition-opacity shadow-glow-cyan"
               >
                 <UserPlus className="w-4 h-4" strokeWidth={2.5} />
                 <span>Grant Access</span>
@@ -340,7 +338,6 @@ setGrantForm({ email: "", plan: "Pro", days: 30 });
             </div>
           </motion.div>
 
-          {/* Toast Notification */}
           {toast && (
             <motion.div
               initial={{ opacity: 0, y: -20 }}
@@ -360,20 +357,18 @@ setGrantForm({ email: "", plan: "Pro", days: 30 });
             </motion.div>
           )}
 
-          {/* Stats Overview */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1 }}
             className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4"
           >
-            <StatCard label="Total Users" value={users.length} icon={Users} color="text-neon-cyan" />
-            <StatCard label="Active Subscriptions" value={users.filter((u) => u.subscription_status === "active").length} icon={ShieldCheck} color="text-neon-green" />
-            <StatCard label="Pro Users" value={users.filter((u) => u.plan === "Pro").length} icon={Shield} color="text-neon-purple" />
-            <StatCard label="API Calls Today" value={users.reduce((sum, u) => sum + u.api_calls_today, 0).toLocaleString()} icon={Activity} color="text-neon-orange" />
+            <StatCard label="Total Users" value={safeUsers.length} icon={Users} color="text-neon-cyan" />
+            <StatCard label="Active Subscriptions" value={safeUsers.filter((u) => u.subscription_status === "active").length} icon={ShieldCheck} color="text-neon-green" />
+            <StatCard label="Pro Users" value={safeUsers.filter((u) => u.plan === "Pro").length} icon={Shield} color="text-neon-purple" />
+            <StatCard label="API Calls Today" value={safeUsers.reduce((sum, u) => sum + Number(u.api_calls_today ?? 0), 0).toLocaleString()} icon={Activity} color="text-neon-orange" />
           </motion.div>
 
-          {/* Users Table */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -384,7 +379,7 @@ setGrantForm({ email: "", plan: "Pro", days: 30 });
               <div className="flex items-center gap-2">
                 <h2 className="text-lg font-semibold text-white">User Management</h2>
                 <span className="text-xs px-2 py-0.5 rounded bg-neon-cyan/20 text-neon-cyan font-medium">
-                  {filteredUsers.length} / {users.length} users
+                  {filteredUsers.length} / {safeUsers.length} users
                 </span>
               </div>
               <div className="relative">
@@ -415,116 +410,127 @@ setGrantForm({ email: "", plan: "Pro", days: 30 });
                   </tr>
                 </thead>
                 <tbody>
-                  {(filteredUsers || []).map((user, index) => (
-                    <motion.tr
-                      key={user.id}
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: index * 0.03 }}
-                      className="border-b border-glow-border/50 hover:bg-card-bg/30 transition-colors"
-                    >
-                      <td className="px-3 md:px-5 py-3 md:py-4">
-                        <div className="flex items-center gap-3">
-                          <div className={`w-8 h-8 rounded-full flex items-center justify-center ${getRoleColor(user.role).replace("text-", "bg-").replace(" border", "")}`}>
-                            <User className="w-4 h-4" strokeWidth={2.5} style={{ color: "white" }} />
+                  {filteredUsers.map((user, index) => {
+                    const userName = user?.name ?? user?.email ?? "Unknown user";
+                    const role = user?.role ?? "USER";
+                    const plan = user?.plan ?? user?.subscription?.plan_type ?? "Basic";
+                    const subscriptionStatus = user?.subscription_status ?? "inactive";
+                    const expiryDate = user?.expiry_date ?? user?.subscription?.end_date ?? null;
+                    const isActive = Boolean(user?.is_active);
+                    const lastLogin = user?.last_login ?? null;
+                    const apiCalls = Number(user?.api_calls_today ?? 0);
+
+                    return (
+                      <motion.tr
+                        key={user.id ?? index}
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: index * 0.03 }}
+                        className="border-b border-glow-border/50 hover:bg-card-bg/30 transition-colors"
+                      >
+                        <td className="px-3 md:px-5 py-3 md:py-4">
+                          <div className="flex items-center gap-3">
+                            <div className={`w-8 h-8 rounded-full flex items-center justify-center ${getRoleColor(role).replace("text-", "bg-").replace(" border", "")}`}>
+                              <User className="w-4 h-4" strokeWidth={2.5} style={{ color: "white" }} />
+                            </div>
+                            <div>
+                              <p className="font-medium text-white">{userName}</p>
+                              <p className="text-xs text-text-muted">{user.email}</p>
+                            </div>
                           </div>
-                          <div>
-                            <p className="font-medium text-white">{user.name}</p>
-                            <p className="text-xs text-text-muted">{user.email}</p>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-3 md:px-5 py-3 md:py-4 text-center">
-                        <span className={`px-2 py-1 rounded text-xs font-medium ${getRoleColor(user.role)}`}>
-                          {user.role}
-                        </span>
-                      </td>
-                      <td className="px-3 md:px-5 py-3 md:py-4 text-center">
-                        <span className={`px-2 py-1 rounded text-xs font-medium ${getPlanColor(user.plan)}`}>
-                          {user.plan}
-                        </span>
-                      </td>
-                      <td className="px-3 md:px-5 py-3 md:py-4 text-center">
-                        <span className={`px-2 py-1 rounded text-xs font-medium ${getStatusColor(user.subscription_status)}`}>
-                          {user.subscription_status.toUpperCase()}
-                        </span>
-                      </td>
-                      <td className="px-3 md:px-5 py-3 md:py-4 text-center font-mono text-text-secondary">
-                        {formatDate(user.expiry_date)}
-                      </td>
-                      <td className="px-3 md:px-5 py-3 md:py-4 text-center">
-                        <span className={`w-3 h-3 rounded-full ${user.is_active ? "bg-neon-green" : "bg-neon-red"}`} />
-                      </td>
-                      <td className="px-3 md:px-5 py-3 md:py-4 text-center text-text-secondary text-sm">
-                        {formatDateTime(user.last_login)}
-                      </td>
-                      <td className="px-3 md:px-5 py-3 md:py-4 text-center font-mono text-text-secondary">
-                        {user.api_calls_today.toLocaleString()}
-                      </td>
-                      <td className="px-3 md:px-5 py-3 md:py-4 text-center">
-                        <div className="flex items-center justify-center gap-1">
-                          {editingUser?.id === user.id ? (
-                            <>
-                              <motion.button
-                                onClick={() => handleSaveEdit()}
-                                disabled={isLoading}
-                                whileHover={{ scale: 1.1 }}
-                                whileTap={{ scale: 0.9 }}
-                                className="p-2 rounded-lg bg-neon-green/20 border border-neon-green/30 text-neon-green hover:bg-neon-green/30 transition-colors disabled:opacity-50"
-                                title="Save Changes"
-                              >
-                                <CheckCircle className="w-4 h-4" strokeWidth={2.5} />
-                              </motion.button>
-                              <motion.button
-                                onClick={() => setEditingUser(null)}
-                                whileHover={{ scale: 1.1 }}
-                                whileTap={{ scale: 0.9 }}
-                                className="p-2 rounded-lg bg-neon-red/20 border border-neon-red/30 text-neon-red hover:bg-neon-red/30 transition-colors"
-                                title="Cancel"
-                              >
-                                <X className="w-4 h-4" strokeWidth={2.5} />
-                              </motion.button>
-                            </>
-                          ) : (
-                            <>
-                              <motion.button
-                                onClick={() => handleEditUser(user)}
-                                whileHover={{ scale: 1.1 }}
-                                whileTap={{ scale: 0.9 }}
-                                className="p-2 rounded-lg bg-neon-cyan/10 border border-neon-cyan/30 text-neon-cyan hover:bg-neon-cyan/20 transition-colors"
-                                title="Edit"
-                              >
-                                <Edit className="w-4 h-4" strokeWidth={2.5} />
-                              </motion.button>
-                              {user.is_active ? (
+                        </td>
+                        <td className="px-3 md:px-5 py-3 md:py-4 text-center">
+                          <span className={`px-2 py-1 rounded text-xs font-medium ${getRoleColor(role)}`}>
+                            {role}
+                          </span>
+                        </td>
+                        <td className="px-3 md:px-5 py-3 md:py-4 text-center">
+                          <span className={`px-2 py-1 rounded text-xs font-medium ${getPlanColor(plan)}`}>
+                            {plan}
+                          </span>
+                        </td>
+                        <td className="px-3 md:px-5 py-3 md:py-4 text-center">
+                          <span className={`px-2 py-1 rounded text-xs font-medium ${getStatusColor(subscriptionStatus)}`}>
+                            {(subscriptionStatus || "inactive").toUpperCase()}
+                          </span>
+                        </td>
+                        <td className="px-3 md:px-5 py-3 md:py-4 text-center font-mono text-text-secondary">
+                          {formatDate(expiryDate)}
+                        </td>
+                        <td className="px-3 md:px-5 py-3 md:py-4 text-center">
+                          <span className={`w-3 h-3 rounded-full ${isActive ? "bg-neon-green" : "bg-neon-red"}`} />
+                        </td>
+                        <td className="px-3 md:px-5 py-3 md:py-4 text-center text-text-secondary text-sm">
+                          {formatDateTime(lastLogin)}
+                        </td>
+                        <td className="px-3 md:px-5 py-3 md:py-4 text-center font-mono text-text-secondary">
+                          {apiCalls.toLocaleString()}
+                        </td>
+                        <td className="px-3 md:px-5 py-3 md:py-4 text-center">
+                          <div className="flex items-center justify-center gap-1">
+                            {editingUser?.id === user.id ? (
+                              <>
                                 <motion.button
-                                  onClick={() => handleRevoke(user.id)}
+                                  onClick={() => handleSaveEdit()}
                                   disabled={isLoading}
                                   whileHover={{ scale: 1.1 }}
                                   whileTap={{ scale: 0.9 }}
-                                  className="p-2 rounded-lg bg-neon-red/10 border border-neon-red/30 text-neon-red hover:bg-neon-red/20 transition-colors disabled:opacity-50"
-                                  title="Revoke Access"
+                                  className="p-2 rounded-lg bg-neon-green/20 border border-neon-green/30 text-neon-green hover:bg-neon-green/30 transition-colors disabled:opacity-50"
+                                  title="Save Changes"
                                 >
-                                  <UserX className="w-4 h-4" strokeWidth={2.5} />
+                                  <CheckCircle className="w-4 h-4" strokeWidth={2.5} />
                                 </motion.button>
-                              ) : (
                                 <motion.button
-                                  onClick={() => handleReactivate(user.id)}
-                                  disabled={isLoading}
+                                  onClick={() => setEditingUser(null)}
                                   whileHover={{ scale: 1.1 }}
                                   whileTap={{ scale: 0.9 }}
-                                  className="p-2 rounded-lg bg-neon-green/10 border border-neon-green/30 text-neon-green hover:bg-neon-green/20 transition-colors disabled:opacity-50"
-                                  title="Reactivate"
+                                  className="p-2 rounded-lg bg-neon-red/20 border border-neon-red/30 text-neon-red hover:bg-neon-red/30 transition-colors"
+                                  title="Cancel"
                                 >
-                                  <ShieldCheck className="w-4 h-4" strokeWidth={2.5} />
+                                  <X className="w-4 h-4" strokeWidth={2.5} />
                                 </motion.button>
-                              )}
-                            </>
-                          )}
-                        </div>
-                      </td>
-                    </motion.tr>
-                  ))}
+                              </>
+                            ) : (
+                              <>
+                                <motion.button
+                                  onClick={() => handleEditUser(user)}
+                                  whileHover={{ scale: 1.1 }}
+                                  whileTap={{ scale: 0.9 }}
+                                  className="p-2 rounded-lg bg-neon-cyan/10 border border-neon-cyan/30 text-neon-cyan hover:bg-neon-cyan/20 transition-colors"
+                                  title="Edit"
+                                >
+                                  <Edit className="w-4 h-4" strokeWidth={2.5} />
+                                </motion.button>
+                                {isActive ? (
+                                  <motion.button
+                                    onClick={() => handleRevoke(user.id)}
+                                    disabled={isLoading}
+                                    whileHover={{ scale: 1.1 }}
+                                    whileTap={{ scale: 0.9 }}
+                                    className="p-2 rounded-lg bg-neon-red/10 border border-neon-red/30 text-neon-red hover:bg-neon-red/20 transition-colors disabled:opacity-50"
+                                    title="Revoke Access"
+                                  >
+                                    <UserX className="w-4 h-4" strokeWidth={2.5} />
+                                  </motion.button>
+                                ) : (
+                                  <motion.button
+                                    onClick={() => handleReactivate(user.id)}
+                                    disabled={isLoading}
+                                    whileHover={{ scale: 1.1 }}
+                                    whileTap={{ scale: 0.9 }}
+                                    className="p-2 rounded-lg bg-neon-green/10 border border-neon-green/30 text-neon-green hover:bg-neon-green/20 transition-colors disabled:opacity-50"
+                                    title="Reactivate"
+                                  >
+                                    <ShieldCheck className="w-4 h-4" strokeWidth={2.5} />
+                                  </motion.button>
+                                )}
+                              </>
+                            )}
+                          </div>
+                        </td>
+                      </motion.tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -539,7 +545,6 @@ setGrantForm({ email: "", plan: "Pro", days: 30 });
           </motion.div>
         </main>
 
-        {/* Grant Access Modal */}
         {grantModalOpen && (
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
@@ -582,18 +587,20 @@ setGrantForm({ email: "", plan: "Pro", days: 30 });
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-<label className="text-xs text-text-muted uppercase tracking-wider block mb-1">Plan</label>
-                    <select
-                       value={grantForm.plan}
-                       onChange={(e) => setGrantForm((prev) => ({ ...prev, plan: e.target.value as "Basic" | "Pro" }))}
-                       className="w-full pl-4 pr-10 py-3 bg-card-bg border border-glow-border focus:border-neon-cyan focus:outline-none rounded-xl text-white text-base cursor-pointer appearance-none"
-                     >
-                       {PLANS.map((p) => (
-                         <option key={p} value={p}>{p.toUpperCase()}</option>
-                       ))}
-                     </select>
-                     <ChevronDown className="absolute right-4 top-9 -translate-y-1/2 w-4 h-4 text-text-muted" strokeWidth={2} />
-                   </div>
+                    <label className="text-xs text-text-muted uppercase tracking-wider block mb-1">Plan</label>
+                    <div className="relative">
+                      <select
+                        value={grantForm.plan}
+                        onChange={(e) => setGrantForm((prev) => ({ ...prev, plan: e.target.value as "Basic" | "Pro" }))}
+                        className="w-full pl-4 pr-10 py-3 bg-card-bg border border-glow-border focus:border-neon-cyan focus:outline-none rounded-xl text-white text-base cursor-pointer appearance-none"
+                      >
+                        {PLANS.map((p) => (
+                          <option key={p} value={p}>{p.toUpperCase()}</option>
+                        ))}
+                      </select>
+                      <ChevronDown className="absolute right-4 top-9 -translate-y-1/2 w-4 h-4 text-text-muted" strokeWidth={2} />
+                    </div>
+                  </div>
                   <div>
                     <label className="text-xs text-text-muted uppercase tracking-wider block mb-1">Access Duration (Days)</label>
                     <input
@@ -621,7 +628,7 @@ setGrantForm({ email: "", plan: "Pro", days: 30 });
                     disabled={isLoading}
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
-                    className="flex-1 py-3 rounded-xl bg-gradient-to-r from-neon-purple to-neon-cyan text-true-black font-bold disabled:opacity-50 hover:opacity-90 transition-opacity shadow-glow-purple"
+                    className="flex-1 py-3 rounded-xl bg-gradient-to-r from-neon-purple to-neon-cyan text-true-black font-bold disabled:opacity-50 hover:opacity-90 transition-opacity shadow-glow-cyan"
                   >
                     {isLoading ? <Loader2 className="w-5 h-5 animate-spin mx-auto" strokeWidth={2.5} /> : "Grant Access"}
                   </motion.button>
@@ -631,7 +638,6 @@ setGrantForm({ email: "", plan: "Pro", days: 30 });
           </motion.div>
         )}
 
-        {/* Edit User Modal */}
         {editingUser && (
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
@@ -673,7 +679,7 @@ setGrantForm({ email: "", plan: "Pro", days: 30 });
                   <label className="text-xs text-text-muted uppercase tracking-wider block mb-1">Name</label>
                   <input
                     type="text"
-                    value={editingUser.name}
+                    value={editingUser.name ?? ""}
                     onChange={(e) => setEditingUser((prev) => prev ? { ...prev, name: e.target.value } : null)}
                     className="w-full pl-4 py-3 bg-card-bg border border-glow-border focus:border-neon-cyan focus:outline-none rounded-xl text-white text-base"
                   />
@@ -681,51 +687,57 @@ setGrantForm({ email: "", plan: "Pro", days: 30 });
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="text-xs text-text-muted uppercase tracking-wider block mb-1">Role</label>
-                    <select
-                      value={editingUser.role}
-                      onChange={(e) => setEditingUser((prev) => prev ? { ...prev, role: e.target.value } : null)}
-                      className="w-full pl-4 pr-10 py-3 bg-card-bg border border-glow-border focus:border-neon-cyan focus:outline-none rounded-xl text-white text-base cursor-pointer appearance-none"
-                    >
-                      {ROLES.map((r) => (
-                        <option key={r} value={r}>{r}</option>
-                      ))}
-                    </select>
-                    <ChevronDown className="absolute right-4 top-9 -translate-y-1/2 w-4 h-4 text-text-muted" strokeWidth={2} />
+                    <div className="relative">
+                      <select
+                        value={editingUser.role}
+                        onChange={(e) => setEditingUser((prev) => prev ? { ...prev, role: e.target.value } : null)}
+                        className="w-full pl-4 pr-10 py-3 bg-card-bg border border-glow-border focus:border-neon-cyan focus:outline-none rounded-xl text-white text-base cursor-pointer appearance-none"
+                      >
+                        {ROLES.map((r) => (
+                          <option key={r} value={r}>{r}</option>
+                        ))}
+                      </select>
+                      <ChevronDown className="absolute right-4 top-9 -translate-y-1/2 w-4 h-4 text-text-muted" strokeWidth={2} />
+                    </div>
                   </div>
                   <div>
                     <label className="text-xs text-text-muted uppercase tracking-wider block mb-1">Plan</label>
-                    <select
-                      value={editingUser.plan}
-                      onChange={(e) => setEditingUser((prev) => prev ? { ...prev, plan: e.target.value } : null)}
-                      className="w-full pl-4 pr-10 py-3 bg-card-bg border border-glow-border focus:border-neon-cyan focus:outline-none rounded-xl text-white text-base cursor-pointer appearance-none"
-                    >
-                      {PLANS.map((p) => (
-                        <option key={p} value={p}>{p}</option>
-                      ))}
-                    </select>
-                    <ChevronDown className="absolute right-4 top-9 -translate-y-1/2 w-4 h-4 text-text-muted" strokeWidth={2} />
+                    <div className="relative">
+                      <select
+                        value={editingUser.plan ?? "Basic"}
+                        onChange={(e) => setEditingUser((prev) => prev ? { ...prev, plan: e.target.value } : null)}
+                        className="w-full pl-4 pr-10 py-3 bg-card-bg border border-glow-border focus:border-neon-cyan focus:outline-none rounded-xl text-white text-base cursor-pointer appearance-none"
+                      >
+                        {PLANS.map((p) => (
+                          <option key={p} value={p}>{p}</option>
+                        ))}
+                      </select>
+                      <ChevronDown className="absolute right-4 top-9 -translate-y-1/2 w-4 h-4 text-text-muted" strokeWidth={2} />
+                    </div>
                   </div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="text-xs text-text-muted uppercase tracking-wider block mb-1">Subscription</label>
-                    <select
-                      value={editingUser.subscription_status}
-                      onChange={(e) => setEditingUser((prev) => prev ? { ...prev, subscription_status: e.target.value } : null)}
-                      className="w-full pl-4 pr-10 py-3 bg-card-bg border border-glow-border focus:border-neon-cyan focus:outline-none rounded-xl text-white text-base cursor-pointer appearance-none"
-                    >
-                      {STATUSES.map((s) => (
-                        <option key={s} value={s}>{s.toUpperCase()}</option>
-                      ))}
-                    </select>
-                    <ChevronDown className="absolute right-4 top-9 -translate-y-1/2 w-4 h-4 text-text-muted" strokeWidth={2} />
+                    <div className="relative">
+                      <select
+                        value={editingUser.subscription_status ?? "active"}
+                        onChange={(e) => setEditingUser((prev) => prev ? { ...prev, subscription_status: e.target.value } : null)}
+                        className="w-full pl-4 pr-10 py-3 bg-card-bg border border-glow-border focus:border-neon-cyan focus:outline-none rounded-xl text-white text-base cursor-pointer appearance-none"
+                      >
+                        {STATUSES.map((s) => (
+                          <option key={s} value={s}>{s.toUpperCase()}</option>
+                        ))}
+                      </select>
+                      <ChevronDown className="absolute right-4 top-9 -translate-y-1/2 w-4 h-4 text-text-muted" strokeWidth={2} />
+                    </div>
                   </div>
                   <div>
                     <label className="text-xs text-text-muted uppercase tracking-wider block mb-1">Expiry Date</label>
-<input
-                       type="date"
-                       value={editingUser.expiry_date || ""}
-                       onChange={(e) => setEditingUser((prev) => prev ? { ...prev, expiry_date: e.target.value } : null)}
+                    <input
+                      type="date"
+                      value={editingUser.expiry_date || ""}
+                      onChange={(e) => setEditingUser((prev) => prev ? { ...prev, expiry_date: e.target.value } : null)}
                       className="w-full pl-4 py-3 bg-card-bg border border-glow-border focus:border-neon-cyan focus:outline-none rounded-xl text-white text-base"
                     />
                   </div>
@@ -734,7 +746,7 @@ setGrantForm({ email: "", plan: "Pro", days: 30 });
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input
                       type="checkbox"
-                      checked={editingUser.is_active}
+                      checked={Boolean(editingUser.is_active)}
                       onChange={(e) => setEditingUser((prev) => prev ? { ...prev, is_active: e.target.checked } : null)}
                       className="w-4 h-4 rounded border-glow-border bg-card-bg text-neon-cyan focus:ring-neon-cyan"
                     />
@@ -789,3 +801,4 @@ function StatCard({ label, value, icon: Icon, color }: { label: string; value: n
     </motion.div>
   );
 }
+

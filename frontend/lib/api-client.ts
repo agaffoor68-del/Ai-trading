@@ -4,13 +4,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
 const RAW_API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "https://ai-trading-9qoa.onrender.com";
-
-// Normalize the configured backend base so it never carries a trailing slash.
 const API_BASE_URL = RAW_API_BASE_URL.replace(/\/+$/, "");
-
-// Backend on Render sleeps when idle, so cold requests can take a while.
-export const API_TIMEOUT_MS = 15000;
-export const SERVER_WAKING_MESSAGE = "Server is waking up. Please wait...";
 
 export interface ApiError {
   code: string;
@@ -50,9 +44,6 @@ export function isServerWakingUp(error: unknown): boolean {
   return false;
 }
 
-// Backend errors come back as {detail: {code, message}}, {detail: "text"},
-// {code, message} or {error: "text"} depending on the route, so normalize all
-// of them into a single shape.
 export function parseApiError(payload: unknown, status: number): ApiError {
   let code = status >= 500 ? "SERVER_ERROR" : "ERROR";
   let message = `HTTP ${status}`;
@@ -76,31 +67,52 @@ export function parseApiError(payload: unknown, status: number): ApiError {
 
 export async function fetchWithTimeout(url: string, init: RequestInit = {}): Promise<Response> {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+  const timeoutId = setTimeout(() => controller.abort(), 15000);
 
   try {
     return await fetch(url, { ...init, signal: controller.signal });
   } catch (error) {
     if (isAbortError(error) || controller.signal.aborted) {
-      throw { code: "TIMEOUT", message: SERVER_WAKING_MESSAGE, status: 408 } as ApiError;
+      throw { code: "TIMEOUT", message: "Server is waking up. Please wait...", status: 408 } as ApiError;
     }
-    throw { code: "NETWORK_ERROR", message: SERVER_WAKING_MESSAGE, status: 0 } as ApiError;
+    throw { code: "NETWORK_ERROR", message: "Server is waking up. Please wait...", status: 0 } as ApiError;
   } finally {
     clearTimeout(timeoutId);
   }
 }
 
+function getStoredAuthToken(): string | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const localToken = window.localStorage.getItem("admin_token");
+  if (localToken) {
+    return localToken;
+  }
+
+  const cookieToken = document.cookie
+    .split("; ")
+    .find((row) => row.startsWith("access_token="));
+
+  if (!cookieToken) {
+    return null;
+  }
+
+  const value = cookieToken.split("=").slice(1).join("=");
+  return value ? decodeURIComponent(value) : null;
+}
+
 export async function apiFetch<T>(endpoint: string, options: FetchOptions = {}): Promise<T> {
   const { requireAuth = true, redirectOnUnauthorized = true, headers = {}, ...fetchOptions } = options;
 
+  const authToken = getStoredAuthToken();
   const headersObj: HeadersInit = {
     "Content-Type": "application/json",
+    ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
     ...headers,
   };
 
-  // Same-origin /api/v1 requests go through the Next.js proxy (which adds
-  // the Authorization header). Anything else is an absolute backend URL or a
-  // path relative to the backend base.
   const url =
     endpoint.startsWith("http://") || endpoint.startsWith("https://") || endpoint.startsWith("/api/v1")
       ? endpoint
@@ -112,32 +124,24 @@ export async function apiFetch<T>(endpoint: string, options: FetchOptions = {}):
     credentials: "same-origin",
   });
 
-  // Handle 401 - redirect to login
   if (response.status === 401) {
-    const error = parseApiError(
-      await response.json().catch(() => null),
-      401
-    );
+    const error = parseApiError(await response.json().catch(() => null), 401);
 
-    // Check if it's a Fyers-specific 401
     if (isFyersNotConnected(error)) {
       throw error;
     }
-    
-    // User auth failure - redirect to login unless the caller handles the error.
+
     if (redirectOnUnauthorized) {
       window.location.href = `/login?redirect=${encodeURIComponent(window.location.pathname)}`;
     }
     throw error;
   }
 
-  // Handle 403 - forbidden
   if (response.status === 403) {
     const error = parseApiError(await response.json().catch(() => null), 403);
     throw error;
   }
 
-  // Handle other errors
   if (!response.ok) {
     throw parseApiError(await response.json().catch(() => null), response.status);
   }
@@ -149,45 +153,38 @@ export async function apiFetch<T>(endpoint: string, options: FetchOptions = {}):
   return response.json();
 }
 
-// Helper functions for common API calls
 export const api = {
-  // Auth
-  login: (email: string, password: string) => 
+  login: (email: string, password: string) =>
     apiFetch("/api/auth/login", {
       method: "POST",
       body: new URLSearchParams({ username: email, password }),
       requireAuth: false,
     }),
 
-  logout: () => 
+  logout: () =>
     apiFetch("/api/auth/logout", {
       method: "POST",
       requireAuth: true,
     }),
 
-  getMe: () => 
-    apiFetch("/api/auth/me", { requireAuth: true }),
+  getMe: () => apiFetch("/api/auth/me", { requireAuth: true }),
 
-  // Market data
-  getMarketStatus: () => 
-    apiFetch("/api/v1/market/status", { requireAuth: true }),
+  getMarketStatus: () => apiFetch("/api/v1/market/status", { requireAuth: true }),
 
-  getMarketQuotes: (symbols: string[]) => 
+  getMarketQuotes: (symbols: string[]) =>
     apiFetch("/api/v1/market/quotes", {
       method: "POST",
       body: JSON.stringify({ symbols }),
       requireAuth: true,
     }),
 
-  getCandles: (symbol: string, interval: string, days: number) => 
+  getCandles: (symbol: string, interval: string, days: number) =>
     apiFetch(`/api/v1/market/candles?symbol=${encodeURIComponent(symbol)}&interval=${encodeURIComponent(interval)}&days=${days}`, { requireAuth: true }),
 
-  getOptionChain: (symbol: string, expiry: string, strikes?: number) => 
+  getOptionChain: (symbol: string, expiry: string, strikes?: number) =>
     apiFetch(`/api/v1/market/option-chain?symbol=${encodeURIComponent(symbol)}&expiry=${encodeURIComponent(expiry)}${strikes ? `&strikes=${strikes}` : ""}`, { requireAuth: true }),
 
-  // Fyers
-  getFyersStatus: () => 
-    apiFetch("/api/v1/fyers/status", { requireAuth: true }),
+  getFyersStatus: () => apiFetch("/api/v1/fyers/status", { requireAuth: true }),
 
   connectFyers: (clientId: string, secretKey: string) =>
     apiFetch<FyersConnectResponse>("/api/v1/fyers/connect", {
@@ -196,28 +193,26 @@ export const api = {
       requireAuth: true,
     }),
 
-  // Admin
   getAdminUsers: () =>
     apiFetch<{ users?: unknown; total?: number }>("/api/v1/admin/users", {
       requireAuth: true,
       redirectOnUnauthorized: false,
     }),
 
-  grantAccess: (data: { email: string; plan: string; days: number }) => 
+  grantAccess: (data: { email: string; plan: string; days: number }) =>
     apiFetch("/api/v1/admin/subscribe", {
       method: "POST",
       body: JSON.stringify(data),
       requireAuth: true,
     }),
 
-  revokeAccess: (userId: number) => 
+  revokeAccess: (userId: number) =>
     apiFetch(`/api/v1/admin/revoke/${userId}`, {
       method: "DELETE",
       requireAuth: true,
     }),
 };
 
-// Error code helpers
 export function isFyersNotConnected(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
   const candidate = error as { code?: string; status?: number; message?: string };
@@ -265,3 +260,6 @@ export function isFyersUnreachable(error: unknown): boolean {
   }
   return false;
 }
+
+export { toast };
+

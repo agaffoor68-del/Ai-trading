@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
 import { Eye, EyeOff, Loader2, AlertCircle, CheckCircle, Lock, Mail, ArrowRight } from "lucide-react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 export default function LoginPage() {
@@ -38,7 +37,6 @@ export default function LoginPage() {
       const data = isJson ? await response.json().catch(() => null) : null;
 
       if (!response.ok) {
-        // Distinguish between wrong credentials (401), forbidden (403), and other errors
         const status = response.status;
         const detail =
           data && typeof data === "object" && "detail" in data
@@ -63,18 +61,22 @@ export default function LoginPage() {
         return;
       }
 
+      const token = typeof data === "object" && data && "access_token" in data ? String((data as { access_token?: string }).access_token ?? "") : "";
+      if (token) {
+        localStorage.setItem("admin_token", token);
+      }
+
       setSuccess("Login successful! Redirecting...");
       setTimeout(() => {
         router.push("/");
       }, 1000);
     } catch (err) {
-      // Network/error type determination
       if (err instanceof TypeError) {
         setError("Network error. Please check your connection and try again.");
       } else if (err instanceof DOMException && err.name === "AbortError") {
         setError("Request timed out. Please try again.");
       } else {
-        setError(`Error: ${err instanceof Error ? err.message : 'Unknown error'}. Please try again.`);
+        setError(`Error: ${err instanceof Error ? err.message : "Unknown error"}. Please try again.`);
       }
     } finally {
       setIsLoading(false);
@@ -88,19 +90,12 @@ export default function LoginPage() {
       transition={{ duration: 0.5 }}
       className="min-h-screen bg-true-black flex items-center justify-center p-4"
     >
-      {/* Background glow effects */}
-      <div className="absolute inset-0 overflow-hidden">
-        <div className="absolute -top-40 -right-40 w-80 h-80 rounded-full bg-neon-cyan/5 blur-3xl" />
-        <div className="absolute -bottom-40 -left-40 w-80 h-80 rounded-full bg-neon-purple/5 blur-3xl" />
-      </div>
-
       <motion.div
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
         transition={{ duration: 0.4, delay: 0.1 }}
         className="relative w-full max-w-md glass rounded-3xl border border-glow-border p-6 md:p-8"
       >
-        {/* Logo/Title */}
         <div className="text-center mb-8">
           <div className="w-16 h-16 mx-auto mb-4 rounded-xl bg-gradient-to-br from-neon-cyan to-neon-purple flex items-center justify-center shadow-glow-cyan">
             <Lock className="w-8 h-8 text-true-black" strokeWidth={2.5} />
@@ -109,7 +104,6 @@ export default function LoginPage() {
           <p className="text-text-muted mt-2">Sign in to your AlphaTradePro account</p>
         </div>
 
-        {/* Error Message */}
         {error && (
           <motion.div
             initial={{ opacity: 0, y: -10 }}
@@ -121,7 +115,6 @@ export default function LoginPage() {
           </motion.div>
         )}
 
-        {/* Success Message */}
         {success && (
           <motion.div
             initial={{ opacity: 0, y: -10 }}
@@ -133,9 +126,7 @@ export default function LoginPage() {
           </motion.div>
         )}
 
-        {/* Login Form */}
         <form onSubmit={handleSubmit} className="space-y-5">
-          {/* Email */}
           <div>
             <label htmlFor="email" className="text-xs text-text-muted uppercase tracking-wider block mb-2">
               Email Address
@@ -157,7 +148,6 @@ export default function LoginPage() {
             </div>
           </div>
 
-          {/* Password */}
           <div>
             <label htmlFor="password" className="text-xs text-text-muted uppercase tracking-wider block mb-2">
               Password
@@ -190,7 +180,6 @@ export default function LoginPage() {
             </div>
           </div>
 
-          {/* Submit Button */}
           <motion.button
             type="submit"
             disabled={isLoading}
@@ -215,13 +204,8 @@ export default function LoginPage() {
             )}
           </motion.button>
         </form>
-
-        {/* Footer */}
-        <div className="mt-8 text-center text-text-muted text-sm">
-          <p>AlphaTradePro - Autonomous Options Trading Platform</p>
-          <p className="text-[11px] mt-1">Fyers API v3 • Kotak Neo • Grok AI</p>
-        </div>
       </motion.div>
     </motion.div>
   );
 }
+
