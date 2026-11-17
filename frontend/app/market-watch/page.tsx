@@ -33,6 +33,9 @@ const fetcher = async (url: string) => {
     credentials: "same-origin",
   });
   if (!response.ok) {
+    if (response.status === 422) {
+      throw new Error("Invalid search format. Please try again.");
+    }
     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
   }
   return response.json();
@@ -197,7 +200,7 @@ export default function MarketWatchPage() {
                   className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-neon-red/10 border border-neon-red/30 text-neon-red text-sm glass"
                 >
                   <AlertCircle className="w-4 h-4" strokeWidth={2.5} />
-                  {wakingUp ? SERVER_WAKING_MESSAGE : `Error: ${error}`}
+                  {wakingUp ? SERVER_WAKING_MESSAGE : error}
                 </motion.span>
               )}
               {showConnectCard && !error && (
