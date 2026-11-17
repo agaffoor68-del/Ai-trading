@@ -19,12 +19,14 @@ export interface ApiError {
 }
 
 export interface FyersConnectResponse {
-  authorization_url: string;
+  auth_url?: string;
+  authorization_url?: string;
   state?: string;
 }
 
 interface FetchOptions extends RequestInit {
   requireAuth?: boolean;
+  redirectOnUnauthorized?: boolean;
 }
 
 function isAbortError(error: unknown): boolean {
@@ -89,7 +91,7 @@ export async function fetchWithTimeout(url: string, init: RequestInit = {}): Pro
 }
 
 export async function apiFetch<T>(endpoint: string, options: FetchOptions = {}): Promise<T> {
-  const { requireAuth = true, headers = {}, ...fetchOptions } = options;
+  const { requireAuth = true, redirectOnUnauthorized = true, headers = {}, ...fetchOptions } = options;
 
   const headersObj: HeadersInit = {
     "Content-Type": "application/json",
@@ -122,8 +124,10 @@ export async function apiFetch<T>(endpoint: string, options: FetchOptions = {}):
       throw error;
     }
     
-    // User auth failure - redirect to login
-    window.location.href = `/login?redirect=${encodeURIComponent(window.location.pathname)}`;
+    // User auth failure - redirect to login unless the caller handles the error.
+    if (redirectOnUnauthorized) {
+      window.location.href = `/login?redirect=${encodeURIComponent(window.location.pathname)}`;
+    }
     throw error;
   }
 
@@ -193,8 +197,11 @@ export const api = {
     }),
 
   // Admin
-  getAdminUsers: () => 
-    apiFetch("/api/v1/admin/users", { requireAuth: true }),
+  getAdminUsers: () =>
+    apiFetch<{ users?: unknown; total?: number }>("/api/v1/admin/users", {
+      requireAuth: true,
+      redirectOnUnauthorized: false,
+    }),
 
   grantAccess: (data: { email: string; plan: string; days: number }) => 
     apiFetch("/api/v1/admin/subscribe", {

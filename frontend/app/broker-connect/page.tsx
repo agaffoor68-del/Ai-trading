@@ -91,12 +91,12 @@ export default function BrokerConnectPage() {
     setFyersError(null);
     try {
       const response = await api.connectFyers(fyersClientId.trim(), fyersSecretKey.trim());
-      if (!response.authorization_url) {
+      const authUrl = response.auth_url ?? response.authorization_url;
+      if (!authUrl) {
         throw new Error("Fyers did not return an authorization URL");
       }
 
-      // Redirect to Fyers OAuth
-      window.location.href = response.authorization_url;
+      window.location.href = authUrl;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "Failed to connect to Fyers";
       setFyersError(errorMessage);
