@@ -13,7 +13,7 @@ import secrets
 from datetime import timedelta
 from fastapi import APIRouter, Request, HTTPException, Depends, status
 from fastapi.responses import RedirectResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 from cryptography.fernet import Fernet, InvalidToken
 from sqlalchemy import text
 
@@ -134,8 +134,10 @@ def restore_fyers_credentials() -> bool:
 
 
 class FyersConnectRequest(BaseModel):
-    client_id: str
-    client_secret: str
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    client_id: str = Field(min_length=1)
+    client_secret: str = Field(min_length=1)
 
 
 @router.post("/connect")
@@ -146,9 +148,10 @@ async def fyers_connect(
     """
     Initiate Fyers OAuth2 flow.
 
-    Takes client_id and secret in a JSON body, saves them encrypted, creates a
-    random state, and returns the Fyers login URL. The frontend then redirects
-    the browser to it.
+    Takes client_id and client_secret in a JSON body, saves them encrypted,
+    creates a random state, and returns the Fyers login URL. The frontend then
+    redirects the browser to Fyers. Fyers sends auth_code to /callback, where
+    it is exchanged for an access token; auth_code is not accepted by /connect.
 
     Admin only endpoint.
     """

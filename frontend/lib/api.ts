@@ -224,7 +224,7 @@ export const api = {
   connectFyers: (clientId: string, secretKey: string) =>
     fetcher<FyersConnectResponse>(`${API_BASE_URL}/fyers/connect`, {
       method: "POST",
-      body: JSON.stringify({ client_id: clientId, secret_key: secretKey }),
+      body: JSON.stringify({ client_id: clientId, client_secret: secretKey }),
     }),
 
   // Market data
