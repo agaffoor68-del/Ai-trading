@@ -9,8 +9,12 @@ async function proxyRequest(request: NextRequest, endpoint: string) {
   try {
     const cookie = request.cookies.get("access_token");
     const accessToken = cookie?.value;
+    const incomingUrl = new URL(request.url);
+    const searchParams = new URLSearchParams(incomingUrl.searchParams);
+    searchParams.delete("nxtPslug");
+    const queryString = searchParams.toString();
 
-    const backendUrl = `${BACKEND_URL}${endpoint}`;
+    const backendUrl = `${BACKEND_URL}${endpoint}${queryString ? `?${queryString}` : ""}`;
     const init: RequestInit = {
       method: request.method,
       headers: {
