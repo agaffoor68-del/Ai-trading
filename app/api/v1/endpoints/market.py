@@ -174,7 +174,7 @@ async def search_symbols(
     """
     try:
         from app.core.database import SessionLocal, Instrument
-        from sqlalchemy import or_
+        from sqlalchemy import case, or_
 
         def _search_db():
             db = SessionLocal()
@@ -185,8 +185,10 @@ async def search_symbols(
                 is_exact_index = query_upper in EXACT_INDEX_SYMBOLS
                 target_index_symbol = EXACT_INDEX_SYMBOLS.get(query_upper)
 
-                # Fetch more results for better ranking
-                fetch_limit = min(limit * 5, 200)
+                # Rank exact and prefix matches in SQL before limiting. Without
+                # this ordering, a broad query such as NIFTY can fill the limit
+                # with unrelated ETFs before the actual index is considered.
+                fetch_limit = min(limit * 50, 5000)
 
                 filter_condition = or_(
                     Instrument.symbol.ilike(f"%{query}%"),
@@ -199,6 +201,16 @@ async def search_symbols(
                     db.query(Instrument)
                     .filter(filter_condition)
                     .filter(Instrument.is_active == 1)
+                    .order_by(
+                        case(
+                            (Instrument.symbol.ilike(query_upper), 0),
+                            (Instrument.name.ilike(query_upper), 1),
+                            (Instrument.symbol.ilike(f"{query}%"), 2),
+                            (Instrument.name.ilike(f"{query}%"), 3),
+                            else_=4,
+                        ),
+                        Instrument.id.asc(),
+                    )
                     .limit(fetch_limit)
                     .all()
                 )
@@ -206,7 +218,11 @@ async def search_symbols(
                 # Convert to list of dicts for ranking
                 result_dicts = [
                     {
-                        "symbol": inst.symbol,
+                        "symbol": (
+                            to_fyers(inst.name or inst.symbol.rsplit(":", 1)[-1])
+                            if inst.symbol.startswith("NSE_CM:")
+                            else inst.symbol
+                        ),
                         "exchange": inst.exchange,
                         "name": inst.name,
                         "fyers_token": inst.fyers_token,
@@ -234,7 +250,14 @@ async def search_symbols(
                     main_index_match = 0
                     if is_exact_index and target_index_symbol:
                         target_clean = target_index_symbol.replace("NSE:", "").replace("-INDEX", "")
-                        main_index_match = 0 if symbol == target_clean or symbol == target_index_symbol else 1
+                        item_name = item.get("name", "").upper()
+                        main_index_match = (
+                            0
+                            if symbol == target_clean
+                            or symbol == target_index_symbol
+                            or item_name == query_upper
+                            else 1
+                        )
                     else:
                         main_index_match = 1
                     

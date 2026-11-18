@@ -58,8 +58,8 @@ export default function MarketWatchPage() {
   );
 
   // SWR for quotes - auto-refreshes
-  const topSymbols = searchData?.results?.slice(0, 10) || [];
-  const fyersSymbols = topSymbols.map((s: SearchResult) => s.symbol);
+  const topSymbols = useMemo(() => searchData?.results?.slice(0, 10) || [], [searchData?.results]);
+  const fyersSymbols = useMemo(() => topSymbols.map((s: SearchResult) => s.symbol), [topSymbols]);
 
   const { quotes, isLoading: isQuotesLoading, isFyersNotConnected } = useMarketQuotes(fyersSymbols);
 
