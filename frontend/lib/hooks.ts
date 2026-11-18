@@ -41,6 +41,8 @@ interface OptionChainResponse {
   atm_strike: number;
   strike_interval: number;
   option_chain: StrikeData[];
+  /** Optional legacy/enveloped array shape supported by some deployments. */
+  data?: StrikeData[];
   expiries: string[];
   timestamp: string;
 }
