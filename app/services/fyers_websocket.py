@@ -1,10 +1,9 @@
 """
 Fyers WebSocket Service using official FyersDataSocket from fyers_apiv3.
 
-The dashboard WebSocket is intentionally limited to the main indices and the
-nearest active NIFTY/BANKNIFTY option strikes. Symbols stored by the symbol
-master are already official Fyers tickers (the Instrument.symbol field is
-populated from Fyers' symbol_ticker CSV column).
+Only dashboard indices and active option strikes around the current ATM are
+subscribed. Instrument.symbol contains the canonical Fyers symbol_ticker from
+the Symbol Master, so those values are sent to the SDK unchanged.
 """
 
 import asyncio
@@ -22,26 +21,16 @@ from app.services.redis_ws import redis_tick_store
 logger = logging.getLogger(__name__)
 IST = ZoneInfo("Asia/Kolkata")
 
-DASHBOARD_INDEX_SYMBOLS = [
-    "NSE:NIFTY50-INDEX",
-    "NSE:NIFTYBANK-INDEX",
-    "BSE:SENSEX-INDEX",
-]
+DASHBOARD_INDEX_SYMBOLS = ["NSE:NIFTY50-INDEX", "NSE:NIFTYBANK-INDEX", "BSE:SENSEX-INDEX"]
 OPTION_UNDERLYINGS = {
     "NIFTY": "NSE:NIFTY50-INDEX",
     "BANKNIFTY": "NSE:NIFTYBANK-INDEX",
 }
-OPTION_STRIKES_PER_UNDERLYING = 5
+OPTION_STRIKES_EACH_SIDE = 5
 
 
 def _get_active_nearest_option_symbols(spot_prices: dict[str, float]) -> list[str]:
-    """Return CE/PE symbols for the five nearest strikes at the nearest expiry.
-
-    ``Instrument.symbol`` stores the full, canonical ``symbol_ticker`` from
-    the Fyers Symbol Master (for example ``NSE:NIFTY26...CE``). Do not build
-    tickers from the database exchange/segment fields; ``NSE_FO`` is not a
-    valid Fyers WebSocket exchange prefix.
-    """
+    """Return CE and PE tickers for ATM plus five listed strikes on each side."""
     from app.core.database import Instrument, SessionLocal
 
     db = SessionLocal()
@@ -50,13 +39,10 @@ def _get_active_nearest_option_symbols(spot_prices: dict[str, float]) -> list[st
         subscriptions: list[str] = []
         for underlying, index_symbol in OPTION_UNDERLYINGS.items():
             spot = spot_prices.get(index_symbol)
-            if spot is None:
-                logger.warning("Skipping %s option subscriptions: current spot price is unavailable", underlying)
+            if spot is None or spot <= 0:
+                logger.critical("Skipping %s option subscriptions: no valid positive spot price", underlying)
                 continue
 
-            # Prefixes distinguish NIFTY options from BANKNIFTY options while
-            # retaining only official NSE-prefixed symbol_ticker values.
-            ticker_prefix = f"NSE:{underlying}%"
             rows = db.query(
                 Instrument.symbol,
                 Instrument.strike,
@@ -65,14 +51,14 @@ def _get_active_nearest_option_symbols(spot_prices: dict[str, float]) -> list[st
             ).filter(
                 Instrument.is_active == 1,
                 Instrument.instrument_type.in_(["12", "OPT", "OPTION"]),
-                Instrument.symbol.ilike(ticker_prefix),
+                Instrument.symbol.ilike(f"NSE:{underlying}%"),
                 Instrument.expiry >= today,
                 Instrument.option_type.in_(["CE", "PE"]),
             ).all()
 
             valid_rows = []
             for symbol, strike_value, expiry, option_type in rows:
-                # Reject legacy malformed exchange_segment:symbol values.
+                # Ignore old malformed exchange_segment:symbol entries.
                 if not symbol or not symbol.startswith("NSE:") or strike_value is None or expiry is None:
                     continue
                 try:
@@ -82,49 +68,82 @@ def _get_active_nearest_option_symbols(spot_prices: dict[str, float]) -> list[st
                 valid_rows.append((symbol, strike, expiry, option_type))
 
             if not valid_rows:
-                logger.warning("No active option symbols found for %s", underlying)
+                logger.critical("No active option symbols found for %s", underlying)
                 continue
 
             nearest_expiry = min(row[2] for row in valid_rows)
             expiry_rows = [row for row in valid_rows if row[2] == nearest_expiry]
-            strikes = sorted({row[1] for row in expiry_rows}, key=lambda strike: (abs(strike - spot), strike))
-            nearest_strikes = set(strikes[:OPTION_STRIKES_PER_UNDERLYING])
+            listed_strikes = sorted({row[1] for row in expiry_rows})
+            atm_index = min(range(len(listed_strikes)), key=lambda index: abs(listed_strikes[index] - spot))
+            first_index = max(0, atm_index - OPTION_STRIKES_EACH_SIDE)
+            last_index = min(len(listed_strikes), atm_index + OPTION_STRIKES_EACH_SIDE + 1)
+            selected_strikes = set(listed_strikes[first_index:last_index])
+
+            # Add both call and put contracts at ATM and each selected ITM/OTM
+            # strike. Keep the official symbol_ticker exactly as stored.
             subscriptions.extend(
-                symbol for symbol, strike, _expiry, _option_type in expiry_rows
-                if strike in nearest_strikes
+                symbol for symbol, strike, _expiry, option_type in expiry_rows
+                if strike in selected_strikes and option_type in {"CE", "PE"}
             )
             logger.info(
-                "Selected %d nearest %s option strikes for expiry %s",
-                len(nearest_strikes), underlying, nearest_expiry.date(),
+                "Selected %d strikes (%d contracts) for %s expiry %s; spot=%s ATM=%s",
+                len(selected_strikes),
+                sum(1 for row in expiry_rows if row[1] in selected_strikes),
+                underlying,
+                nearest_expiry.date(),
+                spot,
+                listed_strikes[atm_index],
             )
-
         return subscriptions
     finally:
         db.close()
 
 
-async def _build_dashboard_subscription_symbols() -> list[str]:
-    """Build a small, curated list of indices and current ATM option symbols."""
+async def _fetch_spot_prices() -> dict[str, float]:
+    """Read current index ticks from Redis first, then fetch any misses via REST."""
     from app.services.fyers_api import fyers_api_client
 
-    symbols = list(DASHBOARD_INDEX_SYMBOLS)
-    spot_quotes = await fyers_api_client.get_quotes(DASHBOARD_INDEX_SYMBOLS[:2])
-    if isinstance(spot_quotes, dict) and not spot_quotes.get("error"):
-        spot_prices = {
-            index_symbol: float(spot_quotes[index_symbol]["ltp"])
-            for index_symbol in OPTION_UNDERLYINGS.values()
-            if isinstance(spot_quotes.get(index_symbol), dict)
-            and spot_quotes[index_symbol].get("ltp") is not None
-        }
+    index_symbols = list(OPTION_UNDERLYINGS.values())
+    spot_prices: dict[str, float] = {}
+    for symbol in index_symbols:
+        tick = await redis_tick_store.get_tick(symbol)
         try:
-            option_symbols = await asyncio.to_thread(_get_active_nearest_option_symbols, spot_prices)
-            symbols.extend(option_symbols)
-        except Exception:
-            logger.exception("Failed to find active ATM option subscriptions; subscribing to indices only")
-    else:
-        logger.warning("Could not fetch index spot prices for option subscriptions: %s", (spot_quotes or {}).get("error"))
+            price = float(tick.get("ltp")) if tick and tick.get("ltp") is not None else 0
+        except (TypeError, ValueError):
+            price = 0
+        if price > 0:
+            spot_prices[symbol] = price
 
-    # Preserve order and ensure the final subscription list is unique and valid.
+    missing_symbols = [symbol for symbol in index_symbols if symbol not in spot_prices]
+    if missing_symbols:
+        logger.info("Fetching missing index spot prices from Fyers REST: %s", missing_symbols)
+        rest_quotes = await fyers_api_client.get_quotes(missing_symbols)
+        if isinstance(rest_quotes, dict) and not rest_quotes.get("error"):
+            for symbol in missing_symbols:
+                quote = rest_quotes.get(symbol)
+                try:
+                    price = float(quote.get("ltp")) if isinstance(quote, dict) and quote.get("ltp") is not None else 0
+                except (TypeError, ValueError):
+                    price = 0
+                if price > 0:
+                    spot_prices[symbol] = price
+
+    for symbol in index_symbols:
+        if symbol not in spot_prices:
+            logger.critical("Unable to retrieve a positive spot price for %s; its option subscriptions will be skipped", symbol)
+    return spot_prices
+
+
+async def _build_dashboard_subscription_symbols() -> list[str]:
+    """Build index plus nearest-expiry ATM/ITM/OTM option subscriptions."""
+    symbols = list(DASHBOARD_INDEX_SYMBOLS)
+    spot_prices = await _fetch_spot_prices()
+    try:
+        option_symbols = await asyncio.to_thread(_get_active_nearest_option_symbols, spot_prices)
+        symbols.extend(option_symbols)
+    except Exception:
+        logger.exception("Failed to find active ATM option subscriptions; subscribing to indices only")
+    # Keep order, remove duplicates, and require exchange-prefixed canonical tickers.
     return list(dict.fromkeys(symbol for symbol in symbols if isinstance(symbol, str) and ":" in symbol))
 
 
@@ -176,13 +195,13 @@ class FyersWebSocketManager:
         return f"{client_id}:{access_token}"
 
     def _on_connect(self):
-        """SDK on_connect callback - subscribe to the curated dashboard symbols."""
+        """Subscribe to the configured dashboard symbols after connecting."""
         logger.info("Fyers WS connected")
         self._connected = True
         self._last_error = None
         if self._symbols:
             try:
-                logger.info(f"Subscribing to WS symbols: {self._symbols}")
+                logger.info("Subscribing to WS symbols: %s", self._symbols)
                 self._socket.subscribe(self._symbols, data_type="SymbolUpdate")
                 self._symbols_subscribed = len(self._symbols)
                 logger.info("subscribed %d symbols", self._symbols_subscribed)
@@ -191,7 +210,7 @@ class FyersWebSocketManager:
                 self._last_error = f"Subscribe failed: {error}"
 
     def _on_message(self, message: dict):
-        """Process tick data and publish it through registered callbacks."""
+        """Process ticks and send them to registered callbacks."""
         try:
             if message.get("type") != "SymbolUpdate":
                 return
@@ -337,18 +356,19 @@ def get_fyers_ws_manager() -> FyersWebSocketManager:
 
 
 async def start_fyers_websocket(client_id: str, access_token: str, symbols: List[str]) -> bool:
-    """Start WebSocket using only dashboard indices and nearest ATM options.
+    """Fetch current spots, then start with indices and nearest ATM options.
 
-    ``symbols`` remains accepted for compatibility with the startup caller, but
-    is deliberately not used: the previous startup query sent arbitrary cash
-    equities and legacy NSE_CM-formatted symbols to Fyers.
+    ``symbols`` remains accepted for compatibility with the startup caller but
+    is ignored: arbitrary caller-provided equity symbols are not subscribed.
     """
     manager = get_fyers_ws_manager()
+    dashboard_symbols = list(DASHBOARD_INDEX_SYMBOLS)
     try:
-        dashboard_symbols = await _build_dashboard_subscription_symbols()
+        spot_prices = await _fetch_spot_prices()
+        option_symbols = await asyncio.to_thread(_get_active_nearest_option_symbols, spot_prices)
+        dashboard_symbols.extend(option_symbols)
     except Exception:
-        logger.exception("Could not build dashboard WS subscriptions; falling back to required indices")
-        dashboard_symbols = list(DASHBOARD_INDEX_SYMBOLS)
+        logger.exception("Failed to build option subscription list; proceeding with index symbols only")
 
     logger.info("Using dashboard subscription list (ignoring %d caller-provided symbols)", len(symbols or []))
 
