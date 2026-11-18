@@ -1,21 +1,13 @@
 """
 Fyers WebSocket Service using official FyersDataSocket from fyers_apiv3.
 
-This replaces the custom websocket implementation with the official SDK.
-The official FyersDataSocket handles:
-- JWT token parsing (expects "<client_id>:<access_token>" format)
-- HSM token extraction and validation
-- Automatic reconnection with configurable retry
-- Binary protocol message parsing (SymbolUpdate, DepthUpdate, etc.)
-- Subscription management across multiple channels
-
-The access_token must be in format "<client_id>:<access_token>" where:
-- client_id is the Fyers app ID (e.g., "ABCDEFG-100")
-- access_token is the JWT token from Fyers OAuth
-
-The token must be a valid JWT with 3 parts, containing hsm_key and exp claims.
+The dashboard WebSocket is intentionally limited to the main indices and the
+nearest active NIFTY/BANKNIFTY option strikes. Symbols stored by the symbol
+master are already official Fyers tickers (the Instrument.symbol field is
+populated from Fyers' symbol_ticker CSV column).
 """
 
+import asyncio
 import logging
 import threading
 import time
@@ -27,30 +19,124 @@ from fyers_apiv3.FyersWebsocket.data_ws import FyersDataSocket
 
 from app.services.redis_ws import redis_tick_store
 
-
 logger = logging.getLogger(__name__)
 IST = ZoneInfo("Asia/Kolkata")
 
+DASHBOARD_INDEX_SYMBOLS = [
+    "NSE:NIFTY50-INDEX",
+    "NSE:NIFTYBANK-INDEX",
+    "BSE:SENSEX-INDEX",
+]
+OPTION_UNDERLYINGS = {
+    "NIFTY": "NSE:NIFTY50-INDEX",
+    "BANKNIFTY": "NSE:NIFTYBANK-INDEX",
+}
+OPTION_STRIKES_PER_UNDERLYING = 5
+
+
+def _get_active_nearest_option_symbols(spot_prices: dict[str, float]) -> list[str]:
+    """Return CE/PE symbols for the five nearest strikes at the nearest expiry.
+
+    ``Instrument.symbol`` stores the full, canonical ``symbol_ticker`` from
+    the Fyers Symbol Master (for example ``NSE:NIFTY26...CE``). Do not build
+    tickers from the database exchange/segment fields; ``NSE_FO`` is not a
+    valid Fyers WebSocket exchange prefix.
+    """
+    from app.core.database import Instrument, SessionLocal
+
+    db = SessionLocal()
+    try:
+        today = datetime.now(IST).replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=None)
+        subscriptions: list[str] = []
+        for underlying, index_symbol in OPTION_UNDERLYINGS.items():
+            spot = spot_prices.get(index_symbol)
+            if spot is None:
+                logger.warning("Skipping %s option subscriptions: current spot price is unavailable", underlying)
+                continue
+
+            # Prefixes distinguish NIFTY options from BANKNIFTY options while
+            # retaining only official NSE-prefixed symbol_ticker values.
+            ticker_prefix = f"NSE:{underlying}%"
+            rows = db.query(
+                Instrument.symbol,
+                Instrument.strike,
+                Instrument.expiry,
+                Instrument.option_type,
+            ).filter(
+                Instrument.is_active == 1,
+                Instrument.instrument_type.in_(["12", "OPT", "OPTION"]),
+                Instrument.symbol.ilike(ticker_prefix),
+                Instrument.expiry >= today,
+                Instrument.option_type.in_(["CE", "PE"]),
+            ).all()
+
+            valid_rows = []
+            for symbol, strike_value, expiry, option_type in rows:
+                # Reject legacy malformed exchange_segment:symbol values.
+                if not symbol or not symbol.startswith("NSE:") or strike_value is None or expiry is None:
+                    continue
+                try:
+                    strike = float(strike_value)
+                except (TypeError, ValueError):
+                    continue
+                valid_rows.append((symbol, strike, expiry, option_type))
+
+            if not valid_rows:
+                logger.warning("No active option symbols found for %s", underlying)
+                continue
+
+            nearest_expiry = min(row[2] for row in valid_rows)
+            expiry_rows = [row for row in valid_rows if row[2] == nearest_expiry]
+            strikes = sorted({row[1] for row in expiry_rows}, key=lambda strike: (abs(strike - spot), strike))
+            nearest_strikes = set(strikes[:OPTION_STRIKES_PER_UNDERLYING])
+            subscriptions.extend(
+                symbol for symbol, strike, _expiry, _option_type in expiry_rows
+                if strike in nearest_strikes
+            )
+            logger.info(
+                "Selected %d nearest %s option strikes for expiry %s",
+                len(nearest_strikes), underlying, nearest_expiry.date(),
+            )
+
+        return subscriptions
+    finally:
+        db.close()
+
+
+async def _build_dashboard_subscription_symbols() -> list[str]:
+    """Build a small, curated list of indices and current ATM option symbols."""
+    from app.services.fyers_api import fyers_api_client
+
+    symbols = list(DASHBOARD_INDEX_SYMBOLS)
+    spot_quotes = await fyers_api_client.get_quotes(DASHBOARD_INDEX_SYMBOLS[:2])
+    if isinstance(spot_quotes, dict) and not spot_quotes.get("error"):
+        spot_prices = {
+            index_symbol: float(spot_quotes[index_symbol]["ltp"])
+            for index_symbol in OPTION_UNDERLYINGS.values()
+            if isinstance(spot_quotes.get(index_symbol), dict)
+            and spot_quotes[index_symbol].get("ltp") is not None
+        }
+        try:
+            option_symbols = await asyncio.to_thread(_get_active_nearest_option_symbols, spot_prices)
+            symbols.extend(option_symbols)
+        except Exception:
+            logger.exception("Failed to find active ATM option subscriptions; subscribing to indices only")
+    else:
+        logger.warning("Could not fetch index spot prices for option subscriptions: %s", (spot_quotes or {}).get("error"))
+
+    # Preserve order and ensure the final subscription list is unique and valid.
+    return list(dict.fromkeys(symbol for symbol in symbols if isinstance(symbol, str) and ":" in symbol))
+
 
 class FyersWebSocketManager:
-    """
-    Manages the official FyersDataSocket in a background thread.
-    
-    Features:
-    - Runs blocking SDK connect/keep_running in background thread
-    - Automatic restart with exponential backoff (5s up to 5 min) if thread dies
-    - Token validation before start (logs once if invalid, no retry spam)
-    - Callbacks for connect, message, error, close
-    - Redis tick publishing
-    - Clean shutdown on app exit
-    """
-    
+    """Manage the official FyersDataSocket in a background thread."""
+
     def __init__(self):
         self._socket: FyersDataSocket | None = None
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
-        self._restart_backoff = 5  # Start at 5 seconds
-        self._max_backoff = 300  # Cap at 5 minutes
+        self._restart_backoff = 5
+        self._max_backoff = 300
         self._symbols: List[str] = []
         self._tick_callbacks: List[Callable] = []
         self._last_tick_time: str | None = None
@@ -61,108 +147,67 @@ class FyersWebSocketManager:
         self._client_id: str | None = None
         self._access_token: str | None = None
         self._token_validated = False
-    
+
     def _validate_token_format(self, token: str) -> tuple[bool, str]:
-        """
-        Validate token format without logging the token.
-        
-        Returns:
-            (is_valid, error_message)
-        """
+        """Validate token structure and required JWT claims without logging it."""
         if not token:
             return False, "Empty token"
-        
-        parts = token.split('.')
+        parts = token.split(".")
         if len(parts) != 3:
             return False, f"Token is not a JWT (has {len(parts)} parts, expected 3)"
-        
-        # Decode payload to check for hsm_key and exp
         try:
             import base64
             import json
-            payload_b64 = parts[1]
-            payload_b64 += '=' * (-len(payload_b64) % 4)
-            decoded = base64.urlsafe_b64decode(payload_b64).decode()
-            payload = json.loads(decoded)
-            
-            if 'hsm_key' not in payload:
+            payload_b64 = parts[1] + "=" * (-len(parts[1]) % 4)
+            payload = json.loads(base64.urlsafe_b64decode(payload_b64).decode())
+            if "hsm_key" not in payload:
                 return False, "Token payload missing 'hsm_key' claim"
-            
-            if 'exp' not in payload:
+            if "exp" not in payload:
                 return False, "Token payload missing 'exp' claim"
-            
-            from datetime import datetime
-            from zoneinfo import ZoneInfo
-            exp_time = datetime.fromtimestamp(payload['exp'], tz=ZoneInfo("Asia/Kolkata"))
-            now = datetime.now(ZoneInfo("Asia/Kolkata"))
-            
-            if payload['exp'] < int(now.timestamp()):
+            exp_time = datetime.fromtimestamp(payload["exp"], tz=IST)
+            if payload["exp"] < int(datetime.now(IST).timestamp()):
                 return False, f"Token expired at {exp_time.isoformat()}"
-            
             return True, ""
-        except Exception as e:
-            return False, f"Failed to decode token payload: {e}"
-    
+        except Exception as error:
+            return False, f"Failed to decode token payload: {error}"
+
     def _build_sdk_token(self, client_id: str, access_token: str) -> str:
-        """Build the token string expected by FyersDataSocket: '<client_id>:<access_token>'"""
+        """Build the SDK token string: '<client_id>:<access_token>'."""
         return f"{client_id}:{access_token}"
-    
+
     def _on_connect(self):
-        """SDK on_connect callback - subscribe to symbols"""
+        """SDK on_connect callback - subscribe to the curated dashboard symbols."""
         logger.info("Fyers WS connected")
         self._connected = True
         self._last_error = None
-        
         if self._symbols:
-            # Subscribe with SymbolUpdate data type (default)
             try:
+                logger.info(f"Subscribing to WS symbols: {self._symbols}")
                 self._socket.subscribe(self._symbols, data_type="SymbolUpdate")
                 self._symbols_subscribed = len(self._symbols)
                 logger.info("subscribed %d symbols", self._symbols_subscribed)
-            except Exception as e:
-                logger.error("Failed to subscribe: %s", e)
-                self._last_error = f"Subscribe failed: {e}"
-    
+            except Exception as error:
+                logger.error("Failed to subscribe: %s", error)
+                self._last_error = f"Subscribe failed: {error}"
+
     def _on_message(self, message: dict):
-        """SDK on_message callback - process tick data and write to Redis"""
+        """Process tick data and publish it through registered callbacks."""
         try:
-            # Fyers SymbolUpdate message format:
-            # {'type': 'SymbolUpdate', 'symbol': 'NSE:NIFTY50-INDEX', 'ltp': 24345.85, 
-            #  'ch': 124.35, 'chp': 0.51, 'vol': 12345, 'bid': 24345.50, 'ask': 24346.00,
-            #  'open': 24200.00, 'high': 24400.00, 'low': 24100.00, 'close': 24221.50, 'ts': 1700000000}
-            
-            if message.get('type') != 'SymbolUpdate':
+            if message.get("type") != "SymbolUpdate":
                 return
-            
-            symbol = message.get('symbol', 'unknown')
-            ltp = message.get('ltp')
-            ch = message.get('ch')  # change
-            chp = message.get('chp')  # change percent
-            vol = message.get('vol')  # volume
-            bid = message.get('bid')
-            ask = message.get('ask')
-            open_price = message.get('open')
-            high = message.get('high')
-            low = message.get('low')
-            close = message.get('close')
-            ts = message.get('ts')
-            
+            symbol = message.get("symbol", "unknown")
+            ltp = message.get("ltp")
             if ltp is None:
                 return
-            
-            # Parse timestamp
-            if isinstance(ts, (int, float)):
-                dt = datetime.fromtimestamp(ts, tz=IST)
-            else:
-                dt = datetime.now(IST)
-            
+            ch, chp, vol = message.get("ch"), message.get("chp"), message.get("vol")
+            bid, ask = message.get("bid"), message.get("ask")
+            open_price, high, low, close = message.get("open"), message.get("high"), message.get("low"), message.get("close")
+            ts = message.get("ts")
+            dt = datetime.fromtimestamp(ts, tz=IST) if isinstance(ts, (int, float)) else datetime.now(IST)
             self._last_tick_time = datetime.now(IST).isoformat()
-            
-            # Log one sample tick
             if not self._sample_tick_logged:
                 logger.info("Fyers sample tick: symbol=%s ltp=%s", symbol, ltp)
                 self._sample_tick_logged = True
-            
             tick = {
                 "symbol": symbol,
                 "ltp": float(ltp),
@@ -179,79 +224,54 @@ class FyersWebSocketManager:
                     "close": float(close) if close is not None else 0.0,
                 },
             }
-            
-            # Call registered callbacks
-            for cb in self._tick_callbacks:
+            for callback in self._tick_callbacks:
                 try:
-                    cb(tick)
-                except Exception as cb_err:
-                    logger.error("Tick callback error: %s", cb_err)
-                    
-        except Exception as e:
-            logger.error("Process tick error: %s", e)
-    
+                    callback(tick)
+                except Exception as callback_error:
+                    logger.error("Tick callback error: %s", callback_error)
+        except Exception as error:
+            logger.error("Process tick error: %s", error)
+
     def _on_error(self, message: dict):
-        """SDK on_error callback"""
         error_msg = str(message)
         logger.error("Fyers WS error: %s", error_msg)
         self._last_error = error_msg
-    
+
     def _on_close(self, message: dict):
-        """SDK on_close callback"""
         close_msg = str(message)
         logger.warning("Fyers WS closed: %s", close_msg)
         self._connected = False
         self._last_error = f"Connection closed: {close_msg}"
-    
+
     def _run_socket(self):
-        """Run the SDK's connect and keep_running in this thread"""
+        """Run the blocking SDK connection loop on its own thread."""
         try:
             if self._socket:
-                # The SDK's connect() starts the websocket thread
-                # keep_running() blocks until the thread stops
                 self._socket.connect()
-                # The SDK has internal reconnection logic, but we also monitor the thread
                 self._socket.keep_running()
-        except Exception as e:
-            logger.exception("Fyers SDK thread error: %s", e)
-            self._last_error = f"SDK thread error: {e}"
+        except Exception as error:
+            logger.exception("Fyers SDK thread error: %s", error)
+            self._last_error = f"SDK thread error: {error}"
         finally:
             self._connected = False
-    
+
     def start(self, client_id: str, access_token: str, symbols: List[str]) -> bool:
-        """
-        Start the Fyers WebSocket manager.
-        
-        Args:
-            client_id: Fyers app ID (e.g., "ABCDEFG-100")
-            access_token: JWT access token from Fyers OAuth
-            symbols: List of Fyers format symbols (e.g., ["NSE:NIFTY50-INDEX", "NSE:SBIN-EQ"])
-        
-        Returns:
-            True if started successfully, False if token invalid
-        """
-        # Validate token format first
+        """Start Fyers WebSocket with Fyers-formatted subscription symbols."""
         is_valid, error = self._validate_token_format(access_token)
         if not is_valid:
             logger.error("Fyers token validation failed: %s", error)
             self._last_error = f"Token validation failed: {error}"
             return False
-        
         logger.info("Fyers token validated: length=%d, parts=3, has hsm_key=True", len(access_token))
-        
         self._client_id = client_id
         self._access_token = access_token
-        self._symbols = symbols
+        self._symbols = list(dict.fromkeys(symbol for symbol in symbols if isinstance(symbol, str) and ":" in symbol))
         self._symbols_subscribed = 0
         self._sample_tick_logged = False
         self._last_error = None
         self._token_validated = True
         self._stop_event.clear()
-        
-        # Build token for SDK: "<client_id>:<access_token>"
         sdk_token = self._build_sdk_token(client_id, access_token)
-        
-        # Create SDK socket
         self._socket = FyersDataSocket(
             access_token=sdk_token,
             write_to_file=False,
@@ -262,45 +282,36 @@ class FyersWebSocketManager:
             on_error=self._on_error,
             on_connect=self._on_connect,
             on_close=self._on_close,
-            reconnect_retry=5  # SDK internal reconnect attempts
+            reconnect_retry=5,
         )
-        
-        # Start background thread
         self._thread = threading.Thread(target=self._run_socket, name="fyers-ws", daemon=True)
         self._thread.start()
-        
-        # Wait briefly for connection to establish
         time.sleep(2)
-        
         if self._connected:
             logger.info("Fyers WebSocket manager started successfully")
-            return True
         else:
             logger.warning("Fyers WebSocket not connected yet, will retry in background")
-            return True  # Return True because token is valid, connection may establish shortly
-    
+        return True
+
     def stop(self):
-        """Stop the WebSocket manager and clean up"""
+        """Stop the WebSocket manager and clean up."""
         logger.info("Stopping Fyers WebSocket manager...")
         self._stop_event.set()
-        
         if self._socket:
             try:
                 self._socket.close_connection()
-            except Exception as e:
-                logger.error("Error closing Fyers socket: %s", e)
-        
+            except Exception as error:
+                logger.error("Error closing Fyers socket: %s", error)
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=5)
-        
         self._connected = False
         self._socket = None
         self._thread = None
         logger.info("Fyers WebSocket manager stopped")
-    
+
     def is_connected(self) -> bool:
         return self._connected
-    
+
     def get_status(self) -> dict:
         return {
             "connected": self._connected,
@@ -308,14 +319,13 @@ class FyersWebSocketManager:
             "symbols_subscribed": self._symbols_subscribed,
             "last_error": self._last_error,
         }
-    
+
     def on_tick(self, callback: Callable):
-        """Register a callback for tick data"""
+        """Register a callback for incoming ticks."""
         self._tick_callbacks.append(callback)
         return self
 
 
-# Global manager instance
 _fyers_ws_manager: FyersWebSocketManager | None = None
 
 
@@ -327,23 +337,33 @@ def get_fyers_ws_manager() -> FyersWebSocketManager:
 
 
 async def start_fyers_websocket(client_id: str, access_token: str, symbols: List[str]) -> bool:
-    """Start the Fyers WebSocket manager with the given credentials and symbols"""
+    """Start WebSocket using only dashboard indices and nearest ATM options.
+
+    ``symbols`` remains accepted for compatibility with the startup caller, but
+    is deliberately not used: the previous startup query sent arbitrary cash
+    equities and legacy NSE_CM-formatted symbols to Fyers.
+    """
     manager = get_fyers_ws_manager()
-    
-    # Register Redis tick callback (handles Redis being down gracefully)
+    try:
+        dashboard_symbols = await _build_dashboard_subscription_symbols()
+    except Exception:
+        logger.exception("Could not build dashboard WS subscriptions; falling back to required indices")
+        dashboard_symbols = list(DASHBOARD_INDEX_SYMBOLS)
+
+    logger.info("Using dashboard subscription list (ignoring %d caller-provided symbols)", len(symbols or []))
+
     async def redis_tick_callback(tick: dict):
         try:
             await redis_tick_store.write_tick(tick["symbol"], tick)
-        except Exception as e:
-            logger.debug("Redis tick write failed (non-fatal): %s", e)
-    
+        except Exception as error:
+            logger.debug("Redis tick write failed (non-fatal): %s", error)
+
     manager.on_tick(redis_tick_callback)
-    
-    return manager.start(client_id, access_token, symbols)
+    return manager.start(client_id, access_token, dashboard_symbols)
 
 
 async def stop_fyers_websocket():
-    """Stop the Fyers WebSocket manager"""
+    """Stop the WebSocket manager."""
     global _fyers_ws_manager
     if _fyers_ws_manager:
         _fyers_ws_manager.stop()
@@ -351,13 +371,8 @@ async def stop_fyers_websocket():
 
 
 def get_fyers_ws_status() -> dict:
-    """Get current WebSocket status for API endpoint"""
+    """Get current WebSocket status for API endpoint."""
     manager = get_fyers_ws_manager()
     if manager:
         return manager.get_status()
-    return {
-        "connected": False,
-        "last_tick_time": None,
-        "symbols_subscribed": 0,
-        "last_error": "Manager not initialized",
-    }
+    return {"connected": False, "last_tick_time": None, "symbols_subscribed": 0, "last_error": "Manager not initialized"}
