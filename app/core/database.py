@@ -22,7 +22,6 @@ elif _DATABASE_URL.startswith("postgresql://"):
     _DATABASE_URL = _DATABASE_URL.replace("postgresql://", "postgresql+psycopg://", 1)
 elif "postgresql+psycopg2://" in _DATABASE_URL:
     _DATABASE_URL = _DATABASE_URL.replace("postgresql+psycopg2://", "postgresql+psycopg://", 1)
-# If it already has +psycopg, leave it as is.
 
 # Automatically append sslmode=require if missing (required for Render PostgreSQL)
 if "sslmode=" not in _DATABASE_URL:
@@ -45,24 +44,21 @@ Base = declarative_base()
 
 
 class Instrument(Base):
-    """
-    Symbol Master table - parsed from Fyers Symbol Master CSVs.
-    Only Fyers symbols are stored (Rule: Fyers ONLY for data).
-    """
+    """Symbol Master table - parsed from Fyers Symbol Master CSVs."""
     __tablename__ = "instruments"
 
     id = Column(Integer, primary_key=True, index=True)
-    symbol = Column(String, index=True, nullable=False)  # e.g., NSE:NIFTY50-INDEX
+    symbol = Column(String, index=True, nullable=False)
     name = Column(String, nullable=True)
-    exchange = Column(String, nullable=True)  # NSE_CM, NSE_FO, etc.
+    exchange = Column(String, nullable=True)
     segment = Column(String, nullable=True)
     lot_size = Column(Integer, nullable=True)
     tick_size = Column(String, nullable=True)
-    instrument_type = Column(String, nullable=True)  # EQ, FUT, OPT
+    instrument_type = Column(String, nullable=True)
     expiry = Column(DateTime, nullable=True)
     strike = Column(Text, nullable=True)
-    option_type = Column(String, nullable=True)  # CE, PE
-    fyers_token = Column(String, nullable=True, index=True)  # Fyers instrument token
+    option_type = Column(String, nullable=True)
+    fyers_token = Column(String, nullable=True, index=True)
     is_active = Column(Integer, default=1, nullable=False)
     created_at = Column(DateTime, nullable=False)
     updated_at = Column(DateTime, nullable=False)
@@ -77,70 +73,35 @@ def get_db():
 
 
 def init_db():
-    """Create all tables from current models.
-
-    fyers_tokens is only a token cache, so we drop and recreate it to pick up
-    schema changes (client_id / client_secret columns). create_all() never
-    alters existing tables, and cached tokens are safe to lose (re-login).
-    """
-    # Register every model even when init_db is called outside app.main.
-    from app.core import models  # noqa: F401
-
+    """Create missing tables without deleting persisted Fyers tokens."""
+    from app.core import models  # noqa: F401 - register every model with metadata
     try:
-        # Drop the token cache first so the new model schema is applied cleanly
-        # even when the live table was created by an older version.
-        with engine.begin() as conn:
-            conn.execute(text("DROP TABLE IF EXISTS fyers_tokens"))
-        logger.info("Dropped fyers_tokens table (token cache; will be recreated)")
-
+        # create_all is non-destructive: unlike DROP TABLE, it preserves OAuth
+        # tokens and credentials across application restarts.
         Base.metadata.create_all(bind=engine)
-        # Test the connection
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
-        logger.info("Database connection successful")
+        logger.info("Database connection successful; existing Fyers tokens preserved")
     except Exception:
         logger.exception("Database initialization failed")
         raise
 
 
 def _migrate_fyers_tokens_table():
-    """Kept for reference: add client_id/client_secret without dropping.
-
-    init_db() now drops/recreates the cache table directly, so this runs only
-    if called explicitly. Deleting cached tokens is safe - the user simply
-    logs in to Fyers again.
-    """
+    """Add optional encrypted credential columns to an existing token table."""
     try:
         from sqlalchemy import inspect
         inspector = inspect(engine)
         if "fyers_tokens" not in inspector.get_table_names():
-            return  # Table will be created by create_all on next start
-
-        existing = {col["name"] for col in inspector.get_columns("fyers_tokens")}
-        missing = [c for c in ("client_id", "client_secret") if c not in existing]
+            return
+        existing = {column["name"] for column in inspector.get_columns("fyers_tokens")}
+        missing = [column for column in ("client_id", "client_secret") if column not in existing]
         if not missing:
             return
-
         with engine.begin() as conn:
-            for col in missing:
-                logger.info(
-                    "Migrating fyers_tokens: adding missing column %s", col
-                )
-                conn.execute(
-                    text(f"ALTER TABLE fyers_tokens ADD COLUMN {col} TEXT")
-                )
-        logger.info("fyers_tokens migration complete (columns: %s)", sorted(existing | set(missing)))
-    except Exception as e:
-        logger.warning(
-            "Could ALTER TABLE fyers_tokens (%s); dropping token cache and "
-            "recreating from model. Users will need to log in to Fyers again.",
-            e,
-        )
-        try:
-            with engine.begin() as conn:
-                conn.execute(text("DROP TABLE IF EXISTS fyers_tokens"))
-            Base.metadata.create_all(bind=engine, tables=[models.FyersToken.__table__])
-            logger.info("fyers_tokens table recreated with current schema")
-        except Exception:
-            logger.exception("Failed to recreate fyers_tokens table")
-            raise
+            for column in missing:
+                conn.execute(text(f"ALTER TABLE fyers_tokens ADD COLUMN {column} TEXT"))
+        logger.info("Migrated fyers_tokens table with columns: %s", missing)
+    except Exception:
+        logger.exception("Failed to migrate fyers_tokens table")
+        raise
