@@ -13,6 +13,38 @@ import {
 
 const FYERS_STATUS_KEY = "/api/v1/fyers/status";
 
+interface OptionLegData {
+  symbol?: string | null;
+  ltp?: number | null;
+  oi?: number | null;
+  oi_change?: number | null;
+  oi_change_pct?: number | null;
+  volume?: number | null;
+  bid?: number | null;
+  ask?: number | null;
+}
+
+/** A strike row as returned by the option-chain API. */
+export interface StrikeData {
+  strike: number;
+  is_atm: boolean;
+  call_itm: boolean;
+  put_itm: boolean;
+  call: OptionLegData | null;
+  put: OptionLegData | null;
+}
+
+interface OptionChainResponse {
+  symbol: string;
+  expiry: string;
+  spot_price: number;
+  atm_strike: number;
+  strike_interval: number;
+  option_chain: StrikeData[];
+  expiries: string[];
+  timestamp: string;
+}
+
 function isFyersSessionExpired(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
   const candidate = error as { status?: number; code?: string | number; message?: string };
@@ -141,7 +173,7 @@ export function useMarketQuotes(symbols: string[]) {
 
 export function useOptionChain(symbol: string, expiry: string, strikes = 10) {
   const key = symbol && expiry ? `/api/v1/market/option-chain?symbol=${encodeURIComponent(symbol)}&expiry=${encodeURIComponent(expiry)}&strikes=${strikes}` : null;
-  const { data, error, isLoading, mutate } = useSWR<any>(key, key ? createFetcher<any>(key) : null, {
+  const { data, error, isLoading, mutate } = useSWR<OptionChainResponse>(key, key ? createFetcher<OptionChainResponse>(key) : null, {
     refreshInterval: (payload) => payload ? 3000 : 30000,
     revalidateOnFocus: true,
     revalidateOnReconnect: true,
