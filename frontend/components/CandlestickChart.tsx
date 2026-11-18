@@ -38,12 +38,16 @@ interface Candle {
   volume: number;
 }
 
-function normalize(raw: any[]): Candle[] {
+function normalize(raw: unknown): Candle[] {
+  if (!Array.isArray(raw)) return [];
+
   const out: Candle[] = raw
-    .map((r) => {
+    .filter((row) => row && typeof row === "object")
+    .map((r: any) => {
       const a = Array.isArray(r)
         ? { time: r[0], open: r[1], high: r[2], low: r[3], close: r[4], volume: r[5] }
         : r;
+      if (!a || typeof a !== "object") return null;
       let t = a.time ?? a.timestamp ?? a.t ?? a.datetime;
       if (typeof t === "string") t = Date.parse(t) / 1000;
       if (t > 1e12) t = Math.floor(t / 1000); // ms -> s
@@ -58,7 +62,7 @@ function normalize(raw: any[]): Candle[] {
         volume: Number(a.volume ?? a.v ?? 0),
       };
     })
-    .filter((c) => c.time && [c.open, c.high, c.low, c.close].every(Number.isFinite))
+    .filter((c): c is Candle => c !== null && Boolean(c.time) && [c.open, c.high, c.low, c.close].every(Number.isFinite))
     .sort((a, b) => a.time - b.time);
   // dedupe timestamps
   return out.filter((c, i) => i === 0 || c.time !== out[i - 1].time);

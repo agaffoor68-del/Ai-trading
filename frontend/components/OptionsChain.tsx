@@ -2,7 +2,7 @@
 
 import { motion } from "framer-motion";
 import { Maximize2, AlertCircle, ChevronDown, Search, Loader2, Wifi } from "lucide-react";
-import { useState, useMemo, useCallback } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useOptionChain, useExpiries, SERVER_WAKING_MESSAGE } from "@/lib/hooks";
 
 export function OptionsChain() {
@@ -15,13 +15,11 @@ export function OptionsChain() {
   const { expiries, isLoading: expiriesLoading } = useExpiries(selectedSymbol);
 
   // Auto-select first expiry when expiries load
-  const handleExpiriesChange = useCallback(() => {
+  useEffect(() => {
     if (expiries.length > 0 && !selectedExpiry) {
       setSelectedExpiry(expiries[0]);
     }
   }, [expiries, selectedExpiry]);
-
-  handleExpiriesChange();
 
   // Fetch option chain
   const { 
