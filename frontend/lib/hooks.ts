@@ -1,8 +1,7 @@
 "use client";
 
-import useSWR, { mutate } from "swr";
+import useSWR from "swr";
 import {
-  api,
   fetchWithTimeout,
   parseApiError,
   isServerWakingUp,
@@ -10,90 +9,106 @@ import {
   isFyersError,
   isFyersUnreachable,
   isAuthError,
-  formatFyersSymbol,
 } from "@/lib/api-client";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "https://ai-trading-9qoa.onrender.com";
-
-// Helper to create fetcher with proper error handling
+// Helper to create fetcher with consistent API error handling.
 const createFetcher = <T,>(key: string) => async (): Promise<T> => {
-  const response = await fetchWithTimeout(key, {
-    credentials: "same-origin",
-  });
-
+  const response = await fetchWithTimeout(key, { credentials: "same-origin" });
   if (!response.ok) {
     const error = parseApiError(await response.json().catch(() => null), response.status);
-
-    if (response.status === 401 && !isFyersNotConnected(error)) {
-      if (typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
-        window.location.href = `/login?redirect=${encodeURIComponent(window.location.pathname)}`;
-      }
+    if (response.status === 401 && !isFyersNotConnected(error) && typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
+      window.location.href = `/login?redirect=${encodeURIComponent(window.location.pathname)}`;
     }
-
     throw error;
   }
-
   return response.json();
 };
 
-// Helper for POST requests
-const createPostFetcher = <T,>(key: string, body: any) => async (): Promise<T> => {
+const createPostFetcher = <T,>(key: string, body: unknown) => async (): Promise<T> => {
   const response = await fetchWithTimeout(key, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
     credentials: "same-origin",
   });
-
   if (!response.ok) {
     const error = parseApiError(await response.json().catch(() => null), response.status);
-
-    if (response.status === 401 && !isFyersNotConnected(error)) {
-      if (typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
-        window.location.href = `/login?redirect=${encodeURIComponent(window.location.pathname)}`;
-      }
+    if (response.status === 401 && !isFyersNotConnected(error) && typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
+      window.location.href = `/login?redirect=${encodeURIComponent(window.location.pathname)}`;
     }
-
     throw error;
   }
-
   return response.json();
 };
 
+type Quote = {
+  symbol?: string;
+  ltp?: number | null;
+  change?: number | null;
+  change_percent?: number | null;
+  changePercent?: number | null;
+  updated_at?: string;
+  [key: string]: unknown;
+};
+
+function normalizeQuotes(payload: unknown): Record<string, Quote> {
+  if (!payload || typeof payload !== "object") return {};
+  const response = payload as { quotes?: unknown; data?: unknown };
+  const rows = Array.isArray(response.data)
+    ? response.data
+    : Array.isArray(response.quotes)
+      ? response.quotes
+      : null;
+  if (rows) {
+    return rows.reduce<Record<string, Quote>>((result, row) => {
+      if (!row || typeof row !== "object") return result;
+      const quote = row as Quote;
+      if (quote.symbol) result[quote.symbol] = quote;
+      return result;
+    }, {});
+  }
+  const quotes = response.quotes && typeof response.quotes === "object" ? response.quotes as Record<string, Quote> : {};
+  return quotes;
+}
+
+function isFyersConnected(status: any): boolean {
+  const fyers = status?.fyers ?? status;
+  return Boolean(fyers?.connected && fyers?.valid);
+}
+
+function isFyersUnauthorized(error: unknown): boolean {
+  return Boolean(error && typeof error === "object" && (error as { status?: number }).status === 401 && isFyersNotConnected(error));
+}
+
 export function useMarketQuotes(symbols: string[]) {
-  const symbolsKey = symbols.length > 0 ? symbols.sort().join(",") : "";
-  
-  const { data, error, isLoading, mutate } = useSWR<{ quotes: Record<string, any>; total: number }>(
-    symbolsKey ? [`/api/v1/market/quotes`, symbols] : null,
-    ([, syms]) => createPostFetcher<{ quotes: Record<string, any>; total: number }>("/api/v1/market/quotes", { symbols: syms })(),
+  const stableSymbols = [...symbols].sort();
+  const symbolsKey = stableSymbols.join(",");
+  const { data, error, isLoading, mutate } = useSWR<unknown>(
+    symbolsKey ? ["/api/v1/market/quotes", symbolsKey] : null,
+    () => createPostFetcher<unknown>("/api/v1/market/quotes", { symbols: stableSymbols })(),
     {
-      refreshInterval: (data) => {
-        if (data?.quotes) {
-          const now = Date.now();
-          const hasRecent = Object.values(data.quotes).some(q => 
-            q.updated_at && (now - new Date(q.updated_at).getTime()) < 60000
-          );
-          return hasRecent ? 3000 : 30000;
-        }
-        return 30000;
+      refreshInterval: (payload) => {
+        const quotes = normalizeQuotes(payload);
+        const hasRecent = Object.values(quotes).some((quote) => quote.updated_at && Date.now() - new Date(quote.updated_at).getTime() < 60000);
+        return hasRecent ? 3000 : 30000;
       },
       revalidateOnFocus: true,
       revalidateOnReconnect: true,
       dedupingInterval: 2000,
-    }
+    },
   );
-
-  // Backend returns { quotes: { "<fyers-symbol>": { ltp, change, ... } }, total, ... }
+  const { status } = useFyersStatus();
+  const quotes = normalizeQuotes(data);
   console.log("API Response (quotes):", data);
-
   return {
-    quotes: data?.quotes || {},
-    total: data?.total || 0,
+    quotes,
+    response: data && typeof data === "object" ? { data } : undefined,
+    total: (data as any)?.total ?? Object.keys(quotes).length,
     isLoading,
     isError: !!error,
-    error: error?.message,
+    error: (error as any)?.message,
     errorCode: (error as any)?.code,
-    isFyersNotConnected: isFyersNotConnected(error),
+    isFyersNotConnected: !isFyersConnected(status) && isFyersUnauthorized(error),
     isFyersError: isFyersError(error),
     isFyersUnreachable: isFyersUnreachable(error),
     isServerWakingUp: isServerWakingUp(error),
@@ -102,45 +117,24 @@ export function useMarketQuotes(symbols: string[]) {
 }
 
 export function useOptionChain(symbol: string, expiry: string, strikes = 10) {
-  const { data, error, isLoading, mutate } = useSWR<{
-    symbol: string;
-    expiry: string;
-    spot_price: number;
-    atm_strike: number;
-    strike_interval: number;
-    option_chain: any[];
-    expiries: string[];
-    timestamp: string;
-  }>(
-    symbol && expiry ? `/api/v1/market/option-chain?symbol=${encodeURIComponent(symbol)}&expiry=${encodeURIComponent(expiry)}&strikes=${strikes}` : null,
-    createFetcher<{
-      symbol: string;
-      expiry: string;
-      spot_price: number;
-      atm_strike: number;
-      strike_interval: number;
-      option_chain: any[];
-      expiries: string[];
-      timestamp: string;
-    }>(`/api/v1/market/option-chain?symbol=${encodeURIComponent(symbol)}&expiry=${encodeURIComponent(expiry)}&strikes=${strikes}`),
-    {
-      refreshInterval: (data) => data ? 3000 : 30000,
-      revalidateOnFocus: true,
-      revalidateOnReconnect: true,
-      dedupingInterval: 2000,
-    }
-  );
-
-  // Backend returns { option_chain: [...], spot_price, atm_strike, expiries, ... }
+  const key = symbol && expiry
+    ? `/api/v1/market/option-chain?symbol=${encodeURIComponent(symbol)}&expiry=${encodeURIComponent(expiry)}&strikes=${strikes}`
+    : null;
+  const { data, error, isLoading, mutate } = useSWR<any>(key, key ? createFetcher<any>(key) : null, {
+    refreshInterval: (payload) => payload ? 3000 : 30000,
+    revalidateOnFocus: true,
+    revalidateOnReconnect: true,
+    dedupingInterval: 2000,
+  });
+  const { status } = useFyersStatus();
   console.log("API Response (option-chain):", data);
-
   return {
     chainData: data,
     isLoading,
     isError: !!error,
-    error: error?.message,
+    error: (error as any)?.message,
     errorCode: (error as any)?.code,
-    isFyersNotConnected: isFyersNotConnected(error),
+    isFyersNotConnected: !isFyersConnected(status) && isFyersUnauthorized(error),
     isFyersError: isFyersError(error),
     isFyersUnreachable: isFyersUnreachable(error),
     isServerWakingUp: isServerWakingUp(error),
@@ -149,50 +143,25 @@ export function useOptionChain(symbol: string, expiry: string, strikes = 10) {
 }
 
 export function useAISignals(symbols: string[] = ["NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY"]) {
-  const { data, error, isLoading, mutate } = useSWR<{
-    signals: Array<{
-      symbol: string;
-      signal: "BUY" | "SELL" | "HOLD";
-      confidence: number;
-      rsi: number;
-      ema_trend: "BULLISH" | "BEARISH" | "NEUTRAL";
-      price: number;
-      timestamp: string;
-    }>;
-    timestamp: string;
-  }>(
-    symbols.length > 0 ? `/api/v1/market/ai/signals?symbols=${symbols.join(",")}` : null,
-    createFetcher<{
-      signals: Array<{
-        symbol: string;
-        signal: "BUY" | "SELL" | "HOLD";
-        confidence: number;
-        rsi: number;
-        ema_trend: "BULLISH" | "BEARISH" | "NEUTRAL";
-        price: number;
-        timestamp: string;
-      }>;
-      timestamp: string;
-    }>(`/api/v1/market/ai/signals?symbols=${symbols.join(",")}`),
-    {
-      refreshInterval: 30000,
-      revalidateOnFocus: true,
-      revalidateOnReconnect: true,
-      dedupingInterval: 10000,
-    }
-  );
-
-  // Backend returns { signals: [...], timestamp }
+  const query = symbols.map(encodeURIComponent).join(",");
+  const key = symbols.length ? `/api/v1/market/ai/signals?symbols=${query}` : null;
+  const { data, error, isLoading, mutate } = useSWR<any>(key, key ? createFetcher<any>(key) : null, {
+    refreshInterval: 30000,
+    revalidateOnFocus: true,
+    revalidateOnReconnect: true,
+    dedupingInterval: 10000,
+  });
+  const { status } = useFyersStatus();
+  const signals = Array.isArray(data) ? data : Array.isArray(data?.signals) ? data.signals : [];
   console.log("API Response (ai-signals):", data);
-
   return {
-    signals: data?.signals || [],
+    signals,
     timestamp: data?.timestamp,
     isLoading,
     isError: !!error,
-    error: error?.message,
+    error: (error as any)?.message,
     errorCode: (error as any)?.code,
-    isFyersNotConnected: isFyersNotConnected(error),
+    isFyersNotConnected: !isFyersConnected(status) && isFyersUnauthorized(error),
     isFyersError: isFyersError(error),
     isFyersUnreachable: isFyersUnreachable(error),
     isServerWakingUp: isServerWakingUp(error),
@@ -200,29 +169,21 @@ export function useAISignals(symbols: string[] = ["NIFTY", "BANKNIFTY", "FINNIFT
   };
 }
 
-export function useCandles(symbol: string, interval: string = "5m", days: number = 5) {
-  const { data, error, isLoading, mutate } = useSWR<{ candles: any[]; market_open?: boolean; note?: string | null }>(
-    symbol ? `/api/v1/market/candles?symbol=${encodeURIComponent(symbol)}&interval=${encodeURIComponent(interval)}&days=${days}` : null,
-    createFetcher<{ candles: any[]; market_open?: boolean; note?: string | null }>(`/api/v1/market/candles?symbol=${encodeURIComponent(symbol)}&interval=${encodeURIComponent(interval)}&days=${days}`),
-    {
-      refreshInterval: 60000,
-      revalidateOnFocus: true,
-      revalidateOnReconnect: true,
-      dedupingInterval: 30000,
-    }
-  );
-
-  // The backend wraps the candle rows under `candles`:
-  // { "candles": [{time, open, high, low, close, volume}], "market_open", "note" }
-  console.log("API Response (candles):", data);
-
+export function useCandles(symbol: string, interval = "5m", days = 5) {
+  const key = symbol ? `/api/v1/market/candles?symbol=${encodeURIComponent(symbol)}&interval=${encodeURIComponent(interval)}&days=${days}` : null;
+  const { data, error, isLoading, mutate } = useSWR<any>(key, key ? createFetcher<any>(key) : null, {
+    refreshInterval: 60000,
+    revalidateOnFocus: true,
+    revalidateOnReconnect: true,
+    dedupingInterval: 30000,
+  });
   return {
     candles: data?.candles || [],
     isLoading,
     isError: !!error,
-    error: error?.message,
+    error: (error as any)?.message,
     errorCode: (error as any)?.code,
-    isFyersNotConnected: isFyersNotConnected(error),
+    isFyersNotConnected: isFyersUnauthorized(error),
     isFyersError: isFyersError(error),
     isFyersUnreachable: isFyersUnreachable(error),
     isServerWakingUp: isServerWakingUp(error),
@@ -231,146 +192,38 @@ export function useCandles(symbol: string, interval: string = "5m", days: number
 }
 
 export function useMarketStatus() {
-  const { data, error, isLoading, mutate } = useSWR<{
-    is_open: boolean;
-    is_trading_day: boolean;
-    next_open: string | null;
-    next_close: string | null;
-    time_to_close_minutes: number;
-    timezone: string;
-  }>(
-    "/api/v1/market/status",
-    createFetcher<{
-      is_open: boolean;
-      is_trading_day: boolean;
-      next_open: string | null;
-      next_close: string | null;
-      time_to_close_minutes: number;
-      timezone: string;
-    }>("/api/v1/market/status"),
-    {
-      refreshInterval: 30000,
-      revalidateOnFocus: true,
-      revalidateOnReconnect: true,
-      dedupingInterval: 10000,
-    }
-  );
-
-  return {
-    status: data,
-    isLoading,
-    isError: !!error,
-    error: error?.message,
-    mutate,
-  };
+  const { data, error, isLoading, mutate } = useSWR<any>("/api/v1/market/status", createFetcher<any>("/api/v1/market/status"), {
+    refreshInterval: 30000, revalidateOnFocus: true, revalidateOnReconnect: true, dedupingInterval: 10000,
+  });
+  return { status: data, isLoading, isError: !!error, error: (error as any)?.message, mutate };
 }
 
 export function useFyersStatus() {
-  const { data, error, isLoading, mutate } = useSWR<any>(
-    "/api/v1/fyers/status",
-    createFetcher<any>("/api/v1/fyers/status"),
-    {
-      refreshInterval: 30000,
-      revalidateOnFocus: true,
-      revalidateOnReconnect: true,
-      dedupingInterval: 10000,
-    }
-  );
-
-  return {
-    status: data,
-    isLoading,
-    isError: !!error,
-    error: error?.message,
-    mutate,
-  };
+  const { data, error, isLoading, mutate } = useSWR<any>("/api/v1/fyers/status", createFetcher<any>("/api/v1/fyers/status"), {
+    refreshInterval: 30000, revalidateOnFocus: true, revalidateOnReconnect: true, dedupingInterval: 10000,
+  });
+  return { status: data, isLoading, isError: !!error, error: (error as any)?.message, mutate };
 }
 
 export function useFullStatus() {
-  const { data, error, isLoading, mutate } = useSWR<any>(
-    "/api/v1/fyers/status",
-    createFetcher<any>("/api/v1/fyers/status"),
-    {
-      refreshInterval: 30000,
-      revalidateOnFocus: true,
-      revalidateOnReconnect: true,
-      dedupingInterval: 10000,
-    }
-  );
-
-  // Backend returns FLAT: { connected: bool, valid: bool, message, token_expires_at, ... }
-  console.log("API Response (fyers/status):", data);
-
-  return {
-    status: data,
-    isLoading,
-    isError: !!error,
-    error: error?.message,
-    mutate,
-  };
+  const result = useFyersStatus();
+  console.log("API Response (fyers/status):", result.status);
+  return result;
 }
 
 export function useExpiries(symbol: string) {
-  const { data, error, isLoading, mutate } = useSWR<{ expiries: string[] }>(
-    symbol ? `/api/v1/market/expiries?symbol=${encodeURIComponent(symbol)}` : null,
-    createFetcher<{ expiries: string[] }>(`/api/v1/market/expiries?symbol=${encodeURIComponent(symbol)}`),
-    {
-      refreshInterval: 3600000,
-      revalidateOnFocus: true,
-      revalidateOnReconnect: true,
-      dedupingInterval: 300000,
-    }
-  );
-
-  return {
-    expiries: data?.expiries || [],
-    isLoading,
-    isError: !!error,
-    error: error?.message,
-    mutate,
-  };
+  const key = symbol ? `/api/v1/market/expiries?symbol=${encodeURIComponent(symbol)}` : null;
+  const { data, error, isLoading, mutate } = useSWR<{ expiries?: string[] }>(key, key ? createFetcher<{ expiries?: string[] }>(key) : null, {
+    refreshInterval: 3600000, revalidateOnFocus: true, revalidateOnReconnect: true, dedupingInterval: 300000,
+  });
+  return { expiries: data?.expiries || [], isLoading, isError: !!error, error: (error as any)?.message, mutate };
 }
 
 export function useMe() {
-  const { data, error, isLoading, mutate } = useSWR<{
-    id: number;
-    email: string;
-    role: string;
-    is_active: boolean;
-    subscription: {
-      plan_type: string;
-      start_date: string | null;
-      end_date: string | null;
-      is_active: boolean;
-    } | null;
-  }>(
-    "/api/auth/me",
-    createFetcher<{
-      id: number;
-      email: string;
-      role: string;
-      is_active: boolean;
-      subscription: {
-        plan_type: string;
-        start_date: string | null;
-        end_date: string | null;
-        is_active: boolean;
-      } | null;
-    }>("/api/auth/me"),
-    {
-      revalidateOnFocus: true,
-      revalidateOnReconnect: true,
-      dedupingInterval: 60000,
-    }
-  );
-
-  return {
-    user: data,
-    isLoading,
-    isError: !!error,
-    error: error?.message,
-    mutate,
-  };
+  const { data, error, isLoading, mutate } = useSWR<any>("/api/auth/me", createFetcher<any>("/api/auth/me"), {
+    revalidateOnFocus: true, revalidateOnReconnect: true, dedupingInterval: 60000,
+  });
+  return { user: data, isLoading, isError: !!error, error: (error as any)?.message, mutate };
 }
 
 export {
