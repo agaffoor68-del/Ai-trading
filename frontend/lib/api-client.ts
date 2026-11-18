@@ -125,7 +125,7 @@ export async function apiFetch<T>(endpoint: string, options: FetchOptions = {}):
     }
     
     // User auth failure - redirect to login unless the caller handles the error.
-    if (redirectOnUnauthorized) {
+    if (redirectOnUnauthorized && typeof window !== "undefined") {
       window.location.href = `/login?redirect=${encodeURIComponent(window.location.pathname)}`;
     }
     throw error;

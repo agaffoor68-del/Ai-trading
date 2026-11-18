@@ -10,6 +10,7 @@ import { SymbolProvider, useSelectedSymbol } from "@/lib/symbol-context";
 import { OptionsChain } from "./OptionsChain";
 import { AISignalCard } from "./AISignalCard";
 import { OrderTicket } from "./OrderTicket";
+import { DashboardErrorBoundary } from "./DashboardErrorBoundary";
 
 function MainChart() {
   const { selectedSymbol } = useSelectedSymbol();
@@ -18,9 +19,10 @@ function MainChart() {
 
 export function DashboardLayout() {
   return (
-    <SymbolProvider>
-    <SidebarProvider>
-    <div className="min-h-screen bg-true-black text-white">
+    <DashboardErrorBoundary>
+      <SymbolProvider>
+      <SidebarProvider>
+      <div className="min-h-screen bg-true-black text-white">
       {/* Sidebar */}
       <Sidebar />
       
@@ -56,7 +58,8 @@ export function DashboardLayout() {
         </main>
       </div>
     </div>
-    </SidebarProvider>
-    </SymbolProvider>
+      </SidebarProvider>
+      </SymbolProvider>
+    </DashboardErrorBoundary>
   );
 }
