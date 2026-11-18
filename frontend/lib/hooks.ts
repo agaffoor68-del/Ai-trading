@@ -83,6 +83,9 @@ export function useMarketQuotes(symbols: string[]) {
     }
   );
 
+  // Backend returns { quotes: { "<fyers-symbol>": { ltp, change, ... } }, total, ... }
+  console.log("API Response (quotes):", data);
+
   return {
     quotes: data?.quotes || {},
     total: data?.total || 0,
@@ -127,6 +130,9 @@ export function useOptionChain(symbol: string, expiry: string, strikes = 10) {
       dedupingInterval: 2000,
     }
   );
+
+  // Backend returns { option_chain: [...], spot_price, atm_strike, expiries, ... }
+  console.log("API Response (option-chain):", data);
 
   return {
     chainData: data,
@@ -176,6 +182,9 @@ export function useAISignals(symbols: string[] = ["NIFTY", "BANKNIFTY", "FINNIFT
     }
   );
 
+  // Backend returns { signals: [...], timestamp }
+  console.log("API Response (ai-signals):", data);
+
   return {
     signals: data?.signals || [],
     timestamp: data?.timestamp,
@@ -192,9 +201,9 @@ export function useAISignals(symbols: string[] = ["NIFTY", "BANKNIFTY", "FINNIFT
 }
 
 export function useCandles(symbol: string, interval: string = "5m", days: number = 5) {
-  const { data, error, isLoading, mutate } = useSWR<any[]>(
+  const { data, error, isLoading, mutate } = useSWR<{ candles: any[]; market_open?: boolean; note?: string | null }>(
     symbol ? `/api/v1/market/candles?symbol=${encodeURIComponent(symbol)}&interval=${encodeURIComponent(interval)}&days=${days}` : null,
-    createFetcher<any[]>(`/api/v1/market/candles?symbol=${encodeURIComponent(symbol)}&interval=${encodeURIComponent(interval)}&days=${days}`),
+    createFetcher<{ candles: any[]; market_open?: boolean; note?: string | null }>(`/api/v1/market/candles?symbol=${encodeURIComponent(symbol)}&interval=${encodeURIComponent(interval)}&days=${days}`),
     {
       refreshInterval: 60000,
       revalidateOnFocus: true,
@@ -203,8 +212,12 @@ export function useCandles(symbol: string, interval: string = "5m", days: number
     }
   );
 
+  // The backend wraps the candle rows under `candles`:
+  // { "candles": [{time, open, high, low, close, volume}], "market_open", "note" }
+  console.log("API Response (candles):", data);
+
   return {
-    candles: data || [],
+    candles: data?.candles || [],
     isLoading,
     isError: !!error,
     error: error?.message,
@@ -284,6 +297,9 @@ export function useFullStatus() {
       dedupingInterval: 10000,
     }
   );
+
+  // Backend returns FLAT: { connected: bool, valid: bool, message, token_expires_at, ... }
+  console.log("API Response (fyers/status):", data);
 
   return {
     status: data,

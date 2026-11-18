@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
 import { Wifi, Bell, User, Circle, ChevronDown, Menu, X, Shield, AlertCircle, CheckCircle, LogOut, Crown, Settings } from "lucide-react";
-import { useFullStatus } from "@/lib/hooks";
+import { useFullStatus, useMarketStatus } from "@/lib/hooks";
 import { useMe } from "@/lib/hooks";
 import { useSidebar } from "./Sidebar";
 import { api } from "@/lib/api-client";
@@ -20,10 +20,14 @@ export function Header() {
   const { isOpen, toggle } = useSidebar();
   const { status, isLoading, mutate } = useFullStatus();
   const { user, isLoading: userLoading, mutate: mutateMe } = useMe();
-  const { isMarketOpen, isTradingDay, timeToCloseMinutes } = status?.market || { isMarketOpen: false, isTradingDay: false, timeToCloseMinutes: 0 };
-  const fyersConnected = status?.fyers?.connected && status?.fyers?.valid;
-  const kotakConfigured = status?.kotak?.configured;
-  const kotakConnected = status?.kotak?.connected;
+  const { status: marketStatus } = useMarketStatus();
+  const isMarketOpen = marketStatus?.is_open ?? false;
+  const isTradingDay = marketStatus?.is_trading_day ?? false;
+  const timeToCloseMinutes = marketStatus?.time_to_close_minutes ?? 0;
+  // /api/v1/fyers/status returns a FLAT object: { connected, valid, message, ... }
+  const fyersConnected = Boolean(status?.connected) && Boolean(status?.valid);
+  const kotakConfigured = false;
+  const kotakConnected = false;
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const router = useRouter();
 
