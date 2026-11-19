@@ -43,7 +43,6 @@ interface OptionChainResponse {
   option_chain: StrikeData[];
   /** Optional legacy/enveloped array shape supported by some deployments. */
   data?: StrikeData[];
-  expiries: string[];
   timestamp: string;
 }
 
@@ -138,11 +137,16 @@ function isFyersConnected(status: any): boolean {
 export function useMarketQuotes(symbols: string[]) {
   const stableSymbols = [...symbols].sort();
   const symbolsKey = stableSymbols.join(",");
+  const indexSymbols = new Set(["NSE:NIFTY50-INDEX", "NSE:NIFTYBANK-INDEX", "BSE:SENSEX-INDEX"]);
+  const includesIndex = stableSymbols.some((symbol) => indexSymbols.has(symbol));
   const { data, error, isLoading, mutate } = useSWR<unknown>(
     symbolsKey ? ["/api/v1/market/quotes", symbolsKey] : null,
     () => createPostFetcher<unknown>("/api/v1/market/quotes", { symbols: stableSymbols })(),
     {
+      // Index widgets need prompt recovery from a cold/empty Redis cache too;
+      // do not wait 30 seconds for the first live WS tick to appear.
       refreshInterval: (payload) => {
+        if (includesIndex) return 3000;
         const quotes = normalizeQuotes(payload);
         const hasRecent = Object.values(quotes).some((quote) => quote.updated_at && Date.now() - new Date(quote.updated_at).getTime() < 60000);
         return hasRecent ? 3000 : 30000;
@@ -155,7 +159,6 @@ export function useMarketQuotes(symbols: string[]) {
   const { status } = useFyersStatus();
   const quotes = normalizeQuotes(data);
   const sessionExpired = isFyersSessionExpired(error);
-  console.log("API Response (quotes):", data);
   return {
     quotes: sessionExpired ? {} : quotes,
     response: data && typeof data === "object" ? { data } : undefined,
@@ -176,17 +179,20 @@ export function useMarketQuotes(symbols: string[]) {
 export function useOptionChain(symbol: string, expiry: string, strikes = 10) {
   const key = symbol && expiry ? `/api/v1/market/option-chain?symbol=${encodeURIComponent(symbol)}&expiry=${encodeURIComponent(expiry)}&strikes=${strikes}` : null;
   const { data, error, isLoading, mutate } = useSWR<OptionChainResponse>(key, key ? createFetcher<OptionChainResponse>(key) : null, {
-    refreshInterval: (payload) => payload ? 3000 : 30000,
+    // Empty chains are transient while the symbol master/market data warms up.
+    // Keep retrying frequently so the UI switches to the table as soon as rows arrive.
+    refreshInterval: 3000,
     revalidateOnFocus: true,
     revalidateOnReconnect: true,
     dedupingInterval: 2000,
   });
   const { status } = useFyersStatus();
   const sessionExpired = isFyersSessionExpired(error);
-  console.log("API Response (option-chain):", data);
+  const rows = Array.isArray(data?.option_chain) ? data.option_chain : Array.isArray(data?.data) ? data.data : [];
+  const waitingForRows = !error && rows.length === 0;
   return {
     chainData: sessionExpired ? undefined : data,
-    isLoading,
+    isLoading: isLoading || waitingForRows,
     isError: !!error,
     error: (error as any)?.message,
     errorCode: (error as any)?.code,
@@ -208,7 +214,6 @@ export function useAISignals(symbols: string[] = ["NIFTY", "BANKNIFTY", "FINNIFT
   const { status } = useFyersStatus();
   const sessionExpired = isFyersSessionExpired(error);
   const signals = sessionExpired ? [] : Array.isArray(data) ? data : Array.isArray(data?.signals) ? data.signals : [];
-  console.log("API Response (ai-signals):", data);
   return {
     signals,
     timestamp: data?.timestamp,
@@ -262,7 +267,6 @@ export function useFyersStatus() {
 
 export function useFullStatus() {
   const result = useFyersStatus();
-  console.log("API Response (fyers/status):", result.status);
   return result;
 }
 
