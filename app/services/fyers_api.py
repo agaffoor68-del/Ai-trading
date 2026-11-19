@@ -110,90 +110,104 @@ class FyersAPIClient:
     async def get_quotes(self, symbols: List[str]) -> Dict[str, Any]:
         """
         Fetch live quotes for multiple symbols from Fyers API v3.
-        
-        Fyers Quotes API: GET /api/v3/quotes?symbols=NSE:NIFTY50-INDEX,NSE:SBIN-EQ
-        Authorization: client_id:access_token
-        Max 50 symbols per call.
-        Returns: { "d": [ { "v": { "symbol": "NSE:NIFTY50-INDEX", "ltp": 24345.85, "ch": 124.35, "chp": 0.51 } } ] }
+
+        Fyers commonly returns {"s":"ok","d":[{"n":"NSE:...","v":{"lp":123.4}}]}.
+        Normalize both that shape and the older code/symbol/ltp shape into
+        {symbol: {"symbol": symbol, "ltp": price, ...}} for callers.
         """
-        # Check if token is available
         auth_header = self._get_auth_header()
         if not auth_header:
             logger.error("Fyers authentication not configured")
             return {"error": "Fyers not authenticated. Please login via /api/v1/fyers/connect"}
-        
+
         session = await self._get_session()
-        
-        # Normalize all symbols
         fyers_symbols = [normalize_symbol(s) for s in symbols]
-        
-        # Batch in chunks of 50
-        all_results = {}
+        all_results: Dict[str, Any] = {}
         batch_size = 50
-        
+
         for i in range(0, len(fyers_symbols), batch_size):
             batch = fyers_symbols[i:i + batch_size]
-            symbols_param = ",".join(batch)
             url = f"{FYERS_DATA_BASE}/quotes"
-            params = {"symbols": symbols_param}
-            
+            params = {"symbols": ",".join(batch)}
+
             try:
                 async with session.get(
-                    url, 
-                    params=params, 
+                    url,
+                    params=params,
                     headers={"Authorization": auth_header, "Content-Type": "application/json"},
-                    timeout=self.FYERS_TIMEOUT
+                    timeout=self.FYERS_TIMEOUT,
                 ) as resp:
                     if resp.status != 200:
                         error_text = await resp.text()
-                        logger.error(f"Fyers quotes API error: HTTP {resp.status} - {error_text}")
+                        logger.error("Fyers quotes API error: HTTP %s - %s", resp.status, error_text)
                         if resp.status == 401:
                             return {"error": "Fyers token expired or invalid. Please re-login."}
-                        # Continue with other batches
                         continue
-                    
-                    data = await resp.json()
-                    
-                    if data.get("code") != 200:
-                        logger.error(f"Fyers quotes error code: {data.get('code')} - {data.get('message')}")
-                        if data.get("code") == 401:
+
+                    try:
+                        response = await resp.json(content_type=None)
+                    except Exception:
+                        response = {}
+                    logger.info("Raw Fyers Quote Response: %s", response)
+
+                    # Fyers v3 may return s="ok" instead of code=200.
+                    if not isinstance(response, dict) or (
+                        response.get("code") != 200 and str(response.get("s", "")).lower() != "ok"
+                    ):
+                        logger.error(
+                            "Fyers quotes error: code=%s status=%s message=%s",
+                            response.get("code") if isinstance(response, dict) else None,
+                            response.get("s") if isinstance(response, dict) else None,
+                            response.get("message") if isinstance(response, dict) else "invalid response",
+                        )
+                        if isinstance(response, dict) and response.get("code") == 401:
                             return {"error": "Fyers token expired or invalid. Please re-login."}
-                        # Continue with other batches
                         continue
-                    
-                    for item in data.get("d", []):
-                        v = item.get("v", {})
-                        symbol = v.get("symbol")
-                        if symbol:
-                            all_results[symbol] = {
-                                "symbol": symbol,
-                                "ltp": v.get("ltp"),
-                                "change": v.get("ch"),
-                                "change_percent": v.get("chp"),
-                                "open": v.get("open"),
-                                "high": v.get("high"),
-                                "low": v.get("low"),
-                                "close": v.get("close"),
-                                "volume": v.get("volume"),
-                                "source": "fyers_api_v3",
-                                "updated_at": datetime.now(IST).isoformat(),
-                            }
-                    
-                    logger.info(f"Fetched quotes for {len(batch)} symbols from Fyers API")
-                    
+
+                    for item in response.get("d", []):
+                        if not isinstance(item, dict):
+                            continue
+                        values = item.get("v") or {}
+                        if not isinstance(values, dict):
+                            continue
+                        symbol = values.get("symbol") or item.get("n")
+                        if not symbol and len(batch) == 1:
+                            symbol = batch[0]
+                        if not symbol:
+                            continue
+
+                        # Fyers v3 uses lp (last price); retain aliases for older responses.
+                        ltp = values.get("lp", values.get("ltp"))
+                        if ltp is None:
+                            ltp = item.get("lp", item.get("ltp"))
+                        all_results[symbol] = {
+                            "symbol": symbol,
+                            "ltp": ltp,
+                            "change": values.get("ch", values.get("change")),
+                            "change_percent": values.get("chp", values.get("change_percent")),
+                            "open": values.get("open"),
+                            "high": values.get("high"),
+                            "low": values.get("low"),
+                            "close": values.get("close"),
+                            "volume": values.get("volume", values.get("vol")),
+                            "source": "fyers_api_v3",
+                            "updated_at": datetime.now(IST).isoformat(),
+                        }
+
+                    logger.info("Fetched quotes for %d symbols from Fyers API", len(batch))
+
             except asyncio.TimeoutError:
                 logger.error("Fyers quotes API timeout")
                 continue
             except aiohttp.ClientError as e:
-                logger.error(f"Fyers quotes network error: {e}")
+                logger.error("Fyers quotes network error: %s", e)
                 continue
             except Exception as e:
-                logger.error(f"Fyers quotes API error: {str(e)}")
+                logger.error("Fyers quotes API error: %s", str(e))
                 continue
-        
+
         if not all_results and fyers_symbols:
             return {"error": "Failed to fetch quotes from Fyers"}
-        
         return all_results
 
     async def get_profile(self, access_token: str) -> dict:
@@ -211,20 +225,19 @@ class FyersAPIClient:
         
         try:
             async with session.get(
-                url, 
+                url,
                 headers={"Authorization": auth_header, "Content-Type": "application/json"},
                 timeout=self.FYERS_TIMEOUT
             ) as resp:
                 if resp.status != 200:
-                    logger.warning(f"Fyers profile API returned {resp.status}")
+                    logger.warning("Fyers profile API returned %s", resp.status)
                     return {}
                 data = await resp.json()
-                
                 if data.get("code") == 200 and data.get("data"):
                     return data["data"]
                 return {}
         except Exception as e:
-            logger.error(f"Fyers profile API error: {str(e)}")
+            logger.error("Fyers profile API error: %s", str(e))
             return {}
 
 
