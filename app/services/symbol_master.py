@@ -28,28 +28,27 @@ SYMBOL_MASTER_FILES = {
     "NSE_FO": "NSE_FO.csv",
 }
 
-# CORRECT Fyers Symbol Master column names based on actual Fyers CSV format
-# Fyers CSVs are headerless with 18 columns in this exact order:
-# fytoken, symbol_ticker, ISIN, lot_size, tick_size, trading_session, last_update_date, expiry_date, instrument_type, scrip_code, symbol, segment, strike_price, option_type, underlying_symbol, underlying_scrip_code, underlying_fytoken, reserved
+# Fyers CSVs are headerless and contain 19 columns in this exact order.
 FYERS_COLUMNS = [
-    "fytoken",              # 0: fytoken (numeric instrument ID)
-    "symbol_ticker",        # 1: symbol_ticker (e.g., NSE:SBIN-EQ) - PRIMARY KEY
-    "ISIN",                 # 2: ISIN
-    "lot_size",             # 3: lot_size
-    "tick_size",            # 4: tick_size
-    "trading_session",      # 5: trading_session
-    "last_update_date",     # 6: last_update_date
-    "expiry_date",          # 7: expiry_date
-    "instrument_type",      # 8: instrument_type (10=EQ, 11=FUT, 12=OPT)
-    "scrip_code",           # 9: scrip_code
-    "symbol",               # 10: symbol (e.g., SBIN-EQ)
-    "segment",              # 11: segment (CM, FO)
-    "strike_price",         # 12: strike_price
-    "option_type",          # 13: option_type (CE/PE)
-    "underlying_symbol",    # 14: underlying_symbol
-    "underlying_scrip_code", # 15: underlying_scrip_code
-    "underlying_fytoken",   # 16: underlying_fytoken
-    "reserved",             # 17: reserved
+    "fytoken",
+    "symbol_ticker",
+    "symbol_description",
+    "symbol_shortname",
+    "ISIN",
+    "lot_size",
+    "tick_size",
+    "trading_session",
+    "last_update_date",
+    "expiry_date",
+    "instrument_type",
+    "scrip_code",
+    "segment",
+    "strike_price",
+    "option_type",
+    "underlying_symbol",
+    "underlying_scrip_code",
+    "underlying_fytoken",
+    "reserved",
 ]
 
 
@@ -91,59 +90,49 @@ class SymbolMasterDownloader:
             return []
 
         try:
-            # Read headerless CSV with explicit column names
+            # Read headerless CSV with the exact 19-column Fyers schema.
             df = pd.read_csv(
                 io.StringIO(csv_content),
                 header=None,
                 names=FYERS_COLUMNS,
-                dtype=str,  # Read all as strings first
+                dtype=str,
                 skipinitialspace=True,
             )
-            
+
             logger.info(f"Raw DataFrame shape for {exchange}: {df.shape}")
             logger.info(f"Columns: {list(df.columns)}")
-            
-            # DEBUG: Log unique values before cleaning
-            logger.info(f"DEBUG {exchange} - instrument_type unique: {df['instrument_type'].unique()[:20]}")
-            logger.info(f"DEBUG {exchange} - segment unique: {df['segment'].unique()[:20]}")
-            logger.info(f"DEBUG {exchange} - symbol_ticker sample: {df['symbol_ticker'].head(5).tolist()}")
-            logger.info(f"DEBUG {exchange} - symbol sample: {df['symbol'].head(5).tolist()}")
-            
-            # Strip whitespace from all string columns FIRST
+
+            # Strip whitespace from all string columns before filtering.
             for col in df.select_dtypes(include=['object']).columns:
                 df[col] = df[col].str.strip()
-            
-            # Convert to uppercase for consistent filtering
+
             df['instrument_type'] = df['instrument_type'].str.upper()
             df['segment'] = df['segment'].str.upper()
-            
-            logger.info(f"DEBUG {exchange} - instrument_type unique after cleaning: {df['instrument_type'].unique()[:20]}")
-            logger.info(f"DEBUG {exchange} - segment unique after cleaning: {df['segment'].unique()[:20]}")
-            
-            # Replace empty strings with None
+
+            # Replace empty strings with None.
             df = df.replace('', None)
-            
-            # Filter out metadata rows: keep rows with valid fytoken (numeric) and valid symbol
-            df = df[df['fytoken'].str.isnumeric()]
-            df = df[df['symbol'].notna()]
-            
-            # For NSE_CM, keep EQ instruments; for NSE_FO, keep all FUT/OPT
+
+            # The canonical Fyers ticker is symbol_ticker; shortname and
+            # description are separate display fields, not ticker substitutes.
+            df = df[df['fytoken'].notna() & df['fytoken'].str.isnumeric()]
+            df = df[df['symbol_ticker'].notna()]
+
+            # For NSE_CM, keep EQ instruments; for NSE_FO, keep all FUT/OPT.
             if exchange == "NSE_CM":
-                # Keep EQ (Equity) instruments - numerical code 10
                 df = df[df['instrument_type'].isin(['10', 'EQ', 'EQUITY', 'STK'])]
                 logger.info(f"Filtered for EQ instruments (code 10) in {exchange}")
             elif exchange == "NSE_FO":
-                # Keep FUT (Futures, code 11) and OPT (Options, code 12) instruments
                 df = df[df['instrument_type'].isin(['11', '12', 'FUT', 'OPT', 'FUTURE', 'OPTION'])]
                 logger.info(f"Filtered for FUT/OPT instruments (codes 11/12) in {exchange}")
-            
+
             logger.info(f"Filtered DataFrame shape for {exchange}: {df.shape}")
-            
-            # Log sample of filtered data
+
             if not df.empty:
-                logger.info(f"Sample filtered rows for {exchange}:")
-                logger.info(df[['fytoken', 'symbol_ticker', 'symbol', 'instrument_type', 'segment', 'expiry_date', 'strike_price', 'option_type']].head(10).to_string())
-            
+                logger.info("Sample filtered rows for %s:\n%s", exchange, df[
+                    ['fytoken', 'symbol_ticker', 'symbol_description', 'symbol_shortname',
+                     'instrument_type', 'segment', 'expiry_date', 'strike_price', 'option_type']
+                ].head(10).to_string())
+
             if df.empty:
                 logger.warning(f"No valid instrument rows found for {exchange} after filtering")
                 return []
@@ -151,50 +140,46 @@ class SymbolMasterDownloader:
             instruments = []
             for _, row in df.iterrows():
                 try:
-                    # Skip rows with missing required fields
-                    if not row.get('symbol') or not row.get('fytoken'):
+                    if not row.get('symbol_ticker') or not row.get('fytoken'):
                         continue
-                    
-                    # Use symbol_ticker as the primary symbol (e.g., "NSE:NIFTY50-INDEX")
-                    symbol_ticker = row.get('symbol_ticker', '')
-                    symbol = row['symbol']
-                    
-                    # If symbol_ticker has exchange prefix, use it
-                    if symbol_ticker and ':' in symbol_ticker:
-                        # symbol_ticker is like "NSE:SBIN-EQ" or "NSE:NIFTY50-INDEX"
-                        # This is the correct Fyers ticker format
-                        pass
-                    else:
-                        # Fallback: construct from exchange and symbol
-                        symbol_ticker = f"{exchange}:{symbol}"
-                    
-                    # Parse numeric fields
-                    lot_size = int(row['lot_size']) if row['lot_size'] and row['lot_size'].isdigit() else None
-                    strike = float(row['strike_price']) if row['strike_price'] and row['strike_price'].replace('.', '').isdigit() else None
-                    
-                    # Parse expiry date - handle multiple formats
+
+                    # Preserve the canonical ticker supplied by Fyers. If a
+                    # ticker lacks its exchange prefix, use the NSE prefix.
+                    symbol_ticker = row['symbol_ticker']
+                    if ':' not in symbol_ticker:
+                        symbol_ticker = f"NSE:{symbol_ticker}"
+
+                    lot_size_value = row.get('lot_size')
+                    lot_size = int(lot_size_value) if lot_size_value and lot_size_value.isdigit() else None
+                    strike_value = row.get('strike_price')
+                    try:
+                        strike = float(strike_value) if strike_value else None
+                    except (TypeError, ValueError):
+                        strike = None
+
+                    # Parse expiry date - handle multiple formats.
                     expiry = None
-                    if row['expiry_date']:
-                        try:
-                            expiry = datetime.strptime(row['expiry_date'], "%Y-%m-%d")
-                        except ValueError:
+                    expiry_value = row.get('expiry_date')
+                    if expiry_value:
+                        for date_format in ("%Y-%m-%d", "%d-%b-%Y"):
                             try:
-                                expiry = datetime.strptime(row['expiry_date'], "%d-%b-%Y")
+                                expiry = datetime.strptime(expiry_value, date_format)
+                                break
                             except ValueError:
-                                pass
-                    
+                                continue
+
                     instruments.append(
                         {
-                            "symbol": symbol_ticker,  # Use full Fyers ticker (e.g., NSE:NIFTY50-INDEX)
-                            "name": row['symbol'],    # Short name (e.g., SBIN-EQ, NIFTY50-INDEX)
-                            "exchange": exchange,     # NSE_CM or NSE_FO
-                            "segment": row['segment'],
+                            "symbol": symbol_ticker,
+                            "name": row.get('symbol_shortname') or row.get('symbol_description') or symbol_ticker,
+                            "exchange": exchange,
+                            "segment": row.get('segment'),
                             "lot_size": lot_size,
-                            "tick_size": row['tick_size'],
-                            "instrument_type": row['instrument_type'],
+                            "tick_size": row.get('tick_size'),
+                            "instrument_type": row.get('instrument_type'),
                             "expiry": expiry,
                             "strike": strike,
-                            "option_type": row['option_type'],
+                            "option_type": row.get('option_type'),
                             "fyers_token": row['fytoken'],
                             "is_active": 1,
                             "created_at": datetime.now(IST),
@@ -207,7 +192,7 @@ class SymbolMasterDownloader:
 
             logger.info(f"Successfully parsed {len(instruments)} instruments from {exchange}")
             return instruments
-            
+
         except Exception as e:
             logger.error(f"Failed to parse CSV for {exchange}: {e}")
             import traceback
@@ -228,7 +213,7 @@ class SymbolMasterDownloader:
                 if not csv_content.strip():
                     logger.warning(f"Empty CSV content for {filename}, skipping...")
                     continue
-                    
+
                 instruments = self.parse_csv(csv_content, exchange)
                 logger.info(f"Parsed {len(instruments)} instruments from {filename}")
 
@@ -250,7 +235,7 @@ class SymbolMasterDownloader:
                         f"Inserted {min(i + batch_size, len(instruments))}/{len(instruments)} "
                         f"{exchange} instruments"
                     )
-                
+
                 total_instruments += len(instruments)
 
             logger.info(f"Symbol master load complete: {total_instruments} total instruments")
