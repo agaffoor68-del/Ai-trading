@@ -116,39 +116,86 @@ type Quote = {
 };
 
 function normalizeSymbolKey(symbol: string): string {
-  return symbol
-    .trim()
-    .toUpperCase()
-    .replace(/^NSE:/, "")
+  let normalized = symbol.trim().toUpperCase().replace(/\s+/g, " ");
+  const separator = normalized.indexOf(":");
+  if (separator >= 0) {
+    const exchange = normalized.slice(0, separator);
+    const alias = normalized.slice(separator + 1).trim();
+    if (["NSE_FO", "NSE_CM", "BSE_CM"].includes(exchange)) {
+      const indexAliases: Record<string, string> = {
+        NIFTY: "NSE:NIFTY50-INDEX",
+        "NIFTY 50": "NSE:NIFTY50-INDEX",
+        NIFTY50: "NSE:NIFTY50-INDEX",
+        BANKNIFTY: "NSE:NIFTYBANK-INDEX",
+        "BANK NIFTY": "NSE:NIFTYBANK-INDEX",
+        "NIFTY BANK": "NSE:NIFTYBANK-INDEX",
+        SENSEX: "BSE:SENSEX-INDEX",
+      };
+      normalized = indexAliases[alias] ?? alias;
+    }
+  }
+
+  return normalized
+    .replace(/^[A-Z_]+:/, "")
     .replace(/-(?:INDEX|EQ)$/, "")
     .replace(/[^A-Z0-9]/g, "");
 }
 
 function normalizeQuotes(payload: unknown, requestedSymbols: string[]): Record<string, Quote> {
   if (!payload || typeof payload !== "object") return {};
-  const response = payload as { quotes?: unknown; data?: unknown };
-  const rows = Array.isArray(response.data) ? response.data : Array.isArray(response.quotes) ? response.quotes : null;
+  const response = payload as { quotes?: unknown; data?: unknown; d?: unknown };
+  const rows = Array.isArray(response.d)
+    ? response.d
+    : Array.isArray(response.data)
+      ? response.data
+      : Array.isArray(response.quotes)
+        ? response.quotes
+        : null;
+
   if (rows) {
-    const quotes = rows.reduce<Record<string, Quote>>((result, row) => {
-      if (!row || typeof row !== "object") return result;
-      const quote = row as Quote;
-      if (quote.symbol) result[quote.symbol] = quote;
+    const normalizedRows = rows.flatMap((row): Quote[] => {
+      if (!row || typeof row !== "object") return [];
+      const value = row as Record<string, unknown>;
+      const fyersValue = value.v && typeof value.v === "object"
+        ? value.v as Record<string, unknown>
+        : undefined;
+      const symbol = typeof value.n === "string" ? value.n : typeof value.symbol === "string" ? value.symbol : undefined;
+      if (!symbol) return [];
+
+      const numberOrNull = (candidate: unknown): number | null => {
+        if (typeof candidate !== "number" && typeof candidate !== "string") return null;
+        const number = Number(candidate);
+        return Number.isFinite(number) ? number : null;
+      };
+
+      return [{
+        ...value,
+        symbol,
+        ltp: numberOrNull(fyersValue?.lp ?? value.ltp),
+        change: numberOrNull(fyersValue?.ch ?? value.change),
+        change_percent: numberOrNull(fyersValue?.chp ?? value.change_percent ?? value.changePercent),
+        changePercent: numberOrNull(fyersValue?.chp ?? value.changePercent ?? value.change_percent),
+        updated_at: typeof value.updated_at === "string" ? value.updated_at : undefined,
+      } as Quote];
+    });
+
+    const quotes = normalizedRows.reduce<Record<string, Quote>>((result, quote) => {
+      result[quote.symbol!] = quote;
       return result;
     }, {});
 
     for (const requestedSymbol of requestedSymbols) {
       const requestedKey = normalizeSymbolKey(requestedSymbol);
-      const match = rows.find((row) => {
-        if (!row || typeof row !== "object") return false;
-        const returnedSymbol = (row as Quote).symbol;
-        return typeof returnedSymbol === "string" && normalizeSymbolKey(returnedSymbol) === requestedKey;
-      }) as Quote | undefined;
+      const match = normalizedRows.find((quote) => normalizeSymbolKey(quote.symbol ?? "") === requestedKey);
       if (match) quotes[requestedSymbol] = match;
     }
 
     return quotes;
   }
-  return response.quotes && typeof response.quotes === "object" ? response.quotes as Record<string, Quote> : {};
+
+  return response.quotes && typeof response.quotes === "object"
+    ? response.quotes as Record<string, Quote>
+    : {};
 }
 
 function isFyersConnected(status: any): boolean {
