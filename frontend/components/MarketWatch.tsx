@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { TrendingUp, TrendingDown, Minus, Wifi, AlertCircle, Loader2 } from "lucide-react";
+import { TrendingUp, TrendingDown, Minus, Wifi, AlertCircle } from "lucide-react";
 import { useMarketQuotes, formatFyersSymbol, SERVER_WAKING_MESSAGE } from "@/lib/hooks";
 
 interface DisplayItem {
@@ -34,7 +34,7 @@ export function MarketWatch() {
     return { symbol, name: symbol, price, change: typeof quote.change === "number" ? quote.change : 0, changePercent: typeof quote.change_percent === "number" ? quote.change_percent : typeof quote.changePercent === "number" ? quote.changePercent : 0, updatedAt, priceSource: stale ? "stale" : "live" };
   });
 
-  if (isLoading) return <section className="glass rounded-2xl border border-glow-border min-h-[350px] flex items-center justify-center text-text-secondary"><Loader2 className="w-5 h-5 mr-2 animate-spin" />Loading live quotes…</section>;
+  if (isLoading) return <section aria-label="Loading market quotes" aria-busy="true" className="glass rounded-2xl border border-glow-border min-h-[350px] overflow-hidden"><header className="border-b border-glow-border px-4 py-3"><div className="h-5 w-32 rounded bg-card-bg animate-pulse" /></header><div className="flex flex-col gap-3 p-4">{MARKET_SYMBOLS.map(({ symbol }) => <div key={symbol} className="flex items-center justify-between py-2"><div className="flex flex-col gap-2"><div className="h-4 w-24 rounded bg-card-bg animate-pulse" /><div className="h-3 w-16 rounded bg-card-bg animate-pulse" /></div><div className="flex flex-col items-end gap-2"><div className="h-4 w-20 rounded bg-card-bg animate-pulse" /><div className="h-3 w-24 rounded bg-card-bg animate-pulse" /></div></div>)}</div></section>;
   if (isError && !isFyersNotConnected) return <section className="glass rounded-2xl border border-glow-border min-h-[350px] flex flex-col items-center justify-center p-6 text-center"><AlertCircle className="w-10 h-10 mb-3 text-neon-orange/70" /><p className="text-white font-medium">{wakingUp ? SERVER_WAKING_MESSAGE : "Failed to load market data"}</p><p className="text-sm text-text-muted mt-2">{error}</p><button onClick={() => mutate()} className="mt-4 rounded-lg border border-glow-border px-4 py-2">Retry</button></section>;
 
   const disconnected = isFyersNotConnected && !isFyersConnected;

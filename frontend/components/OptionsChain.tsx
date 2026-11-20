@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Maximize2, AlertCircle, Loader2, Wifi } from "lucide-react";
+import { Maximize2, AlertCircle, Wifi } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useOptionChain, useExpiries, SERVER_WAKING_MESSAGE } from "@/lib/hooks";
 
@@ -58,7 +58,7 @@ export function OptionsChain() {
   const showConnectButton = isFyersNotConnected && !isFyersConnected;
 
   if (isLoading) {
-    return <section className="glass rounded-2xl border border-glow-border min-h-[350px] flex items-center justify-center text-text-secondary"><Loader2 className="mr-2 h-5 w-5 animate-spin" />Loading option chain...</section>;
+    return <section aria-label="Loading option chain" aria-busy="true" className="glass rounded-2xl border border-glow-border min-h-[350px] overflow-hidden"><header className="border-b border-glow-border px-4 py-3"><div className="h-5 w-36 rounded bg-card-bg animate-pulse" /></header><div className="flex flex-col gap-3 p-4">{Array.from({ length: 6 }, (_, index) => <div key={index} className="grid grid-cols-5 gap-3 py-2"><div className="h-4 rounded bg-card-bg animate-pulse" /><div className="h-4 rounded bg-card-bg animate-pulse" /><div className="h-4 rounded bg-card-bg animate-pulse" /><div className="h-4 rounded bg-card-bg animate-pulse" /><div className="h-4 rounded bg-card-bg animate-pulse" /></div>)}</div></section>;
   }
 
   if (isError && !isFyersNotConnected) {
