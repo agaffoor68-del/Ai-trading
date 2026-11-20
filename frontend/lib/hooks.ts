@@ -115,17 +115,38 @@ type Quote = {
   [key: string]: unknown;
 };
 
-function normalizeQuotes(payload: unknown): Record<string, Quote> {
+function normalizeSymbolKey(symbol: string): string {
+  return symbol
+    .trim()
+    .toUpperCase()
+    .replace(/^NSE:/, "")
+    .replace(/-(?:INDEX|EQ)$/, "")
+    .replace(/[^A-Z0-9]/g, "");
+}
+
+function normalizeQuotes(payload: unknown, requestedSymbols: string[]): Record<string, Quote> {
   if (!payload || typeof payload !== "object") return {};
   const response = payload as { quotes?: unknown; data?: unknown };
   const rows = Array.isArray(response.data) ? response.data : Array.isArray(response.quotes) ? response.quotes : null;
   if (rows) {
-    return rows.reduce<Record<string, Quote>>((result, row) => {
+    const quotes = rows.reduce<Record<string, Quote>>((result, row) => {
       if (!row || typeof row !== "object") return result;
       const quote = row as Quote;
       if (quote.symbol) result[quote.symbol] = quote;
       return result;
     }, {});
+
+    for (const requestedSymbol of requestedSymbols) {
+      const requestedKey = normalizeSymbolKey(requestedSymbol);
+      const match = rows.find((row) => {
+        if (!row || typeof row !== "object") return false;
+        const returnedSymbol = (row as Quote).symbol;
+        return typeof returnedSymbol === "string" && normalizeSymbolKey(returnedSymbol) === requestedKey;
+      }) as Quote | undefined;
+      if (match) quotes[requestedSymbol] = match;
+    }
+
+    return quotes;
   }
   return response.quotes && typeof response.quotes === "object" ? response.quotes as Record<string, Quote> : {};
 }
@@ -142,18 +163,14 @@ export function useMarketQuotes(symbols: string[]) {
     symbolsKey ? ["/api/v1/market/quotes", symbolsKey] : null,
     () => createPostFetcher<unknown>("/api/v1/market/quotes", { symbols: stableSymbols })(),
     {
-      refreshInterval: (payload) => {
-        const quotes = normalizeQuotes(payload);
-        const hasRecent = Object.values(quotes).some((quote) => quote.updated_at && Date.now() - new Date(quote.updated_at).getTime() < 60000);
-        return hasRecent ? 3000 : 30000;
-      },
+      refreshInterval: 15000,
       revalidateOnFocus: true,
       revalidateOnReconnect: true,
       dedupingInterval: 2000,
     },
   );
   const { status } = useFyersStatus();
-  const quotes = normalizeQuotes(data);
+  const quotes = normalizeQuotes(data, stableSymbols);
   const sessionExpired = isFyersSessionExpired(error);
   console.log("API Response (quotes):", data);
   return {
@@ -164,7 +181,7 @@ export function useMarketQuotes(symbols: string[]) {
     isError: !!error,
     error: (error as any)?.message,
     errorCode: (error as any)?.code,
-    isFyersNotConnected: sessionExpired || (!isFyersConnected(status) && isFyersNotConnected(error)),
+    isFyersNotConnected: sessionExpired || ((error as any)?.status === 401 && isFyersNotConnected(error)),
     isFyersConnected: isFyersConnected(status) && !sessionExpired,
     isFyersError: isFyersError(error),
     isFyersUnreachable: isFyersUnreachable(error),
@@ -176,7 +193,7 @@ export function useMarketQuotes(symbols: string[]) {
 export function useOptionChain(symbol: string, expiry: string, strikes = 10) {
   const key = symbol && expiry ? `/api/v1/market/option-chain?symbol=${encodeURIComponent(symbol)}&expiry=${encodeURIComponent(expiry)}&strikes=${strikes}` : null;
   const { data, error, isLoading, mutate } = useSWR<OptionChainResponse>(key, key ? createFetcher<OptionChainResponse>(key) : null, {
-    refreshInterval: (payload) => payload ? 3000 : 30000,
+    refreshInterval: 15000,
     revalidateOnFocus: true,
     revalidateOnReconnect: true,
     dedupingInterval: 2000,
@@ -190,7 +207,7 @@ export function useOptionChain(symbol: string, expiry: string, strikes = 10) {
     isError: !!error,
     error: (error as any)?.message,
     errorCode: (error as any)?.code,
-    isFyersNotConnected: sessionExpired || (!isFyersConnected(status) && isFyersNotConnected(error)),
+    isFyersNotConnected: sessionExpired || ((error as any)?.status === 401 && isFyersNotConnected(error)),
     isFyersConnected: isFyersConnected(status) && !sessionExpired,
     isFyersError: isFyersError(error),
     isFyersUnreachable: isFyersUnreachable(error),
@@ -216,7 +233,7 @@ export function useAISignals(symbols: string[] = ["NIFTY", "BANKNIFTY", "FINNIFT
     isError: !!error,
     error: (error as any)?.message,
     errorCode: (error as any)?.code,
-    isFyersNotConnected: sessionExpired || (!isFyersConnected(status) && isFyersNotConnected(error)),
+    isFyersNotConnected: sessionExpired || ((error as any)?.status === 401 && isFyersNotConnected(error)),
     isFyersConnected: isFyersConnected(status) && !sessionExpired,
     isFyersError: isFyersError(error),
     isFyersUnreachable: isFyersUnreachable(error),

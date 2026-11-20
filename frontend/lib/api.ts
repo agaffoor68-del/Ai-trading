@@ -282,7 +282,7 @@ export const api = {
 export const swrConfig: SWRConfiguration = {
   revalidateOnFocus: true,
   revalidateOnReconnect: true,
-  refreshInterval: 5000,
+  refreshInterval: 15000,
   dedupingInterval: 2000,
   onError: (error) => {
     console.error("SWR Error:", error.message);

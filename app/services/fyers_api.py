@@ -3,7 +3,10 @@ Fyers API v3 Client for REST endpoints
 """
 
 import asyncio
+import hashlib
+import json
 import logging
+import time
 from typing import Optional, Dict, List, Any
 from zoneinfo import ZoneInfo
 from datetime import datetime
@@ -13,9 +16,53 @@ import aiohttp
 from app.core.config import settings
 from app.services.fyers_token import get_fyers_token
 from app.core.symbol_map import to_fyers
+from app.services.redis_ws import redis_tick_store
 
 logger = logging.getLogger(__name__)
 IST = ZoneInfo("Asia/Kolkata")
+_fallback_rate_lock = asyncio.Lock()
+_fallback_next_request = 0.0
+
+_RATE_LIMIT_SCRIPT = """
+local key = KEYS[1]
+local now = tonumber(ARGV[1])
+local capacity = tonumber(ARGV[2])
+local refill = tonumber(ARGV[3])
+local state = redis.call('HMGET', key, 'tokens', 'updated')
+local tokens = tonumber(state[1]) or capacity
+local updated = tonumber(state[2]) or now
+tokens = math.min(capacity, tokens + math.max(0, now - updated) * refill)
+if tokens >= 1 then
+  redis.call('HMSET', key, 'tokens', tokens - 1, 'updated', now)
+  redis.call('EXPIRE', key, 10)
+  return 0
+end
+local wait = (1 - tokens) / refill
+redis.call('HMSET', key, 'tokens', tokens, 'updated', now)
+redis.call('EXPIRE', key, 10)
+return math.ceil(wait * 1000)
+"""
+
+async def _wait_for_fyers_slot() -> None:
+    """Apply a shared Redis token bucket, falling back to a paced local limiter."""
+    client = redis_tick_store._client if redis_tick_store.is_connected() else None
+    if client is not None:
+        try:
+            while True:
+                wait_ms = await client.eval(
+                    _RATE_LIMIT_SCRIPT, 1, "fyers:api:rate-limit", time.time(), 3, 3
+                )
+                if wait_ms <= 0:
+                    return
+                await asyncio.sleep(wait_ms / 1000)
+        except Exception as exc:
+            logger.warning("Fyers Redis rate limiter unavailable; using local limiter: %s", exc)
+    global _fallback_next_request
+    async with _fallback_rate_lock:
+        delay = _fallback_next_request - time.monotonic()
+        if delay > 0:
+            await asyncio.sleep(delay)
+        _fallback_next_request = time.monotonic() + 1 / 3
 
 FYERS_API_BASE = "https://api-t1.fyers.in/api"
 FYERS_DATA_BASE = "https://api-t1.fyers.in/data"
@@ -87,6 +134,7 @@ class FyersAPIClient:
             "cont_flag": "1",
         }
         try:
+            await _wait_for_fyers_slot()
             async with session.get(
                 FYERS_DATA_BASE + "/history", params=params, headers={"Authorization": auth_header}, timeout=self.FYERS_TIMEOUT
             ) as resp:
@@ -124,8 +172,17 @@ class FyersAPIClient:
         
         session = await self._get_session()
         
-        # Normalize all symbols
+        # Normalize all symbols and use a stable key independent of input ordering.
         fyers_symbols = [normalize_symbol(s) for s in symbols]
+        cache_key = "fyers:quotes:" + ",".join(sorted(fyers_symbols))
+        redis_client = redis_tick_store._client if redis_tick_store.is_connected() else None
+        if redis_client is not None:
+            try:
+                cached = await redis_client.get(cache_key)
+                if cached:
+                    return json.loads(cached)
+            except Exception as exc:
+                logger.warning("Fyers quotes cache read failed: %s", exc)
         
         # Batch in chunks of 50
         all_results = {}
@@ -138,6 +195,7 @@ class FyersAPIClient:
             params = {"symbols": symbols_param}
             
             try:
+                await _wait_for_fyers_slot()
                 async with session.get(
                     url, 
                     params=params, 
@@ -194,6 +252,11 @@ class FyersAPIClient:
         if not all_results and fyers_symbols:
             return {"error": "Failed to fetch quotes from Fyers"}
         
+        if redis_client is not None and all_results:
+            try:
+                await redis_client.setex(cache_key, 5, json.dumps(all_results))
+            except Exception as exc:
+                logger.warning("Fyers quotes cache write failed: %s", exc)
         return all_results
 
     async def get_profile(self, access_token: str) -> dict:
@@ -205,11 +268,23 @@ class FyersAPIClient:
         if not settings.FYERS_CLIENT_ID:
             logger.warning("get_profile called without FYERS_CLIENT_ID configured")
             return {}
+
+        redis_client = redis_tick_store._client if redis_tick_store.is_connected() else None
+        token_fingerprint = hashlib.sha256(access_token.encode()).hexdigest()
+        cache_key = f"fyers:profile:{settings.FYERS_CLIENT_ID}:{token_fingerprint}"
+        if redis_client is not None:
+            try:
+                cached = await redis_client.get(cache_key)
+                if cached:
+                    return json.loads(cached)
+            except Exception as exc:
+                logger.warning("Fyers profile cache read failed: %s", exc)
         
         session = await self._get_session()
         url = f"{settings.FYERS_API_BASE}/v3/profile"
         
         try:
+            await _wait_for_fyers_slot()
             async with session.get(
                 url, 
                 headers={"Authorization": auth_header, "Content-Type": "application/json"},
@@ -221,7 +296,13 @@ class FyersAPIClient:
                 data = await resp.json()
                 
                 if data.get("code") == 200 and data.get("data"):
-                    return data["data"]
+                    profile = data["data"]
+                    if redis_client is not None:
+                        try:
+                            await redis_client.setex(cache_key, 300, json.dumps(profile))
+                        except Exception as exc:
+                            logger.warning("Fyers profile cache write failed: %s", exc)
+                    return profile
                 return {}
         except Exception as e:
             logger.error(f"Fyers profile API error: {str(e)}")

@@ -8,7 +8,7 @@ This module handles the daily OAuth2 flow to generate access tokens.
 import logging
 import traceback
 import hashlib
-import aiohttp
+from app.services.fyers_api import fyers_api_client
 import secrets
 from datetime import timedelta
 from fastapi import APIRouter, Request, HTTPException, Depends, status
@@ -502,29 +502,5 @@ async def fyers_status():
 
 
 async def _get_fyers_profile(access_token: str) -> dict:
-    """Call Fyers profile API to validate token."""
-    try:
-        client_id = settings.FYERS_CLIENT_ID
-        if not client_id:
-            return None
-            
-        auth_header = f"{client_id}:{access_token}"
-        url = f"{settings.FYERS_API_BASE}/v3/profile"
-        
-        async with aiohttp.ClientSession() as session:
-            async with session.get(
-                url,
-                headers={"Authorization": auth_header, "Content-Type": "application/json"},
-                timeout=aiohttp.ClientTimeout(total=10)
-            ) as resp:
-                if resp.status != 200:
-                    logger.warning(f"Fyers profile API returned {resp.status}")
-                    return None
-                data = await resp.json()
-                
-                if data.get("code") == 200 and data.get("data"):
-                    return data["data"]
-                return None
-    except Exception as e:
-        logger.error(f"Error calling Fyers profile API: {e}")
-        return None
+    """Call the shared, Redis-cached Fyers profile client."""
+    return await fyers_api_client.get_profile(access_token)
