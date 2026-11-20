@@ -12,10 +12,11 @@ export async function GET(request: NextRequest) {
 
     const endpoint = `/api/v1/fyers/status${request.nextUrl.search}`;
 
+    const headers = new Headers();
+    if (accessToken) headers.set("Authorization", `Bearer ${accessToken}`);
+
     const backendResponse = await fetch(`${BACKEND_URL}${endpoint}`, {
-      headers: {
-        "Authorization": `Bearer ${accessToken}`,
-      },
+      headers,
       cache: "no-store",
     });
 

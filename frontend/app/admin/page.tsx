@@ -81,10 +81,10 @@ export default function AdminPage() {
   const [authChecked, setAuthChecked] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  const filteredUsers = (users || []).filter(
+  const filteredUsers = users.filter(
     (u) =>
-      u.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      u.name.toLowerCase().includes(searchQuery.toLowerCase())
+      (u.email || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (u.name || "").toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   const showToast = (message: string, type: "success" | "error") => {
@@ -98,7 +98,25 @@ export default function AdminPage() {
       try {
         // The Next.js proxy forwards the httpOnly session cookie as a Bearer token.
         const data = await api.getAdminUsers();
-        const responseUsers = Array.isArray(data?.users) ? data.users as AdminUser[] : [];
+        const responseUsers = Array.isArray(data?.users)
+          ? data.users
+              .filter((user): user is Record<string, unknown> => Boolean(user) && typeof user === "object")
+              .map((user) => ({
+                ...user,
+                id: Number.isFinite(Number(user.id)) ? Number(user.id) : 0,
+                email: typeof user.email === "string" ? user.email : "",
+                name: typeof user.name === "string" ? user.name : "Unknown user",
+                role: typeof user.role === "string" ? user.role : "USER",
+                plan: typeof user.plan === "string" ? user.plan : "Basic",
+                subscription_status: typeof user.subscription_status === "string" ? user.subscription_status : "unknown",
+                expiry_date: typeof user.expiry_date === "string" ? user.expiry_date : null,
+                created_at: typeof user.created_at === "string" ? user.created_at : "",
+                is_active: user.is_active === true,
+                last_login: typeof user.last_login === "string" ? user.last_login : null,
+                api_calls_today: Number.isFinite(Number(user.api_calls_today)) ? Number(user.api_calls_today) : 0,
+                subscription: user.subscription && typeof user.subscription === "object" ? user.subscription as AdminUser["subscription"] : null,
+              } as AdminUser))
+          : [];
         setIsAdmin(true);
         setUsers(responseUsers);
         setLoadError(null);

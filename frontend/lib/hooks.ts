@@ -200,7 +200,9 @@ function normalizeQuotes(payload: unknown, requestedSymbols: string[]): Record<s
 
 function isFyersConnected(status: any): boolean {
   const fyers = status?.fyers ?? status;
-  return Boolean(fyers?.connected && fyers?.valid);
+  // Some compatible backends return only { connected: true }; when valid is
+  // explicitly supplied, honor it, otherwise connection status is sufficient.
+  return fyers?.connected === true && fyers?.valid !== false;
 }
 
 export function useMarketQuotes(symbols: string[]) {
@@ -238,24 +240,27 @@ export function useMarketQuotes(symbols: string[]) {
 }
 
 export function useOptionChain(symbol: string, expiry: string, strikes = 10) {
-  const key = symbol && expiry ? `/api/v1/market/option-chain?symbol=${encodeURIComponent(symbol)}&expiry=${encodeURIComponent(expiry)}&strikes=${strikes}` : null;
+  const { status, isLoading: isStatusLoading } = useFyersStatus();
+  const fyersConnected = isFyersConnected(status);
+  const key = fyersConnected && symbol && expiry
+    ? `/api/v1/market/option-chain?symbol=${encodeURIComponent(symbol)}&expiry=${encodeURIComponent(expiry)}&strikes=${strikes}`
+    : null;
   const { data, error, isLoading, mutate } = useSWR<OptionChainResponse>(key, key ? createFetcher<OptionChainResponse>(key) : null, {
     refreshInterval: 15000,
     revalidateOnFocus: true,
     revalidateOnReconnect: true,
     dedupingInterval: 2000,
   });
-  const { status } = useFyersStatus();
   const sessionExpired = isFyersSessionExpired(error);
   console.log("API Response (option-chain):", data);
   return {
     chainData: sessionExpired ? undefined : data,
-    isLoading,
+    isLoading: isStatusLoading || isLoading,
     isError: !!error,
     error: (error as any)?.message,
     errorCode: (error as any)?.code,
-    isFyersNotConnected: sessionExpired || ((error as any)?.status === 401 && isFyersNotConnected(error)),
-    isFyersConnected: isFyersConnected(status) && !sessionExpired,
+    isFyersNotConnected: sessionExpired || (!isStatusLoading && Boolean(status) && !fyersConnected) || ((error as any)?.status === 401 && isFyersNotConnected(error) && !fyersConnected),
+    isFyersConnected: fyersConnected && !sessionExpired,
     isFyersError: isFyersError(error),
     isFyersUnreachable: isFyersUnreachable(error),
     isServerWakingUp: isServerWakingUp(error),
