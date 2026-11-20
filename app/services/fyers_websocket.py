@@ -26,7 +26,7 @@ OPTION_UNDERLYINGS = {
     "NIFTY": "NSE:NIFTY50-INDEX",
     "BANKNIFTY": "NSE:NIFTYBANK-INDEX",
 }
-OPTION_STRIKES_EACH_SIDE = 5
+OPTION_STRIKES_EACH_SIDE = 10
 
 
 def _get_active_nearest_option_symbols(spot_prices: dict[str, float]) -> list[str]:

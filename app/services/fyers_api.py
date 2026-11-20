@@ -210,7 +210,9 @@ class FyersAPIClient:
                         # Continue with other batches
                         continue
                     
-                    data = await resp.json()
+                    response = await resp.json()
+                    logger.info(f"Raw Fyers Response: {response}")
+                    data = response
                     
                     if data.get("code") != 200:
                         logger.error(f"Fyers quotes error code: {data.get('code')} - {data.get('message')}")
@@ -220,12 +222,15 @@ class FyersAPIClient:
                         continue
                     
                     for item in data.get("d", []):
-                        v = item.get("v", {})
-                        symbol = v.get("symbol")
+                        if not isinstance(item, dict):
+                            continue
+                        v = item.get("v") if isinstance(item.get("v"), dict) else {}
+                        symbol = v.get("symbol") or item.get("symbol")
+                        ltp = v.get("lp") or v.get("ltp") or item.get("lp") or item.get("ltp")
                         if symbol:
                             all_results[symbol] = {
                                 "symbol": symbol,
-                                "ltp": v.get("ltp"),
+                                "ltp": ltp,
                                 "change": v.get("ch"),
                                 "change_percent": v.get("chp"),
                                 "open": v.get("open"),

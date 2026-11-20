@@ -106,8 +106,13 @@ class SymbolMasterDownloader:
             for col in df.select_dtypes(include=['object']).columns:
                 df[col] = df[col].str.strip()
 
-            df['instrument_type'] = df['instrument_type'].str.upper()
-            df['segment'] = df['segment'].str.upper()
+            df['instrument_type'] = df['instrument_type'].astype(str).str.strip()
+            df['segment'] = df['segment'].astype(str).str.strip().str.upper()
+            logger.info(
+                "Fyers instrument_type values for %s: %s",
+                exchange,
+                sorted(df['instrument_type'].dropna().unique().tolist()),
+            )
 
             # Replace empty strings with None.
             df = df.replace('', None)
@@ -122,7 +127,7 @@ class SymbolMasterDownloader:
                 df = df[df['instrument_type'].isin(['10', 'EQ', 'EQUITY', 'STK'])]
                 logger.info(f"Filtered for EQ instruments (code 10) in {exchange}")
             elif exchange == "NSE_FO":
-                df = df[df['instrument_type'].isin(['11', '12', 'FUT', 'OPT', 'FUTURE', 'OPTION'])]
+                df = df[df['instrument_type'].isin(['11', '11.0', '12', '12.0', 'FUT', 'OPT', 'FUTURE', 'OPTION'])]
                 logger.info(f"Filtered for FUT/OPT instruments (codes 11/12) in {exchange}")
 
             logger.info(f"Filtered DataFrame shape for {exchange}: {df.shape}")
