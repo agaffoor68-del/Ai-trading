@@ -8,6 +8,7 @@ Non-Negotiable Rule: Fyers API v3 is the ONLY data source.
 """
 
 import asyncio
+import csv
 import io
 import logging
 from datetime import datetime
@@ -28,27 +29,29 @@ SYMBOL_MASTER_FILES = {
     "NSE_FO": "NSE_FO.csv",
 }
 
-# Fyers CSVs are headerless and contain 19 columns in this exact order.
+# Current Fyers symbol-master schema: headerless, 21 fields per record.
 FYERS_COLUMNS = [
     "fytoken",
-    "symbol_ticker",
     "symbol_description",
-    "symbol_shortname",
-    "ISIN",
+    "instrument_type",
     "lot_size",
     "tick_size",
+    "ISIN",
     "trading_session",
     "last_update_date",
     "expiry_date",
-    "instrument_type",
-    "scrip_code",
+    "symbol_ticker",
+    "exchange_code",
     "segment",
-    "strike_price",
-    "option_type",
+    "scrip_code",
     "underlying_symbol",
     "underlying_scrip_code",
+    "strike_price",
+    "option_type",
     "underlying_fytoken",
-    "reserved",
+    "reserved_1",
+    "reserved_2",
+    "reserved_3",
 ]
 
 
@@ -74,67 +77,93 @@ class SymbolMasterDownloader:
         """Download a symbol master CSV from Fyers."""
         session = await self._get_session()
         url = f"{self.base_url}/{filename}"
-        logger.info(f"Downloading {url}")
+        logger.info("Downloading %s", url)
 
         async with session.get(url) as resp:
             if resp.status != 200:
-                logger.warning(f"Failed to download {filename}: HTTP {resp.status} - {url}")
-                # Return empty CSV content to allow graceful degradation
+                logger.warning("Failed to download %s: HTTP %s - %s", filename, resp.status, url)
                 return ""
-            return await resp.text()
+            return await resp.text(encoding="utf-8-sig")
 
     def parse_csv(self, csv_content: str, exchange: str) -> list[dict]:
-        """Parse Fyers Symbol Master CSV content into instrument records."""
+        """Parse the current headerless Fyers 21-column CSV safely."""
         if not csv_content.strip():
-            logger.warning(f"Empty CSV content for {exchange}")
+            logger.warning("Empty CSV content for %s", exchange)
             return []
 
         try:
-            # Read headerless CSV with the exact 19-column Fyers schema.
+            # csv.reader counts fields correctly even when a quoted value contains a comma.
+            reader = csv.reader(io.StringIO(csv_content.lstrip("\ufeff")))
+            valid_rows = []
+            bad_rows = 0
+            for line_number, row in enumerate(reader, start=1):
+                if not row or all(not field.strip() for field in row):
+                    continue
+                if len(row) != len(FYERS_COLUMNS):
+                    bad_rows += 1
+                    if bad_rows <= 5:
+                        logger.warning(
+                            "Skipping malformed %s CSV record at logical row %s: expected %s fields, got %s",
+                            exchange, line_number, len(FYERS_COLUMNS), len(row),
+                        )
+                    continue
+                valid_rows.append(row)
+
+            if bad_rows:
+                logger.warning("Skipped %s malformed CSV records for %s", bad_rows, exchange)
+            if not valid_rows:
+                logger.error("No rows matched the %s-field Fyers schema for %s", len(FYERS_COLUMNS), exchange)
+                return []
+
+            normalized_csv = io.StringIO()
+            csv.writer(normalized_csv, lineterminator="\n").writerows(valid_rows)
+            normalized_csv.seek(0)
             df = pd.read_csv(
-                io.StringIO(csv_content),
+                normalized_csv,
                 header=None,
                 names=FYERS_COLUMNS,
                 dtype=str,
                 skipinitialspace=True,
+                encoding="utf-8-sig",
+                on_bad_lines="warn",
             )
 
-            logger.info(f"Raw DataFrame shape for {exchange}: {df.shape}")
-            logger.info(f"Columns: {list(df.columns)}")
+            logger.info("Raw DataFrame shape for %s: %s", exchange, df.shape)
+            logger.info("Columns for %s: %s", exchange, list(df.columns))
 
-            # Strip whitespace from all string columns before filtering.
-            for col in df.select_dtypes(include=['object']).columns:
+            for col in df.select_dtypes(include=["object"]).columns:
                 df[col] = df[col].str.strip()
+            # Keep blank cells as None rather than pandas NaN (which is truthy and
+            # can otherwise reach datetime parsing as a float).
+            df = df.astype(object).where(pd.notna(df), None)
 
-            df['instrument_type'] = df['instrument_type'].astype(str).str.strip()
-            df['segment'] = df['segment'].astype(str).str.strip().str.upper()
+            df["instrument_type"] = df["instrument_type"].fillna("").str.strip()
+            df["segment"] = df["segment"].fillna("").str.strip()
             logger.info(
-                "Fyers instrument_type values for %s: %s",
+                "Fyers instrument_type counts for %s: %s",
                 exchange,
-                sorted(df['instrument_type'].dropna().unique().tolist()),
+                df["instrument_type"].replace("", pd.NA).value_counts(dropna=False).to_dict(),
             )
 
-            # Replace empty strings with None.
-            df = df.replace('', None)
+            df = df.replace("", None)
+            df = df[df["fytoken"].notna() & df["fytoken"].str.isnumeric()]
+            df = df[df["symbol_ticker"].notna()]
 
-            # The canonical Fyers ticker is symbol_ticker; shortname and
-            # description are separate display fields, not ticker substitutes.
-            df = df[df['fytoken'].notna() & df['fytoken'].str.isnumeric()]
-            df = df[df['symbol_ticker'].notna()]
-
-            # For NSE_CM, keep EQ instruments; for NSE_FO, keep all FUT/OPT.
+            # Current Fyers Exchange Instrument Type codes: 0 = cash-market equity;
+            # 11/12 are futures/options in the F&O master. Trading series (EQ/BE/BZ)
+            # are suffixes of symbol_ticker and are intentionally not stored as this code.
             if exchange == "NSE_CM":
-                df = df[df['instrument_type'].isin(['10', 'EQ', 'EQUITY', 'STK'])]
-                logger.info(f"Filtered for EQ instruments (code 10) in {exchange}")
+                df = df[df["instrument_type"].isin(["0", "10", "EQ", "EQUITY", "STK"])]
+                logger.info("Filtered cash-market instrument types for %s", exchange)
             elif exchange == "NSE_FO":
-                df = df[df['instrument_type'].isin(['11', '11.0', '12', '12.0', 'FUT', 'OPT', 'FUTURE', 'OPTION'])]
-                logger.info(f"Filtered for FUT/OPT instruments (codes 11/12) in {exchange}")
+                df = df[df["instrument_type"].isin(["11", "11.0", "12", "12.0", "FUT", "OPT", "FUTURE", "OPTION"])]
+                logger.info("Filtered FUT/OPT instrument types for %s", exchange)
 
             logger.info(f"Filtered DataFrame shape for {exchange}: {df.shape}")
 
             if not df.empty:
                 logger.info("Sample filtered rows for %s:\n%s", exchange, df[
-                    ['fytoken', 'symbol_ticker', 'symbol_description', 'symbol_shortname',
+                    ['fytoken', 'symbol_ticker', 'symbol_description',
                      'instrument_type', 'segment', 'expiry_date', 'strike_price', 'option_type']
                 ].head(10).to_string())
 
@@ -176,7 +205,7 @@ class SymbolMasterDownloader:
                     instruments.append(
                         {
                             "symbol": symbol_ticker,
-                            "name": row.get('symbol_shortname') or row.get('symbol_description') or symbol_ticker,
+                            "name": row.get('symbol_description') or row.get('underlying_symbol') or symbol_ticker,
                             "exchange": exchange,
                             "segment": row.get('segment'),
                             "lot_size": lot_size,

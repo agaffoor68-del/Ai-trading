@@ -165,7 +165,7 @@ async def sync_symbols_and_start_websocket():
             return
         db = SessionLocal()
         try:
-            symbols = db.query(Instrument.symbol).filter(Instrument.is_active == 1, Instrument.instrument_type.in_(["10", "13", "INDEX", "EQ", "EQUITY"])).limit(50).all()
+            symbols = db.query(Instrument.symbol).filter(Instrument.is_active == 1, Instrument.instrument_type.in_(["0", "10", "13", "INDEX", "EQ", "EQUITY"])).limit(50).all()
             symbol_list = [row[0] for row in symbols]
         finally:
             db.close()

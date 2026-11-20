@@ -56,7 +56,8 @@ INDEX_KEYWORDS = ["NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "SENSEX", "BAN
 
 # Instrument type priority: Index=1, Futures=2, Options=3, Equity=4, Others=5
 INSTRUMENT_TYPE_PRIORITY = {
-    "13": 1,   # Index
+    "10": 1,   # Fyers NSE_CM index code
+    "13": 1,
     "INDEX": 1,
     "11": 2,   # Futures
     "FUT": 2,
@@ -64,7 +65,7 @@ INSTRUMENT_TYPE_PRIORITY = {
     "12": 3,   # Options
     "OPT": 3,
     "OPTION": 3,
-    "10": 4,   # Equity
+    "0": 4,    # Fyers NSE_CM equity code
     "EQ": 4,
     "EQUITY": 4,
     "STK": 4,
