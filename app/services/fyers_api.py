@@ -67,10 +67,33 @@ async def _wait_for_fyers_slot() -> None:
 FYERS_API_BASE = "https://api-t1.fyers.in/api"
 FYERS_DATA_BASE = "https://api-t1.fyers.in/data"
 
+INDEX_MAP = {
+    "NIFTY": "NSE:NIFTY50-INDEX",
+    "NIFTY 50": "NSE:NIFTY50-INDEX",
+    "NIFTY50": "NSE:NIFTY50-INDEX",
+    "BANKNIFTY": "NSE:NIFTYBANK-INDEX",
+    "SENSEX": "BSE:SENSEX-INDEX",
+}
+
 
 def normalize_symbol(symbol: str) -> str:
-    """Map a display name (e.g. 'NIFTY 50') to a Fyers ticker. Exchange-prefixed symbols pass through."""
-    return to_fyers(symbol)
+    """Map index aliases and legacy segment-prefixed indices to Fyers tickers."""
+    if not symbol:
+        return symbol
+
+    stripped = symbol.strip()
+    alias = " ".join(stripped.upper().split())
+    if alias in INDEX_MAP:
+        return INDEX_MAP[alias]
+
+    if ":" in stripped:
+        exchange, name = stripped.split(":", 1)
+        name_alias = " ".join(name.upper().split())
+        if exchange.upper() in {"NSE_FO", "NSE_CM", "BSE_CM"} and name_alias in INDEX_MAP:
+            return INDEX_MAP[name_alias]
+        return stripped
+
+    return to_fyers(stripped)
 
 
 class FyersAPIClient:

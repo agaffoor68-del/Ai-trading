@@ -17,14 +17,15 @@ from typing import Callable, List
 from fyers_apiv3.FyersWebsocket.data_ws import FyersDataSocket
 
 from app.services.redis_ws import redis_tick_store
+from app.services.fyers_api import INDEX_MAP
 
 logger = logging.getLogger(__name__)
 IST = ZoneInfo("Asia/Kolkata")
 
-DASHBOARD_INDEX_SYMBOLS = ["NSE:NIFTY50-INDEX", "NSE:NIFTYBANK-INDEX", "BSE:SENSEX-INDEX"]
+DASHBOARD_INDEX_SYMBOLS = list(dict.fromkeys(INDEX_MAP.values()))
 OPTION_UNDERLYINGS = {
-    "NIFTY": "NSE:NIFTY50-INDEX",
-    "BANKNIFTY": "NSE:NIFTYBANK-INDEX",
+    "NIFTY": INDEX_MAP["NIFTY"],
+    "BANKNIFTY": INDEX_MAP["BANKNIFTY"],
 }
 OPTION_STRIKES_EACH_SIDE = 10
 
