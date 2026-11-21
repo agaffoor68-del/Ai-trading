@@ -612,8 +612,9 @@ class OptionChainRequest(BaseModel):
 @router.get("/options/chain")
 async def get_option_chain(
     symbol: str = Query(..., min_length=1, max_length=32),
-    expiry: str = Query(..., description="Expiry date in YYYY-MM-DD format"),
+    expiry: Optional[str] = Query(None, description="Expiry date in YYYY-MM-DD format; defaults to the nearest listed expiry"),
     strikes: int = Query(10, ge=1, le=50, description="Strikes on each side of ATM"),
+    strike_count: Optional[int] = Query(None, ge=1, le=50, description="Alias for strikes"),
 ):
     """Return live CE/PE LTPs for the selected expiry, centered on the nearest 50-point ATM."""
     from app.services.fyers_api import fyers_api_client
@@ -629,10 +630,14 @@ async def get_option_chain(
     underlying_ticker = aliases.get(normalized)
     if not underlying_ticker:
         raise HTTPException(status_code=400, detail=f"Unsupported underlying: {symbol}")
-    try:
-        expiry_date = datetime.strptime(expiry, "%Y-%m-%d").date()
-    except ValueError:
-        raise HTTPException(status_code=400, detail="expiry must be YYYY-MM-DD")
+    if expiry:
+        try:
+            expiry_date = datetime.strptime(expiry, "%Y-%m-%d").date()
+        except ValueError:
+            raise HTTPException(status_code=400, detail="expiry must be YYYY-MM-DD")
+    else:
+        expiry_date = None
+    strikes = strike_count if strike_count is not None else strikes
 
     token = await run_in_threadpool(get_fyers_token)
     if not token:
@@ -648,15 +653,24 @@ async def get_option_chain(
         from app.core.database import SessionLocal, Instrument
         db = SessionLocal()
         try:
-            start = datetime.combine(expiry_date, time.min)
-            end = datetime.combine(expiry_date, time.max)
-            contracts = db.query(Instrument).filter(
-                Instrument.expiry >= start,
-                Instrument.expiry <= end,
+            query = db.query(Instrument).filter(
+                Instrument.expiry >= datetime.combine(expiry_date, time.min) if expiry_date else Instrument.expiry >= now_ist().date(),
+                Instrument.expiry <= datetime.combine(expiry_date, time.max) if expiry_date else Instrument.expiry.is_not(None),
                 Instrument.exchange.in_(["NSE_FO", "BSE_FO"]),
                 Instrument.is_active == 1,
                 Instrument.option_type.in_(["CE", "PE"]),
-            ).all()
+            )
+            if expiry_date:
+                contracts = query.all()
+            else:
+                nearest = query.order_by(Instrument.expiry.asc()).first()
+                if nearest is None or nearest.expiry is None:
+                    return {}
+                chosen_expiry = nearest.expiry.date()
+                contracts = query.filter(
+                    Instrument.expiry >= datetime.combine(chosen_expiry, time.min),
+                    Instrument.expiry <= datetime.combine(chosen_expiry, time.max),
+                ).all()
             result = {}
             for contract in contracts:
                 contract_symbol = (contract.symbol or "").upper().split(":")[-1]
