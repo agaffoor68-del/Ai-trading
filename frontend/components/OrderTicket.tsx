@@ -4,7 +4,7 @@ import { motion } from "framer-motion";
 import { ShoppingBag, TrendingUp, Target, Shield, Radio, Check, AlertCircle, X, Maximize2, Loader2 } from "lucide-react";
 import { useState, useCallback, useEffect } from "react";
 import { useCandles, useMarketQuotes, useMarketStatus, formatFyersSymbol } from "@/lib/hooks";
-import { fetchWithTimeout } from "@/lib/api-client";
+import { fetchWithTimeout, getBackendApiUrl } from "@/lib/api-client";
 
 export function OrderTicket() {
   const [side, setSide] = useState<"BUY" | "SELL">("BUY");
