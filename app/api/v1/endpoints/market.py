@@ -506,6 +506,64 @@ async def get_quotes(request: QuotesRequest):
         logger.error(f"Quotes error: {str(e)}")
         raise HTTPException(status_code=502, detail={"code": "FYERS_ERROR", "message": str(e)})
 
+@router.get("/instrument-info")
+async def get_instrument_info(
+    symbol: str = Query(..., min_length=1, max_length=32, description="Underlying symbol, e.g. NIFTY"),
+):
+    """Return current F&O lot/tick sizes and listed expiries from Fyers Symbol Master."""
+    from collections import Counter
+    from app.core.database import SessionLocal, Instrument
+
+    aliases = {
+        "NIFTY 50": ("NSE", "NIFTY"),
+        "NIFTY": ("NSE", "NIFTY"),
+        "BANK NIFTY": ("NSE", "BANKNIFTY"),
+        "BANKNIFTY": ("NSE", "BANKNIFTY"),
+        "FINNIFTY": ("NSE", "FINNIFTY"),
+        "MIDCPNIFTY": ("NSE", "MIDCPNIFTY"),
+        "SENSEX": ("BSE", "SENSEX"),
+    }
+    normalized = " ".join(symbol.upper().split())
+    mapping = aliases.get(normalized)
+    if not mapping:
+        raise HTTPException(status_code=400, detail=f"Unsupported underlying symbol: {symbol}")
+    exchange, underlying = mapping
+
+    def _load_instrument_info():
+        db = SessionLocal()
+        try:
+            today = now_ist().date()
+            contracts = db.query(Instrument).filter(
+                Instrument.exchange == "NSE_FO" if exchange == "NSE" else Instrument.exchange == "BSE_FO",
+                Instrument.symbol.ilike(f"{exchange}:{underlying}%"),
+                Instrument.instrument_type.in_(["12", "12.0", "OPT", "OPTION"]),
+                Instrument.is_active == 1,
+                Instrument.expiry >= today,
+            ).order_by(Instrument.expiry.asc()).all()
+
+            expiries = sorted({item.expiry.date().isoformat() for item in contracts if item.expiry})
+            if not contracts or not expiries:
+                raise HTTPException(status_code=404, detail=f"No active F&O contracts found for {underlying}")
+
+            nearest_expiry = expiries[0]
+            current_contracts = [item for item in contracts if item.expiry and item.expiry.date().isoformat() == nearest_expiry]
+            lot_sizes = Counter(int(item.lot_size) for item in current_contracts if item.lot_size and int(item.lot_size) > 0)
+            tick_sizes = Counter(str(item.tick_size) for item in current_contracts if item.tick_size)
+            if not lot_sizes:
+                raise HTTPException(status_code=503, detail=f"Lot size is missing in Symbol Master for {underlying}")
+
+            return {
+                "symbol": underlying,
+                "lot_size": lot_sizes.most_common(1)[0][0],
+                "tick_size": float(tick_sizes.most_common(1)[0][0]) if tick_sizes else None,
+                "expiry_dates": expiries,
+            }
+        finally:
+            db.close()
+
+    return await run_in_threadpool(_load_instrument_info)
+
+
 @router.get("/expiries")
 async def get_expiries(
     symbol: str = Query(..., description="Underlying symbol (e.g., NIFTY, BANKNIFTY)"),

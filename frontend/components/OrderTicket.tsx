@@ -2,7 +2,7 @@
 
 import { motion } from "framer-motion";
 import { ShoppingBag, TrendingUp, Target, Shield, Radio, Check, AlertCircle, X, Maximize2, Loader2 } from "lucide-react";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useCandles, useMarketQuotes, useMarketStatus, formatFyersSymbol } from "@/lib/hooks";
 import { fetchWithTimeout } from "@/lib/api-client";
 
@@ -17,6 +17,10 @@ export function OrderTicket() {
   const [selectedExpiry, setSelectedExpiry] = useState("");
   const [selectedStrike, setSelectedStrike] = useState<number | null>(null);
   const [selectedOptionType, setSelectedOptionType] = useState<"CE" | "PE">("CE");
+  const [lotSize, setLotSize] = useState<number | null>(null);
+  const [expiryDates, setExpiryDates] = useState<string[]>([]);
+  const [instrumentLoading, setInstrumentLoading] = useState(false);
+  const [instrumentError, setInstrumentError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -46,25 +50,47 @@ export function OrderTicket() {
     }
   }, [quote, side]);
 
-  // Lot size from symbol master (would need symbol info API)
-  // For now, use common lot sizes
-  const getLotSize = (symbol: string): number => {
-    const sizes: Record<string, number> = {
-      "NIFTY 50": 50,
-      "BANKNIFTY": 15,
-      "FINNIFTY": 40,
-      "MIDCPNIFTY": 75,
-      "SENSEX": 10,
-    };
-    return sizes[symbol] || 1;
-  };
+  useEffect(() => {
+    const underlying = selectedSymbol === "NIFTY 50" ? "NIFTY" : selectedSymbol;
+    const controller = new AbortController();
+    setInstrumentLoading(true);
+    setInstrumentError(null);
+    setLotSize(null);
+    setExpiryDates([]);
 
-  const lotSize = getLotSize(selectedSymbol);
-  const effectiveQty = quantity * lotSize;
+    fetch(`/api/v1/market/instrument-info?symbol=${encodeURIComponent(underlying)}`, {
+      signal: controller.signal,
+      credentials: "same-origin",
+    })
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || "Unable to load instrument information");
+        return data as { lot_size: number; expiry_dates: string[] };
+      })
+      .then((data) => {
+        if (controller.signal.aborted) return;
+        setLotSize(data.lot_size);
+        setExpiryDates(data.expiry_dates);
+        setSelectedExpiry((current) => data.expiry_dates.includes(current) ? current : data.expiry_dates[0] || "");
+      })
+      .catch((fetchError: unknown) => {
+        if (!controller.signal.aborted) {
+          setInstrumentError(fetchError instanceof Error ? fetchError.message : "Unable to load instrument information");
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setInstrumentLoading(false);
+      });
+
+    return () => controller.abort();
+  }, [selectedSymbol]);
+
+  const effectiveQty = lotSize ? quantity * lotSize : 0;
 
   const validateForm = () => {
     if (!selectedSymbol) return "Select a symbol";
-    if (!selectedExpiry) return "Select an expiry";
+    if (!lotSize) return "Current lot size is unavailable from the Symbol Master";
+    if (!selectedExpiry || !expiryDates.includes(selectedExpiry)) return "Select a valid listed expiry";
     if (!selectedStrike) return "Select a strike";
     if (!price || parseFloat(price) <= 0) return "Enter a valid price";
     if (mode === "LIVE" && !isMarketOpen) return "Market is closed - cannot place live orders";
@@ -164,11 +190,11 @@ export function OrderTicket() {
             }}
             className="w-full px-4 py-2.5 bg-card-bg border border-glow-border focus:border-neon-cyan focus:outline-none rounded-xl text-white"
           >
-            <option value="NIFTY 50">NIFTY 50 (50 lot)</option>
-            <option value="BANKNIFTY">BANKNIFTY (15 lot)</option>
-            <option value="FINNIFTY">FINNIFTY (40 lot)</option>
-            <option value="MIDCPNIFTY">MIDCPNIFTY (75 lot)</option>
-            <option value="SENSEX">SENSEX (10 lot)</option>
+            <option value="NIFTY 50">NIFTY 50</option>
+            <option value="BANKNIFTY">BANKNIFTY</option>
+            <option value="FINNIFTY">FINNIFTY</option>
+            <option value="MIDCPNIFTY">MIDCPNIFTY</option>
+            <option value="SENSEX">SENSEX</option>
           </select>
         </div>
 
@@ -240,17 +266,22 @@ export function OrderTicket() {
                 placeholder="1"
               />
             </div>
-            <p className="text-[10px] text-text-muted mt-1">Lot size: {lotSize} × {quantity} = {effectiveQty} qty</p>
+            <p className="text-[10px] text-text-muted mt-1" aria-live="polite">
+              {instrumentLoading ? "Loading Symbol Master…" : lotSize ? `Lot size: ${lotSize} × ${quantity} = ${effectiveQty} qty` : instrumentError || "Lot size unavailable"}
+            </p>
           </div>
           <div>
             <label className="text-[11px] text-text-muted uppercase tracking-wider mb-1 block">Expiry</label>
-            <input
-              type="text"
+            <select
               value={selectedExpiry}
               onChange={(e) => setSelectedExpiry(e.target.value)}
-              placeholder="YYYY-MM-DD"
-              className="w-full pl-4 py-2.5 rounded-xl bg-card-bg border border-glow-border focus:border-neon-cyan focus:outline-none text-white placeholder-text-muted"
-            />
+              disabled={instrumentLoading || expiryDates.length === 0}
+              className="w-full pl-4 py-2.5 rounded-xl bg-card-bg border border-glow-border focus:border-neon-cyan focus:outline-none text-white disabled:opacity-60"
+              aria-label="Available option expiry"
+            >
+              <option value="">{instrumentLoading ? "Loading expiries…" : "Select expiry"}</option>
+              {expiryDates.map((expiry) => <option key={expiry} value={expiry}>{expiry}</option>)}
+            </select>
           </div>
           <div>
             <label className="text-[11px] text-text-muted uppercase tracking-wider mb-1 block">Strike</label>
