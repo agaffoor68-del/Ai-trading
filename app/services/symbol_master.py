@@ -137,9 +137,29 @@ class SymbolMasterDownloader:
             # can otherwise reach datetime parsing as a float).
             df = df.astype(object).where(pd.notna(df), None)
 
-            df["instrument_type"] = df["instrument_type"].fillna("").str.strip()
-            df["option_type"] = df["option_type"].fillna("").str.strip().str.upper()
-            df["segment"] = df["segment"].fillna("").str.strip()
+            df["instrument_type"] = df["instrument_type"].fillna("").astype(str).str.strip()
+            df["option_type"] = df["option_type"].fillna("").astype(str).str.strip().str.upper()
+            df["symbol_ticker"] = df["symbol_ticker"].fillna("").astype(str).str.strip()
+            df["segment"] = df["segment"].fillna("").astype(str).str.strip()
+
+            # Fyers has shipped FO master revisions where the instrument code
+            # is blank or represented differently. The CE/PE field and the
+            # canonical ticker suffix are authoritative for option contracts.
+            is_option = (
+                df["option_type"].isin(["CE", "PE"])
+                | df["symbol_ticker"].str.upper().str.endswith(("CE", "PE"))
+            )
+            df.loc[is_option, "instrument_type"] = "12"
+            df.loc[
+                is_option & ~df["option_type"].isin(["CE", "PE"]), "option_type"
+            ] = df.loc[
+                is_option & ~df["option_type"].isin(["CE", "PE"]), "symbol_ticker"
+            ].str.upper().str[-2:]
+            is_future = (
+                df["symbol_ticker"].str.upper().str.endswith("FUT")
+                & ~is_option
+            )
+            df.loc[is_future & df["instrument_type"].eq(""), "instrument_type"] = "11"
             logger.info(
                 "Fyers instrument_type counts for %s: %s",
                 exchange,
