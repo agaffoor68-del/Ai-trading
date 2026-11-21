@@ -29,25 +29,15 @@ export function OptionsChain() {
   } = useOptionChain(selectedSymbol, selectedExpiry, strikes);
 
   const transformedStrikes = useMemo(() => {
-    const rows = Array.isArray(chainData?.option_chain)
-      ? chainData.option_chain
-      : Array.isArray(chainData?.data)
-        ? chainData.data
-        : Array.isArray(chainData)
-          ? chainData
-          : [];
-    return rows.map((row: any) => {
-      const call = row.call ?? row.ce ?? {};
-      const put = row.put ?? row.pe ?? {};
-      return {
-        strike: Number(row.strike),
-        isATM: Boolean(row.is_atm ?? row.isATM),
-        ceLtp: Number(call.ltp ?? 0),
-        ceOI: Number(call.oi ?? 0),
-        peOI: Number(put.oi ?? 0),
-        peLtp: Number(put.ltp ?? 0),
-      };
-    });
+    const rows = Array.isArray(chainData) ? chainData : [];
+    return rows.map((row: any) => ({
+      strike: Number(row.strike_price),
+      isATM: Boolean(row.is_atm),
+      ceLtp: row.call_ltp == null ? null : Number(row.call_ltp),
+      ceSymbol: row.call_symbol ?? null,
+      peLtp: row.put_ltp == null ? null : Number(row.put_ltp),
+      peSymbol: row.put_symbol ?? null,
+    }));
   }, [chainData]);
 
   const filteredStrikes = useMemo(
@@ -86,7 +76,7 @@ export function OptionsChain() {
       {isFyersNotConnected && !isFyersConnected ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center"><AlertCircle className="h-10 w-10 text-neon-orange" /><p className="font-semibold text-white">Fyers is disconnected. Connect to load the option chain.</p>{showConnectButton && <a href="/broker-connect" className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-neon-cyan to-neon-purple px-5 py-3 font-bold text-true-black"><Wifi className="h-4 w-4" />Connect Fyers</a>}</div>
       ) : filteredStrikes.length ? (
-        <div className="flex-1 overflow-auto p-2"><table className="w-full min-w-[700px] text-sm"><thead className="sticky top-0 bg-card-bg/90 text-text-muted"><tr><th className="px-2 py-2 text-right">Call LTP</th><th className="px-2 py-2 text-right">Call OI</th><th className="px-2 py-2 text-center">STRIKE</th><th className="px-2 py-2 text-right">Put OI</th><th className="px-2 py-2 text-right">Put LTP</th></tr></thead><tbody>{filteredStrikes.map((row: any) => <tr key={row.strike} className={`border-t border-glow-border/40 hover:bg-card-bg/50 ${row.isATM ? "bg-neon-cyan/5" : ""}`}><td className="px-2 py-2 text-right font-mono text-neon-green">{formatNumber(row.ceLtp)}</td><td className="px-2 py-2 text-right font-mono text-text-secondary">{row.ceOI.toLocaleString()}</td><td className={`px-2 py-2 text-center font-mono font-bold ${row.isATM ? "text-neon-cyan" : "text-white"}`}>{row.strike.toLocaleString()}{row.isATM && <span className="ml-1 text-[10px]">ATM</span>}</td><td className="px-2 py-2 text-right font-mono text-text-secondary">{row.peOI.toLocaleString()}</td><td className="px-2 py-2 text-right font-mono text-neon-red">{formatNumber(row.peLtp)}</td></tr>)}</tbody></table></div>
+        <div className="flex-1 overflow-auto p-2"><table className="w-full min-w-[700px] text-sm"><thead className="sticky top-0 bg-card-bg/90 text-text-muted"><tr><th className="px-2 py-2 text-right">Call LTP</th><th className="px-2 py-2 text-right">Call symbol</th><th className="px-2 py-2 text-center">STRIKE</th><th className="px-2 py-2 text-left">Put symbol</th><th className="px-2 py-2 text-left">Put LTP</th></tr></thead><tbody>{filteredStrikes.map((row: any) => <tr key={row.strike} className={`border-t border-glow-border/40 hover:bg-card-bg/50 ${row.isATM ? "bg-neon-cyan/5" : ""}`}><td className="px-2 py-2 text-right font-mono text-neon-green">{row.ceLtp == null ? "—" : formatNumber(row.ceLtp)}</td><td className="max-w-[180px] truncate px-2 py-2 text-right font-mono text-text-secondary" title={row.ceSymbol ?? "No call contract"}>{row.ceSymbol ?? "—"}</td><td className={`px-2 py-2 text-center font-mono font-bold ${row.isATM ? "text-neon-cyan" : "text-white"}`}>{row.strike.toLocaleString()}{row.isATM && <span className="ml-1 text-[10px]">ATM</span>}</td><td className="max-w-[180px] truncate px-2 py-2 font-mono text-text-secondary" title={row.peSymbol ?? "No put contract"}>{row.peSymbol ?? "—"}</td><td className="px-2 py-2 text-left font-mono text-neon-red">{row.peLtp == null ? "—" : formatNumber(row.peLtp)}</td></tr>)}</tbody></table></div>
       ) : (
         <div className="flex flex-1 items-center justify-center p-6 text-center text-text-muted"><div><AlertCircle className="mx-auto mb-2 h-8 w-8 text-neon-orange/50" /><p>{isFyersConnected ? "No option data available." : "Select an expiry to load the option chain."}</p></div></div>
       )}

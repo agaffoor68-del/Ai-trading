@@ -611,251 +611,93 @@ class OptionChainRequest(BaseModel):
 @router.get("/options-chain")
 @router.get("/options/chain")
 async def get_option_chain(
-    symbol: str = Query(..., description="Underlying symbol (e.g., NIFTY, BANKNIFTY)"),
-    expiry: Optional[str] = Query(None, description="Expiry date in YYYY-MM-DD format (optional, uses nearest)"),
-    strikes: int = Query(10, ge=1, le=50, description="Number of ITM/OTM strikes around ATM"),
-    raw: bool = Query(False, description="Return raw debug info"),
+    symbol: str = Query(..., min_length=1, max_length=32),
+    expiry: str = Query(..., description="Expiry date in YYYY-MM-DD format"),
+    strikes: int = Query(10, ge=1, le=50, description="Strikes on each side of ATM"),
 ):
-    """
-    Get option chain for a given index symbol.
-    
-    Fetches:
-    1. Current Spot price of the symbol
-    2. Calculates ATM strike
-    3. Fetches strikes ITM + ATM + OTM from Fyers Symbol Master
-    4. Fetches quotes for all tokens in batches
-    5. Returns formatted option chain data
-    
-    Returns:
-    {
-        "symbol": "NIFTY",
-        "expiry": "2026-01-30",
-        "spot_price": 24350.5,
-        "atm_strike": 24350,
-        "strike_interval": 50,
-        "option_chain": [
-            {
-                "strike": 24200,
-                "is_atm": false,
-                "call": {"symbol": "NSE:NIFTY26JAN24200CE", "ltp": 120.4, "oi": 287900, "oi_change": 1000, "oi_change_pct": 0.35, "volume": 50000, "bid": 119.5, "ask": 121.0},
-                "put": {"symbol": "NSE:NIFTY26JAN24200PE", "ltp": 80.2, "oi": 150000, "oi_change": -500, "oi_change_pct": -0.33, "volume": 30000, "bid": 79.5, "ask": 81.0}
-            },
-            ...
-        ],
-        "expiries": ["2026-01-30", "2026-02-06", ...]
+    """Return live CE/PE LTPs for the selected expiry, centered on the nearest 50-point ATM."""
+    from app.services.fyers_api import fyers_api_client
+    from app.services.fyers_token import get_fyers_token
+
+    aliases = {
+        "NIFTY": "NSE:NIFTY50-INDEX", "NIFTY 50": "NSE:NIFTY50-INDEX",
+        "BANKNIFTY": "NSE:NIFTYBANK-INDEX", "BANK NIFTY": "NSE:NIFTYBANK-INDEX",
+        "FINNIFTY": "NSE:FINNIFTY-INDEX", "MIDCPNIFTY": "NSE:MIDCPNIFTY-INDEX",
+        "SENSEX": "BSE:SENSEX-INDEX",
     }
-    """
+    normalized = " ".join(symbol.upper().split())
+    underlying_ticker = aliases.get(normalized)
+    if not underlying_ticker:
+        raise HTTPException(status_code=400, detail=f"Unsupported underlying: {symbol}")
     try:
+        expiry_date = datetime.strptime(expiry, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="expiry must be YYYY-MM-DD")
+
+    token = await run_in_threadpool(get_fyers_token)
+    if not token:
+        raise HTTPException(status_code=401, detail={"code": "FYERS_NOT_CONNECTED", "message": "Fyers not authenticated"})
+
+    quotes = await fyers_api_client.get_quotes([underlying_ticker])
+    spot_price = (quotes or {}).get(underlying_ticker, {}).get("ltp")
+    if spot_price is None:
+        raise HTTPException(status_code=502, detail={"code": "FYERS_ERROR", "message": "Underlying LTP unavailable"})
+    atm_strike = int(float(spot_price) / 50 + 0.5) * 50
+
+    def load_contracts():
         from app.core.database import SessionLocal, Instrument
-        from app.services.fyers_api import fyers_api_client
-        from app.services.fyers_token import get_fyers_token
-        
-        # Check Fyers authentication
-        token = await run_in_threadpool(get_fyers_token)
-        if not token:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail={"code": "FYERS_NOT_CONNECTED", "message": "Fyers not authenticated. Please login via /api/v1/fyers/connect"}
-            )
-        
-        symbol_upper = symbol.upper()
-        
-        # Map symbol to index ticker
-        index_symbol_map = {
-            "NIFTY": "NSE:NIFTY50-INDEX",
-            "BANKNIFTY": "NSE:NIFTYBANK-INDEX",
-            "FINNIFTY": "NSE:FINNIFTY-INDEX",
-            "MIDCPNIFTY": "NSE:MIDCPNIFTY-INDEX",
-            "SENSEX": "BSE:SENSEX-INDEX",
+        db = SessionLocal()
+        try:
+            start = datetime.combine(expiry_date, time.min)
+            end = datetime.combine(expiry_date, time.max)
+            contracts = db.query(Instrument).filter(
+                Instrument.expiry >= start,
+                Instrument.expiry <= end,
+                Instrument.exchange.in_(["NSE_FO", "BSE_FO"]),
+                Instrument.is_active == 1,
+                Instrument.option_type.in_(["CE", "PE"]),
+            ).all()
+            result = {}
+            for contract in contracts:
+                contract_symbol = (contract.symbol or "").upper().split(":")[-1]
+                if not contract_symbol.startswith(normalized.replace(" ", "")):
+                    continue
+                try:
+                    strike = float(contract.strike)
+                except (TypeError, ValueError):
+                    continue
+                if abs(strike / 50 - round(strike / 50)) > 1e-8:
+                    continue
+                result.setdefault(strike, {})[contract.option_type.upper()] = contract.symbol
+            return result
+        finally:
+            db.close()
+
+    contracts = await run_in_threadpool(load_contracts)
+    strikes_to_return = [atm_strike + offset * 50 for offset in range(-strikes, strikes + 1)]
+    symbols_by_strike = {
+        strike: contracts.get(float(strike), {}) for strike in strikes_to_return
+    }
+    symbols = list(dict.fromkeys(
+        contract for legs in symbols_by_strike.values() for contract in legs.values()
+    ))
+    option_quotes = {}
+    for offset in range(0, len(symbols), 50):
+        batch = await fyers_api_client.get_quotes(symbols[offset:offset + 50])
+        if isinstance(batch, dict):
+            option_quotes.update(batch)
+
+    return [
+        {
+            "strike_price": strike,
+            "call_ltp": (option_quotes.get(legs.get("CE"), {}) or {}).get("ltp") if legs.get("CE") else None,
+            "call_symbol": legs.get("CE"),
+            "put_ltp": (option_quotes.get(legs.get("PE"), {}) or {}).get("ltp") if legs.get("PE") else None,
+            "put_symbol": legs.get("PE"),
+            "is_atm": strike == atm_strike,
         }
-        
-        if symbol_upper not in index_symbol_map:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Unsupported symbol: {symbol}. Supported: NIFTY, BANKNIFTY, FINNIFTY, MIDCPNIFTY, SENSEX"
-            )
-        
-        index_ticker = index_symbol_map[symbol_upper]
-        
-        # 1. Fetch current spot price
-        spot_quote = await fyers_api_client.get_quotes([index_ticker])
-        if not spot_quote or index_ticker not in spot_quote:
-            raise HTTPException(status_code=502, detail={"code": "FYERS_ERROR", "message": "Failed to fetch spot price"})
-        
-        spot_price = spot_quote[index_ticker].get("ltp")
-        if spot_price is None:
-            raise HTTPException(status_code=502, detail={"code": "FYERS_ERROR", "message": "Spot price not available"})
-        
-        logger.info(f"Spot price for {symbol_upper}: {spot_price}")
-        
-        # 2. Calculate ATM strike (round to nearest 50 for NIFTY, 100 for BANKNIFTY)
-        if symbol_upper in ["NIFTY", "FINNIFTY", "MIDCPNIFTY", "SENSEX"]:
-            strike_interval = 50
-        else:  # BANKNIFTY
-            strike_interval = 100
-        
-        atm_strike = round(spot_price / strike_interval) * strike_interval
-        logger.info(f"ATM strike for {symbol_upper}: {atm_strike}")
-        
-        # 3. Determine expiry date
-        def _option_chain_db(requested_expiry: Optional[str]):
-            db = SessionLocal()
-            try:
-                today = now_ist().date()
-                selected_expiry = requested_expiry
-                
-                if not selected_expiry:
-                    # Find nearest expiry from database
-                    from sqlalchemy import func
-                    nearest_expiry = db.query(func.min(Instrument.expiry)).filter(
-                        Instrument.symbol.ilike(f"%{symbol_upper}%"),
-                        Instrument.expiry >= today,
-                        Instrument.instrument_type.in_(["12", "OPT", "OPTION"]),
-                    ).scalar()
-                    
-                    if nearest_expiry:
-                        selected_expiry = nearest_expiry.strftime("%Y-%m-%d")
-                    else:
-                        raise HTTPException(status_code=404, detail="No expiry found for symbol")
-                
-                # Also get all available expiries for the response
-                all_expiries = db.query(Instrument.expiry).filter(
-                    Instrument.symbol.ilike(f"%{symbol_upper}%"),
-                    Instrument.expiry >= today,
-                    Instrument.instrument_type.in_(["12", "OPT", "OPTION"]),
-                ).distinct().order_by(Instrument.expiry.asc()).all()
-                expiry_list = [exp[0].strftime("%Y-%m-%d") for exp in all_expiries if exp[0]]
-                
-                logger.info(f"Using expiry: {expiry} for {symbol_upper}")
-                
-                # 4. Fetch strikes (strikes ITM + ATM + strikes OTM) from symbol master
-                strike_list = []
-                for i in range(-strikes, strikes + 1):
-                    strike = atm_strike + (i * strike_interval)
-                    strike_list.append(strike)
-                
-                expiry_date = datetime.strptime(selected_expiry, "%Y-%m-%d")
-                
-                # Fetch CE options
-                ce_options = db.query(Instrument).filter(
-                    Instrument.symbol.ilike(f"%{symbol_upper}%"),
-                    Instrument.expiry == expiry_date,
-                    Instrument.instrument_type.in_(["12", "OPT", "OPTION"]),
-                    Instrument.option_type == "CE",
-                    Instrument.strike.in_([str(s) for s in strike_list]),
-                ).all()
-                
-                # Fetch PE options
-                pe_options = db.query(Instrument).filter(
-                    Instrument.symbol.ilike(f"%{symbol_upper}%"),
-                    Instrument.expiry == expiry_date,
-                    Instrument.instrument_type.in_(["12", "OPT", "OPTION"]),
-                    Instrument.option_type == "PE",
-                    Instrument.strike.in_([str(s) for s in strike_list]),
-                ).all()
-                
-                logger.info(f"Found {len(ce_options)} CE and {len(pe_options)} PE options")
-                
-                # Build symbol to token mapping
-                ce_tokens = {float(opt.strike): opt.symbol for opt in ce_options if opt.strike}
-                pe_tokens = {float(opt.strike): opt.symbol for opt in pe_options if opt.strike}
-                
-                return strike_list, selected_expiry, expiry_list, ce_tokens, pe_tokens
-            finally:
-                db.close()
-        
-        strike_list, expiry, expiry_list, ce_tokens, pe_tokens = await run_in_threadpool(_option_chain_db, expiry)
-        
-        # 5. Fetch quotes for all tokens in batches
-        all_symbols = []
-        strike_to_symbols = {}
-        
-        for strike in strike_list:
-            ce_symbol = ce_tokens.get(strike)
-            pe_symbol = pe_tokens.get(strike)
-            
-            if ce_symbol:
-                all_symbols.append(ce_symbol)
-            if pe_symbol:
-                all_symbols.append(pe_symbol)
-            
-            strike_to_symbols[strike] = {"ce": ce_symbol, "pe": pe_symbol}
-        
-        # Batch fetch quotes (max 50 per request)
-        all_quotes = {}
-        batch_size = 50
-        for i in range(0, len(all_symbols), batch_size):
-            batch = all_symbols[i:i + batch_size]
-            batch_quotes = await fyers_api_client.get_quotes(batch)
-            all_quotes.update(batch_quotes)
-        
-        # 6. Build response
-        option_chain = []
-        for strike in strike_list:
-            symbols_map = strike_to_symbols.get(strike, {})
-            ce_symbol = symbols_map.get("ce")
-            pe_symbol = symbols_map.get("pe")
-            
-            ce_quote = all_quotes.get(ce_symbol, {}) if ce_symbol else {}
-            pe_quote = all_quotes.get(pe_symbol, {}) if pe_symbol else {}
-            
-            is_atm = (strike == atm_strike)
-            
-            # ITM rule: call ITM if strike < spot, put ITM if strike > spot
-            call_itm = strike < spot_price
-            put_itm = strike > spot_price
-            
-            option_chain.append({
-                "strike": strike,
-                "is_atm": is_atm,
-                "call_itm": call_itm,
-                "put_itm": put_itm,
-                "call": {
-                    "symbol": ce_symbol,
-                    "ltp": ce_quote.get("ltp"),
-                    "oi": ce_quote.get("oi") or ce_quote.get("open_interest"),
-                    "oi_change": ce_quote.get("oi_change"),
-                    "oi_change_pct": ce_quote.get("oi_change_percent"),
-                    "volume": ce_quote.get("volume"),
-                    "bid": ce_quote.get("bid"),
-                    "ask": ce_quote.get("ask"),
-                } if ce_symbol else None,
-                "put": {
-                    "symbol": pe_symbol,
-                    "ltp": pe_quote.get("ltp"),
-                    "oi": pe_quote.get("oi") or pe_quote.get("open_interest"),
-                    "oi_change": pe_quote.get("oi_change"),
-                    "oi_change_pct": pe_quote.get("oi_change_percent"),
-                    "volume": pe_quote.get("volume"),
-                    "bid": pe_quote.get("bid"),
-                    "ask": pe_quote.get("ask"),
-                } if pe_symbol else None,
-            })
-        
-        response = {
-            "symbol": symbol_upper,
-            "expiry": expiry,
-            "spot_price": spot_price,
-            "atm_strike": atm_strike,
-            "strike_interval": strike_interval,
-            "option_chain": option_chain,
-            "expiries": expiry_list,
-            "timestamp": now_ist().isoformat(),
-        }
-        
-        if raw:
-            response["debug"] = {
-                "all_quotes": all_quotes,
-                "strike_to_symbols": strike_to_symbols,
-            }
-        
-        return response
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Option chain error for {symbol}: {str(e)}")
-        raise HTTPException(status_code=502, detail={"code": "FYERS_ERROR", "message": f"Failed to fetch option chain: {str(e)}"})
+        for strike in strikes_to_return
+    ]
 
 
 class AISignalResponse(BaseModel):
