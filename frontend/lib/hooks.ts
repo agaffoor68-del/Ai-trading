@@ -243,7 +243,7 @@ export function useOptionChain(symbol: string, expiry: string, strikes = 10) {
   const { status, isLoading: isStatusLoading } = useFyersStatus();
   const fyersConnected = isFyersConnected(status);
   const key = fyersConnected && symbol && expiry
-    ? `/api/v1/market/options-chain?symbol=${encodeURIComponent(symbol)}&expiry=${encodeURIComponent(expiry)}&strikes=${strikes}`
+    ? `/api/v1/market/options/chain?symbol=${encodeURIComponent(symbol)}&expiry=${encodeURIComponent(expiry)}&strikes=${strikes}`
     : null;
   const { data, error, isLoading, mutate } = useSWR<OptionChainResponse>(key, key ? createFetcher<OptionChainResponse>(key) : null, {
     refreshInterval: 15000,
