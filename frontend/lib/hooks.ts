@@ -241,11 +241,31 @@ export function useMarketQuotes(symbols: string[]) {
 
 export function useOptionChain(symbol: string, expiry: string, strikes = 10) {
   const { status, isLoading: isStatusLoading } = useFyersStatus();
+  const { expiries, isLoading: isInstrumentLoading } = useExpiries(symbol);
   const fyersConnected = isFyersConnected(status);
-  const key = fyersConnected && symbol && expiry
-    ? `/api/v1/market/options/chain?symbol=${encodeURIComponent(symbol)}&expiry=${encodeURIComponent(expiry)}&strikes=${strikes}`
+  const resolvedExpiry = expiry || expiries[0] || "";
+  const key = fyersConnected && symbol && resolvedExpiry
+    ? `/api/v1/market/options/chain?symbol=${encodeURIComponent(symbol)}&expiry=${encodeURIComponent(resolvedExpiry)}&strike_count=${strikes}`
     : null;
-  const { data, error, isLoading, mutate } = useSWR<OptionChainResponse>(key, key ? createFetcher<OptionChainResponse>(key) : null, {
+  const { data, error, isLoading, mutate } = useSWR<OptionChainResponse>(key as string | null, key ? async () => {
+    const payload = await createFetcher<any>(key)();
+    if (!Array.isArray(payload)) return payload as OptionChainResponse;
+    const rows: StrikeData[] = payload.map((row: any) => ({
+      strike: Number(row.strike_price), is_atm: Boolean(row.is_atm), call_itm: false, put_itm: false,
+      call: row.call_symbol ? { symbol: row.call_symbol, ltp: row.call_ltp } : null,
+      put: row.put_symbol ? { symbol: row.put_symbol, ltp: row.put_ltp } : null,
+    }));
+    return {
+      symbol,
+      expiry: resolvedExpiry,
+      spot_price: 0,
+      atm_strike: rows.find((row) => row.is_atm)?.strike ?? 0,
+      strike_interval: 50,
+      option_chain: rows,
+      expiries,
+      timestamp: new Date().toISOString(),
+    };
+  } : null, { 
     refreshInterval: 15000,
     revalidateOnFocus: true,
     revalidateOnReconnect: true,
@@ -255,7 +275,7 @@ export function useOptionChain(symbol: string, expiry: string, strikes = 10) {
   console.log("API Response (option-chain):", data);
   return {
     chainData: sessionExpired ? undefined : data,
-    isLoading: isStatusLoading || isLoading,
+    isLoading: isStatusLoading || isInstrumentLoading || isLoading,
     isError: !!error,
     error: (error as any)?.message,
     errorCode: (error as any)?.code,
@@ -336,11 +356,11 @@ export function useFullStatus() {
 }
 
 export function useExpiries(symbol: string) {
-  const key = symbol ? `/api/v1/market/expiries?symbol=${encodeURIComponent(symbol)}` : null;
-  const { data, error, isLoading, mutate } = useSWR<{ expiries?: string[] }>(key, key ? createFetcher<{ expiries?: string[] }>(key) : null, {
+  const key = symbol ? `/api/v1/market/instrument-info?symbol=${encodeURIComponent(symbol)}` : null;
+  const { data, error, isLoading, mutate } = useSWR<{ expiry_dates?: string[] }>(key, key ? createFetcher<{ expiry_dates?: string[] }>(key) : null, {
     refreshInterval: 3600000, revalidateOnFocus: true, revalidateOnReconnect: true, dedupingInterval: 300000,
   });
-  return { expiries: data?.expiries || [], isLoading, isError: !!error, error: (error as any)?.message, mutate };
+  return { expiries: data?.expiry_dates || [], isLoading, isError: !!error, error: (error as any)?.message, mutate };
 }
 
 export function useMe() {
