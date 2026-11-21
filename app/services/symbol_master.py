@@ -138,6 +138,7 @@ class SymbolMasterDownloader:
             df = df.astype(object).where(pd.notna(df), None)
 
             df["instrument_type"] = df["instrument_type"].fillna("").str.strip()
+            df["option_type"] = df["option_type"].fillna("").str.strip().str.upper()
             df["segment"] = df["segment"].fillna("").str.strip()
             logger.info(
                 "Fyers instrument_type counts for %s: %s",
@@ -280,6 +281,81 @@ class SymbolMasterDownloader:
     async def close(self):
         if self.session and not self.session.closed:
             await self.session.close()
+
+
+async def get_options_chain(symbol: str, expiry: str, strikes_each_side: int = 10) -> dict:
+    """Return available CE/PE contracts nearest to the live ATM strike."""
+    from app.services.fyers_api import fyers_api_client
+
+    index_symbols = {
+        "NIFTY": "NSE:NIFTY50-INDEX",
+        "BANKNIFTY": "NSE:NIFTYBANK-INDEX",
+        "FINNIFTY": "NSE:FINNIFTY-INDEX",
+        "MIDCPNIFTY": "NSE:MIDCPNIFTY-INDEX",
+        "SENSEX": "BSE:SENSEX-INDEX",
+    }
+    normalized_symbol = symbol.strip().upper()
+    index_ticker = index_symbols.get(normalized_symbol)
+    if not index_ticker:
+        raise ValueError(f"Unsupported options underlying: {symbol}")
+    if not 1 <= strikes_each_side <= 50:
+        raise ValueError("strikes_each_side must be between 1 and 50")
+
+    quote = await fyers_api_client.get_quotes([index_ticker])
+    spot_price = (quote or {}).get(index_ticker, {}).get("ltp")
+    if spot_price is None and quote:
+        spot_price = next(iter(quote.values())).get("ltp") if not any(
+            key == "error" for key in quote
+        ) else None
+    if not isinstance(spot_price, (int, float)) or spot_price <= 0:
+        raise RuntimeError(f"Live LTP unavailable for {normalized_symbol}")
+
+    expiry_date = datetime.strptime(expiry, "%Y-%m-%d").date()
+
+    def load_contracts() -> list[dict]:
+        db = SessionLocal()
+        try:
+            candidates = db.query(Instrument).filter(
+                Instrument.symbol.ilike(f"%{normalized_symbol}%"),
+                Instrument.expiry >= datetime.combine(expiry_date, datetime.min.time()),
+                Instrument.expiry < datetime.combine(expiry_date, datetime.max.time()),
+                Instrument.instrument_type.in_(["12", "12.0", "OPT", "OPTION"]),
+                Instrument.option_type.in_(["CE", "PE"]),
+                Instrument.is_active == 1,
+            ).all()
+            by_strike: dict[float, dict] = {}
+            for instrument in candidates:
+                try:
+                    strike = float(instrument.strike)
+                except (TypeError, ValueError):
+                    continue
+                legs = by_strike.setdefault(strike, {"strike": strike, "call": None, "put": None})
+                option_type = (instrument.option_type or "").upper()
+                legs["call" if option_type == "CE" else "put"] = {
+                    "symbol": instrument.symbol,
+                    "fyers_token": instrument.fyers_token,
+                }
+            return list(by_strike.values())
+        finally:
+            db.close()
+
+    contracts = await asyncio.to_thread(load_contracts)
+    available_strikes = sorted(row["strike"] for row in contracts)
+    if not available_strikes:
+        return {"symbol": normalized_symbol, "expiry": expiry, "spot_price": spot_price, "atm_strike": None, "option_chain": []}
+
+    atm_strike = min(available_strikes, key=lambda strike: abs(strike - spot_price))
+    atm_index = available_strikes.index(atm_strike)
+    start = max(0, atm_index - strikes_each_side)
+    end = min(len(available_strikes), atm_index + strikes_each_side + 1)
+    selected = set(available_strikes[start:end])
+    return {
+        "symbol": normalized_symbol,
+        "expiry": expiry,
+        "spot_price": spot_price,
+        "atm_strike": atm_strike,
+        "option_chain": [row for row in contracts if row["strike"] in selected],
+    }
 
 
 async def main():
