@@ -3,10 +3,25 @@
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
-const RAW_API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "https://ai-trading-9qoa.onrender.com";
+const RAW_API_BASE_URL = process.env.NEXT_PUBLIC_API_URL?.trim();
 
-// Normalize the configured backend base so it never carries a trailing slash.
-const API_BASE_URL = RAW_API_BASE_URL.replace(/\/+$/, "");
+/** Build an absolute backend URL; never silently fall back to the frontend origin. */
+export function getBackendApiUrl(path: string): string {
+  if (!RAW_API_BASE_URL) {
+    throw new Error("NEXT_PUBLIC_API_URL is missing. Set it to the FastAPI backend URL and redeploy the frontend.");
+  }
+
+  let baseUrl: URL;
+  try {
+    baseUrl = new URL(RAW_API_BASE_URL);
+  } catch {
+    throw new Error("NEXT_PUBLIC_API_URL must be a valid absolute HTTP(S) URL.");
+  }
+  if (baseUrl.protocol !== "https:" && baseUrl.protocol !== "http:") {
+    throw new Error("NEXT_PUBLIC_API_URL must use HTTP or HTTPS.");
+  }
+  return `${baseUrl.origin}${path.startsWith("/") ? path : `/${path}`}`;
+}
 
 // Backend on Render sleeps when idle, so cold requests can take a while.
 export const API_TIMEOUT_MS = 15000;
@@ -27,6 +42,8 @@ export interface FyersConnectResponse {
 interface FetchOptions extends RequestInit {
   requireAuth?: boolean;
   redirectOnUnauthorized?: boolean;
+  /** Bypass same-origin proxy and send this request to the configured FastAPI origin. */
+  directBackend?: boolean;
 }
 
 function isAbortError(error: unknown): boolean {
@@ -91,7 +108,7 @@ export async function fetchWithTimeout(url: string, init: RequestInit = {}): Pro
 }
 
 export async function apiFetch<T>(endpoint: string, options: FetchOptions = {}): Promise<T> {
-  const { requireAuth = true, redirectOnUnauthorized = true, headers = {}, ...fetchOptions } = options;
+  const { requireAuth = true, redirectOnUnauthorized = true, directBackend = false, headers = {}, ...fetchOptions } = options;
 
   const headersObj: HeadersInit = {
     "Content-Type": "application/json",
@@ -102,9 +119,13 @@ export async function apiFetch<T>(endpoint: string, options: FetchOptions = {}):
   // the Authorization header). Anything else is an absolute backend URL or a
   // path relative to the backend base.
   const url =
-    endpoint.startsWith("http://") || endpoint.startsWith("https://") || endpoint.startsWith("/api/v1")
+    endpoint.startsWith("http://") || endpoint.startsWith("https://")
       ? endpoint
-      : `${API_BASE_URL}${endpoint}`;
+      : directBackend
+        ? getBackendApiUrl(endpoint)
+        : endpoint.startsWith("/api/v1")
+          ? endpoint
+          : getBackendApiUrl(endpoint);
 
   const response = await fetchWithTimeout(url, {
     ...fetchOptions,
@@ -182,8 +203,20 @@ export const api = {
   getCandles: (symbol: string, interval: string, days: number) => 
     apiFetch(`/api/v1/market/candles?symbol=${encodeURIComponent(symbol)}&interval=${encodeURIComponent(interval)}&days=${days}`, { requireAuth: true }),
 
-  getOptionChain: (symbol: string, expiry: string, strikes?: number) => 
-    apiFetch(`/api/v1/market/option-chain?symbol=${encodeURIComponent(symbol)}&expiry=${encodeURIComponent(expiry)}${strikes ? `&strikes=${strikes}` : ""}`, { requireAuth: true }),
+  getInstrumentInfo: (symbol: string) =>
+    apiFetch(`/api/v1/market/instrument-info?symbol=${encodeURIComponent(symbol)}`, {
+      requireAuth: false,
+      directBackend: true,
+    }),
+
+  getOptionChain: (symbol: string, expiry?: string, strikes = 10) => {
+    const params = new URLSearchParams({ symbol, strike_count: String(strikes) });
+    if (expiry) params.set("expiry", expiry);
+    return apiFetch(`/api/v1/market/options/chain?${params.toString()}`, {
+      requireAuth: false,
+      directBackend: true,
+    });
+  },
 
   // Fyers
   getFyersStatus: () => 

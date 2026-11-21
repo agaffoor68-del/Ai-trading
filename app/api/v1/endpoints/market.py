@@ -647,7 +647,7 @@ async def get_option_chain(
     spot_price = (quotes or {}).get(underlying_ticker, {}).get("ltp")
     if spot_price is None:
         raise HTTPException(status_code=502, detail={"code": "FYERS_ERROR", "message": "Underlying LTP unavailable"})
-    atm_strike = int(float(spot_price) / 50 + 0.5) * 50
+    spot_price = float(spot_price)
 
     def load_contracts():
         from app.core.database import SessionLocal, Instrument
@@ -656,7 +656,8 @@ async def get_option_chain(
             query = db.query(Instrument).filter(
                 Instrument.expiry >= datetime.combine(expiry_date, time.min) if expiry_date else Instrument.expiry >= now_ist().date(),
                 Instrument.expiry <= datetime.combine(expiry_date, time.max) if expiry_date else Instrument.expiry.is_not(None),
-                Instrument.exchange.in_(["NSE_FO", "BSE_FO"]),
+                Instrument.exchange.in_(["NSE_FO"] if normalized != "SENSEX" else ["BSE_FO"]),
+                Instrument.symbol.ilike(f"%:{normalized.replace(' ', '')}%"),
                 Instrument.is_active == 1,
                 Instrument.option_type.in_(["CE", "PE"]),
             )
@@ -673,14 +674,9 @@ async def get_option_chain(
                 ).all()
             result = {}
             for contract in contracts:
-                contract_symbol = (contract.symbol or "").upper().split(":")[-1]
-                if not contract_symbol.startswith(normalized.replace(" ", "")):
-                    continue
                 try:
                     strike = float(contract.strike)
                 except (TypeError, ValueError):
-                    continue
-                if abs(strike / 50 - round(strike / 50)) > 1e-8:
                     continue
                 result.setdefault(strike, {})[contract.option_type.upper()] = contract.symbol
             return result
@@ -688,10 +684,16 @@ async def get_option_chain(
             db.close()
 
     contracts = await run_in_threadpool(load_contracts)
-    strikes_to_return = [atm_strike + offset * 50 for offset in range(-strikes, strikes + 1)]
-    symbols_by_strike = {
-        strike: contracts.get(float(strike), {}) for strike in strikes_to_return
-    }
+    available_strikes = sorted(contracts)
+    if not available_strikes:
+        return []
+
+    atm_strike = min(available_strikes, key=lambda strike: abs(strike - spot_price))
+    atm_index = available_strikes.index(atm_strike)
+    first_index = max(0, atm_index - strikes)
+    last_index = min(len(available_strikes), atm_index + strikes + 1)
+    strikes_to_return = available_strikes[first_index:last_index]
+    symbols_by_strike = {strike: contracts.get(strike, {}) for strike in strikes_to_return}
     symbols = list(dict.fromkeys(
         contract for legs in symbols_by_strike.values() for contract in legs.values()
     ))
