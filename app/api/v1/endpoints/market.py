@@ -545,6 +545,7 @@ class OptionChainRequest(BaseModel):
 
 
 @router.get("/option-chain")
+@router.get("/options/chain")
 async def get_option_chain(
     symbol: str = Query(..., description="Underlying symbol (e.g., NIFTY, BANKNIFTY)"),
     expiry: Optional[str] = Query(None, description="Expiry date in YYYY-MM-DD format (optional, uses nearest)"),
