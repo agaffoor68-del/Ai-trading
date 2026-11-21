@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { motion } from "framer-motion";
 import {
   Activity,
@@ -21,9 +21,9 @@ import { Sidebar } from "@/components/Sidebar";
 import { Header } from "@/components/Header";
 import { api, type OrderRequest, type OrderResponse } from "@/lib/api";
 
-const SYMBOLS = ["NIFTY 50", "BANKNIFTY", "SENSEX"];
+const SYMBOLS = ["NIFTY 50", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "SENSEX"];
 const STRIKES = ["ATM", "ITM-1", "ITM-2", "OTM-1", "OTM-2"];
-const EXPIRIES = ["26 Nov 2026", "03 Dec 2026", "10 Dec 2026", "24 Dec 2026"];
+const underlyingSymbol = (symbol: string) => symbol === "NIFTY 50" ? "NIFTY" : symbol;
 
 interface OrderForm {
   mode: "PAPER" | "LIVE";
@@ -45,7 +45,7 @@ const INITIAL_FORM: OrderForm = {
   symbol: "NIFTY 50",
   optionType: "CE",
   strike: "ATM",
-  expiry: EXPIRIES[0],
+  expiry: "",
   orderType: "MARKET",
   quantity: 1,
   price: "",
@@ -57,25 +57,54 @@ export default function OrderTicketPage() {
   const [form, setForm] = useState<OrderForm>(INITIAL_FORM);
   const [isExecuting, setIsExecuting] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+  const [lotSize, setLotSize] = useState<number | null>(null);
+  const [expiryDates, setExpiryDates] = useState<string[]>([]);
+  const [instrumentLoading, setInstrumentLoading] = useState(false);
+  const [instrumentError, setInstrumentError] = useState<string | null>(null);
+  const effectiveQty = lotSize ? form.quantity * lotSize : 0;
+
+  useEffect(() => {
+    let active = true;
+    setInstrumentLoading(true);
+    setInstrumentError(null);
+    setLotSize(null);
+    setExpiryDates([]);
+    api.getInstrumentInfo(underlyingSymbol(form.symbol))
+      .then((info) => {
+        if (!active) return;
+        setLotSize(info.lot_size);
+        setExpiryDates(info.expiry_dates);
+        setForm((current) => ({ ...current, expiry: info.expiry_dates.includes(current.expiry) ? current.expiry : info.expiry_dates[0] || "" }));
+      })
+      .catch((error: unknown) => {
+        if (active) setInstrumentError(error instanceof Error ? error.message : "Unable to load instrument information");
+      })
+      .finally(() => { if (active) setInstrumentLoading(false); });
+    return () => { active = false; };
+  }, [form.symbol]);
 
   const spotPrice = form.symbol === "NIFTY 50" ? 24345 : form.symbol === "BANKNIFTY" ? 51890 : 79875;
 
   const estimatePremium = useCallback(() => {
     const base = form.optionType === "CE" ? 150 : 120;
     const strikePremium = form.strike === "ATM" ? base : form.strike === "ITM-1" ? base * 1.5 : base * 0.7;
-    return Math.round(strikePremium * form.quantity * 50);
-  }, [form.optionType, form.strike, form.quantity]);
+    return Math.round(strikePremium * effectiveQty);
+  }, [form.optionType, form.strike, effectiveQty]);
 
   const marginRequired = useCallback(() => Math.round(estimatePremium() * 1.2), [estimatePremium]);
   const estimatedCharges = useCallback(() => Math.round(estimatePremium() * 0.001), [estimatePremium]);
   const totalPremium = useCallback(() => estimatePremium(), [estimatePremium]);
 
   const handleExecute = async () => {
+    if (!lotSize || !expiryDates.includes(form.expiry)) {
+      setToast({ message: "Instrument lot size or listed expiry is unavailable", type: "error" });
+      return;
+    }
     setIsExecuting(true);
     try {
       const orderData: OrderRequest = {
         symbol: form.symbol,
-        quantity: form.quantity,
+        quantity: effectiveQty,
         order_type: form.orderType,
         trade_type: form.tradeType,
         option_type: form.optionType,
@@ -272,13 +301,13 @@ export default function OrderTicketPage() {
                       <label className="text-[10px] text-text-muted uppercase tracking-wider block mb-2">Expiry</label>
                       <select
                         value={form.expiry}
+                        disabled={instrumentLoading || expiryDates.length === 0}
                         onChange={(e) => setForm((prev) => ({ ...prev, expiry: e.target.value }))}
                         className="w-full pl-4 pr-10 py-3 bg-card-bg border border-glow-border focus:border-neon-cyan focus:outline-none rounded-xl text-white text-base cursor-pointer appearance-none"
                       >
-                        {EXPIRIES.map((e) => (
-                          <option key={e} value={e}>
-                            {e}
-                          </option>
+                        <option value="">{instrumentLoading ? "Loading expiries…" : "Select expiry"}</option>
+                        {expiryDates.map((expiry) => (
+                          <option key={expiry} value={expiry}>{expiry}</option>
                         ))}
                       </select>
                       <ChevronRight className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" strokeWidth={2} />
@@ -327,6 +356,9 @@ export default function OrderTicketPage() {
                       <Plus className="w-3 h-3" strokeWidth={2} />
                     </button>
                   </div>
+                  <p className="text-[10px] text-text-muted" aria-live="polite">
+                    {instrumentLoading ? "Loading Symbol Master…" : lotSize ? `Lot size: ${lotSize} × ${form.quantity} = ${effectiveQty} qty` : instrumentError || "Lot size unavailable"}
+                  </p>
 
                   {/* Price */}
                   <div className="flex items-end gap-2">
@@ -408,7 +440,7 @@ export default function OrderTicketPage() {
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-xs text-text-muted">Lot Size</span>
-                    <span className="text-xs font-mono text-white">50 × {form.quantity}</span>
+                    <span className="text-xs font-mono text-white">{lotSize ? `${lotSize} × ${form.quantity} = ${effectiveQty} qty` : instrumentLoading ? "Loading…" : "Unavailable"}</span>
                   </div>
                 </div>
 

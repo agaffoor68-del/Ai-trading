@@ -193,6 +193,13 @@ export interface ExpiriesResponse {
   expiries: string[];
 }
 
+export interface InstrumentInfoResponse {
+  symbol: string;
+  lot_size: number;
+  tick_size: number | null;
+  expiry_dates: string[];
+}
+
 async function fetcher<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetchWithTimeout(url, {
     ...options,
@@ -248,6 +255,9 @@ export const api = {
 
   getExpiries: (symbol: string) =>
     fetcher<ExpiriesResponse>(`${API_BASE_URL}/market/expiries?symbol=${encodeURIComponent(symbol)}`),
+
+  getInstrumentInfo: (symbol: string) =>
+    fetcher<InstrumentInfoResponse>(`${API_BASE_URL}/market/instrument-info?symbol=${encodeURIComponent(symbol)}`),
 
   // AI signals
   getAISignals: (symbols: string[]) =>
