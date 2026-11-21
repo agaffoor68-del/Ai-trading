@@ -227,7 +227,11 @@ async def search_symbols(
                         "exchange": inst.exchange,
                         "name": inst.name,
                         "fyers_token": inst.fyers_token,
-                        "instrument_type": inst.instrument_type,
+                        "instrument_type": (
+                            "12" if (inst.option_type or "").upper() in {"CE", "PE"}
+                            or (inst.symbol or "").upper().endswith(("CE", "PE"))
+                            else inst.instrument_type
+                        ),
                         "lot_size": inst.lot_size,
                     }
                     for inst in results
@@ -271,21 +275,22 @@ async def search_symbols(
                     # 3. Index keyword exact match (NIFTY, BANKNIFTY, etc.)
                     index_priority = 0 if is_index_like(query, item.get("symbol", "")) else 1
                     
+                    # For an explicit underlying search (e.g. NIFTY), put its
+                    # listed option contracts near the top so the response limit
+                    # does not hide every CE/PE behind large F&O result sets.
+                    option_type = str(item.get("instrument_type") or "").upper().removesuffix(".0")
+                    option_rank = 0 if is_exact_index and option_type in {"12", "OPT", "OPTION"} else 1
+
                     # 4. Instrument type priority (Index > FUT > OPT > EQ > Others)
-                    type_priority = get_instrument_priority(inst_type)
-                    
-                    # 5. F&O boost (instrument_type 11/12) for index queries
-                    fo_boost = 0
-                    if is_index_like(query, item.get("symbol", "")) and inst_type.upper() in ["11", "12", "FUT", "OPT"]:
-                        fo_boost = -1  # Boost F&O for index searches
-                    
-                    # 6. ETF deprioritization
+                    type_priority = get_instrument_priority(option_type)
+
+                    # 5. ETF deprioritization
                     etf_penalty = 10 if is_etf_like(symbol) else 0
-                    
-                    # 7. Segment priority (FO before CM for indices)
+
+                    # 6. Segment priority (FO before CM for indices)
                     segment_priority = 0 if item.get("exchange") == "NSE_FO" else 1
-                    
-                    return (main_index_match, exact_match, prefix_match, index_priority, type_priority + fo_boost, etf_penalty, segment_priority, symbol)
+
+                    return (main_index_match, option_rank, exact_match, prefix_match, index_priority, type_priority, etf_penalty, segment_priority, symbol)
 
                 # Sort by ranking
                 ranked_results = sorted(filtered_results, key=rank_score)
@@ -545,6 +550,7 @@ class OptionChainRequest(BaseModel):
 
 
 @router.get("/option-chain")
+@router.get("/options-chain")
 @router.get("/options/chain")
 async def get_option_chain(
     symbol: str = Query(..., description="Underlying symbol (e.g., NIFTY, BANKNIFTY)"),
