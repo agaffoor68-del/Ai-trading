@@ -82,6 +82,7 @@ export default function OptionChainPage() {
     isError, 
     error, 
     isFyersNotConnected,
+    isFyersConnected,
     isServerWakingUp: wakingUp,
     mutate 
   } = useOptionChain(selectedIndex.value, selectedExpiry, strikes);
@@ -155,7 +156,7 @@ export default function OptionChainPage() {
 
   // Error state
   if (isError) {
-    const showConnectCard = isFyersNotConnected;
+    const showConnectCard = isFyersNotConnected && !isFyersConnected;
     
     return (
       <motion.div
@@ -224,13 +225,15 @@ export default function OptionChainPage() {
         </div>
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center text-text-muted">
-            <p>No live data. Please connect Fyers.</p>
-            <motion.a
-              href="/settings"
-              className="mt-4 inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-neon-cyan to-neon-purple text-true-black font-bold transition-all duration-300 shadow-glow-cyan hover:opacity-90"
-            >
-              Connect Fyers
-            </motion.a>
+            <p>{isFyersConnected ? (selectedExpiry ? "No data for this expiry." : "No option expiries are currently available.") : "Option chain data is unavailable."}</p>
+            {!isFyersConnected && isFyersNotConnected && (
+              <motion.a
+                href="/settings"
+                className="mt-4 inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-neon-cyan to-neon-purple text-true-black font-bold transition-all duration-300 shadow-glow-cyan hover:opacity-90"
+              >
+                Connect Fyers
+              </motion.a>
+            )}
           </div>
         </div>
       </motion.div>

@@ -545,6 +545,7 @@ class OptionChainRequest(BaseModel):
 
 
 @router.get("/option-chain")
+@router.get("/options/chain")
 async def get_option_chain(
     symbol: str = Query(..., description="Underlying symbol (e.g., NIFTY, BANKNIFTY)"),
     expiry: Optional[str] = Query(None, description="Expiry date in YYYY-MM-DD format (optional, uses nearest)"),
@@ -633,12 +634,13 @@ async def get_option_chain(
         logger.info(f"ATM strike for {symbol_upper}: {atm_strike}")
         
         # 3. Determine expiry date
-        def _option_chain_db():
+        def _option_chain_db(requested_expiry: Optional[str]):
             db = SessionLocal()
             try:
                 today = now_ist().date()
+                selected_expiry = requested_expiry
                 
-                if not expiry:
+                if not selected_expiry:
                     # Find nearest expiry from database
                     from sqlalchemy import func
                     nearest_expiry = db.query(func.min(Instrument.expiry)).filter(
@@ -648,7 +650,7 @@ async def get_option_chain(
                     ).scalar()
                     
                     if nearest_expiry:
-                        expiry = nearest_expiry.strftime("%Y-%m-%d")
+                        selected_expiry = nearest_expiry.strftime("%Y-%m-%d")
                     else:
                         raise HTTPException(status_code=404, detail="No expiry found for symbol")
                 
@@ -668,7 +670,7 @@ async def get_option_chain(
                     strike = atm_strike + (i * strike_interval)
                     strike_list.append(strike)
                 
-                expiry_date = datetime.strptime(expiry, "%Y-%m-%d")
+                expiry_date = datetime.strptime(selected_expiry, "%Y-%m-%d")
                 
                 # Fetch CE options
                 ce_options = db.query(Instrument).filter(
@@ -694,11 +696,11 @@ async def get_option_chain(
                 ce_tokens = {float(opt.strike): opt.symbol for opt in ce_options if opt.strike}
                 pe_tokens = {float(opt.strike): opt.symbol for opt in pe_options if opt.strike}
                 
-                return strike_list, expiry, expiry_list, ce_tokens, pe_tokens
+                return strike_list, selected_expiry, expiry_list, ce_tokens, pe_tokens
             finally:
                 db.close()
         
-        strike_list, expiry, expiry_list, ce_tokens, pe_tokens = await run_in_threadpool(_option_chain_db)
+        strike_list, expiry, expiry_list, ce_tokens, pe_tokens = await run_in_threadpool(_option_chain_db, expiry)
         
         # 5. Fetch quotes for all tokens in batches
         all_symbols = []
