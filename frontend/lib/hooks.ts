@@ -3,6 +3,7 @@
 import useSWR, { mutate as mutateSWR } from "swr";
 import {
   fetchWithTimeout,
+  getBackendApiUrl,
   parseApiError,
   isServerWakingUp,
   isFyersNotConnected,
@@ -76,8 +77,9 @@ function handleApiError(payload: unknown, status: number): Error & { code?: stri
   return error;
 }
 
-const createFetcher = <T,>(key: string) => async (): Promise<T> => {
-  const response = await fetchWithTimeout(key, { credentials: "same-origin" });
+const createFetcher = <T,>(key: string, directBackend = false) => async (): Promise<T> => {
+  const url = directBackend ? getBackendApiUrl(key) : key;
+  const response = await fetchWithTimeout(url, { credentials: directBackend ? "omit" : "same-origin" });
   if (!response.ok) {
     const error = handleApiError(await response.json().catch(() => null), response.status);
     if (response.status === 401 && !isFyersSessionExpired(error) && !isFyersNotConnected(error) && typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
@@ -248,7 +250,7 @@ export function useOptionChain(symbol: string, expiry: string, strikes = 10) {
     ? `/api/v1/market/options/chain?symbol=${encodeURIComponent(symbol)}&expiry=${encodeURIComponent(resolvedExpiry)}&strike_count=${strikes}`
     : null;
   const { data, error, isLoading, mutate } = useSWR<OptionChainResponse>(key as string | null, key ? async () => {
-    const payload = await createFetcher<any>(key)();
+    const payload = await createFetcher<any>(key, true)();
     if (!Array.isArray(payload)) return payload as OptionChainResponse;
     const rows: StrikeData[] = payload.map((row: any) => ({
       strike: Number(row.strike_price), is_atm: Boolean(row.is_atm), call_itm: false, put_itm: false,
@@ -357,7 +359,7 @@ export function useFullStatus() {
 
 export function useExpiries(symbol: string) {
   const key = symbol ? `/api/v1/market/instrument-info?symbol=${encodeURIComponent(symbol)}` : null;
-  const { data, error, isLoading, mutate } = useSWR<{ expiry_dates?: string[] }>(key, key ? createFetcher<{ expiry_dates?: string[] }>(key) : null, {
+  const { data, error, isLoading, mutate } = useSWR<{ expiry_dates?: string[] }>(key, key ? createFetcher<{ expiry_dates?: string[] }>(key, true) : null, {
     refreshInterval: 3600000, revalidateOnFocus: true, revalidateOnReconnect: true, dedupingInterval: 300000,
   });
   return { expiries: data?.expiry_dates || [], isLoading, isError: !!error, error: (error as any)?.message, mutate };
