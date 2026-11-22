@@ -694,8 +694,8 @@ async def get_option_chain(
     if not available_strikes:
         return []
 
-    atm_strike = min(available_strikes, key=lambda strike: abs(strike - spot_price))
-    atm_index = available_strikes.index(atm_strike)
+    atm_strike = int(spot_price / 50 + 0.5) * 50
+    atm_index = min(range(len(available_strikes)), key=lambda index: abs(available_strikes[index] - atm_strike))
     first_index = max(0, atm_index - strikes)
     last_index = min(len(available_strikes), atm_index + strikes + 1)
     strikes_to_return = available_strikes[first_index:last_index]

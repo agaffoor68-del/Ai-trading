@@ -225,7 +225,7 @@ export default function OptionChainPage() {
         </div>
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center text-text-muted">
-            <p>{isFyersConnected ? (selectedExpiry ? "No data for this expiry." : "No option expiries are currently available.") : "Option chain data is unavailable."}</p>
+            <p>{chainData && Array.isArray(chainData.option_chain) && chainData.option_chain.length === 0 ? "No data" : "Option chain data is unavailable."}</p>
             {!isFyersConnected && isFyersNotConnected && (
               <motion.a
                 href="/settings"
