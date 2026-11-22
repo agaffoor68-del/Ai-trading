@@ -20,6 +20,9 @@ export function getBackendApiUrl(path: string): string {
   if (baseUrl.protocol !== "https:" && baseUrl.protocol !== "http:") {
     throw new Error("NEXT_PUBLIC_API_URL must use HTTP or HTTPS.");
   }
+  if (baseUrl.pathname !== "/" || baseUrl.search || baseUrl.hash) {
+    throw new Error("NEXT_PUBLIC_API_URL must contain only the backend origin, without a path, query, or fragment.");
+  }
   return `${baseUrl.origin}${path.startsWith("/") ? path : `/${path}`}`;
 }
 
