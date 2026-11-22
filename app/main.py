@@ -27,6 +27,7 @@ from app.core.time_sync import time_syncer
 from app.core.auth import seed_admin_user
 from app.api.v1.endpoints.fyers_auth import router as fyers_router
 from app.api.v1.endpoints.market import router as market_router
+from app.api.v1.endpoints.options_chain import router as options_chain_router
 from app.api.v1.endpoints.auth import router as auth_router, get_current_user_info, MeResponse
 from app.api.v1.endpoints.admin import router as admin_router
 from app.services.symbol_master import SymbolMasterDownloader
@@ -83,6 +84,9 @@ app.add_middleware(
 )
 
 app.include_router(fyers_router, prefix="/api/v1/fyers", tags=["fyers-auth"])
+# Register the corrected chain endpoint before market_router, which also has a
+# legacy /options/chain alias. Starlette dispatches the first matching route.
+app.include_router(options_chain_router, prefix="/api/v1/market", tags=["market-data"])
 app.include_router(market_router, prefix="/api/v1/market", tags=["market-data"])
 app.include_router(auth_router, prefix="/api/v1/auth", tags=["auth"])
 app.add_api_route("/api/auth/me", get_current_user_info, methods=["GET"], response_model=MeResponse, tags=["auth"])
@@ -302,7 +306,7 @@ async def shutdown_event():
         await redis_tick_store.stop()
         logger.info("Redis connection manager stopped")
     except Exception as error:
-        logger.error("Error stopping Redis manager: %s", error)
+        logger.error("Error stopping Redis connection manager: %s", error)
 
 
 @app.get("/info", tags=["debug"])
