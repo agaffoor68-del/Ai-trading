@@ -5,6 +5,7 @@ import { SidebarProvider } from '@/components/Sidebar';
 export const metadata: Metadata = {
   title: 'AlphaTradePro - Autonomous Options Trading Platform',
   description: 'Professional algorithmic trading dashboard with AI signals, options chain, and risk management',
+  icons: { icon: '/icon.svg' },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

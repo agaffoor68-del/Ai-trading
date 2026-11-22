@@ -72,9 +72,9 @@ export const config = {
      * - login (public page and its form)
      * - _next/static (static files)
      * - _next/image (image optimization files)
-     * - favicon.ico (favicon file)
+     * - favicon.ico and icon.svg (favicon files)
      * - public folder
      */
-    "/((?!api/|login(?:/|$)|_next/static|_next/image|favicon.ico|.*\\.png$).*)",
+    "/((?!api/|login(?:/|$)|_next/static|_next/image|favicon.ico|icon\\.svg$|.*\\.png$).*)",
   ],
 }

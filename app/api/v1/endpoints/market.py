@@ -543,7 +543,13 @@ async def get_instrument_info(
 
             expiries = sorted({item.expiry.date().isoformat() for item in contracts if item.expiry})
             if not contracts or not expiries:
-                raise HTTPException(status_code=404, detail=f"No active F&O contracts found for {underlying}")
+                return {
+                    "symbol": underlying,
+                    "lot_size": None,
+                    "tick_size": None,
+                    "expiry_dates": [],
+                    "note": f"No active F&O contracts are currently available for {underlying}",
+                }
 
             nearest_expiry = expiries[0]
             current_contracts = [item for item in contracts if item.expiry and item.expiry.date().isoformat() == nearest_expiry]

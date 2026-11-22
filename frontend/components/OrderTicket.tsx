@@ -65,7 +65,7 @@ export function OrderTicket() {
       .then(async (response) => {
         const data = await response.json();
         if (!response.ok) throw new Error(data.detail || "Unable to load instrument information");
-        return data as { lot_size: number; expiry_dates: string[] };
+        return data as { lot_size: number | null; expiry_dates: string[] };
       })
       .then((data) => {
         if (controller.signal.aborted) return;
