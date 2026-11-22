@@ -10,7 +10,7 @@ export function OptionsChain() {
   const [selectedExpiry, setSelectedExpiry] = useState("");
   const [strikes, setStrikes] = useState(10);
   const [searchQuery, setSearchQuery] = useState("");
-  const { expiries, isLoading: expiriesLoading } = useExpiries(selectedSymbol);
+  const { expiries, isLoading: expiriesLoading, isError: expiriesError, error: expiriesErrorMessage, mutate: refreshExpiries } = useExpiries(selectedSymbol);
   useEffect(() => {
     if (expiries.length && (!selectedExpiry || !expiries.includes(selectedExpiry))) {
       setSelectedExpiry(expiries[0]);
@@ -29,14 +29,14 @@ export function OptionsChain() {
   } = useOptionChain(selectedSymbol, selectedExpiry, strikes);
 
   const transformedStrikes = useMemo(() => {
-    const rows = Array.isArray(chainData) ? chainData : [];
-    return rows.map((row: any) => ({
-      strike: Number(row.strike_price),
+    const rows = chainData?.option_chain ?? [];
+    return rows.map((row) => ({
+      strike: Number(row.strike),
       isATM: Boolean(row.is_atm),
-      ceLtp: row.call_ltp == null ? null : Number(row.call_ltp),
-      ceSymbol: row.call_symbol ?? null,
-      peLtp: row.put_ltp == null ? null : Number(row.put_ltp),
-      peSymbol: row.put_symbol ?? null,
+      ceLtp: row.call?.ltp == null ? null : Number(row.call.ltp),
+      ceSymbol: row.call?.symbol ?? null,
+      peLtp: row.put?.ltp == null ? null : Number(row.put.ltp),
+      peSymbol: row.put?.symbol ?? null,
     }));
   }, [chainData]);
 
@@ -73,7 +73,9 @@ export function OptionsChain() {
           <button onClick={() => mutate()} title="Refresh" className="rounded-lg border border-glow-border bg-card-bg p-1.5"><Maximize2 className="h-4 w-4 text-text-secondary" /></button>
         </div>
       </header>
-      {isFyersNotConnected && !isFyersConnected ? (
+      {expiriesError ? (
+        <div role="alert" className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center"><AlertCircle className="h-10 w-10 text-neon-orange" /><p className="font-semibold text-white">Could not load instrument information.</p><p className="text-sm text-text-muted">{expiriesErrorMessage || "Check the backend URL and Symbol Master availability."}</p><button onClick={() => refreshExpiries()} className="rounded-lg border border-glow-border px-4 py-2">Retry</button></div>
+      ) : isFyersNotConnected && !isFyersConnected ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center"><AlertCircle className="h-10 w-10 text-neon-orange" /><p className="font-semibold text-white">Fyers is disconnected. Connect to load the option chain.</p>{showConnectButton && <a href="/broker-connect" className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-neon-cyan to-neon-purple px-5 py-3 font-bold text-true-black"><Wifi className="h-4 w-4" />Connect Fyers</a>}</div>
       ) : filteredStrikes.length ? (
         <div className="flex-1 overflow-auto p-2"><table className="w-full min-w-[700px] text-sm"><thead className="sticky top-0 bg-card-bg/90 text-text-muted"><tr><th className="px-2 py-2 text-right">Call LTP</th><th className="px-2 py-2 text-right">Call symbol</th><th className="px-2 py-2 text-center">STRIKE</th><th className="px-2 py-2 text-left">Put symbol</th><th className="px-2 py-2 text-left">Put LTP</th></tr></thead><tbody>{filteredStrikes.map((row: any) => <tr key={row.strike} className={`border-t border-glow-border/40 hover:bg-card-bg/50 ${row.isATM ? "bg-neon-cyan/5" : ""}`}><td className="px-2 py-2 text-right font-mono text-neon-green">{row.ceLtp == null ? "—" : formatNumber(row.ceLtp)}</td><td className="max-w-[180px] truncate px-2 py-2 text-right font-mono text-text-secondary" title={row.ceSymbol ?? "No call contract"}>{row.ceSymbol ?? "—"}</td><td className={`px-2 py-2 text-center font-mono font-bold ${row.isATM ? "text-neon-cyan" : "text-white"}`}>{row.strike.toLocaleString()}{row.isATM && <span className="ml-1 text-[10px]">ATM</span>}</td><td className="max-w-[180px] truncate px-2 py-2 font-mono text-text-secondary" title={row.peSymbol ?? "No put contract"}>{row.peSymbol ?? "—"}</td><td className="px-2 py-2 text-left font-mono text-neon-red">{row.peLtp == null ? "—" : formatNumber(row.peLtp)}</td></tr>)}</tbody></table></div>

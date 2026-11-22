@@ -1,11 +1,34 @@
 import { NextRequest, NextResponse } from "next/server";
 import { rethrowIfDynamicServerError } from "@/lib/next-runtime";
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || "https://ai-trading-9qoa.onrender.com";
+const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL?.trim();
 
 export const dynamic = "force-dynamic";
 
 async function proxyRequest(request: NextRequest, endpoint: string) {
+  if (!BACKEND_URL) {
+    return NextResponse.json(
+      { detail: "NEXT_PUBLIC_API_URL is not configured for this deployment." },
+      { status: 503 },
+    );
+  }
+
+  let backendOrigin: URL;
+  try {
+    backendOrigin = new URL(BACKEND_URL);
+  } catch {
+    return NextResponse.json(
+      { detail: "NEXT_PUBLIC_API_URL must be a valid absolute HTTP(S) backend URL." },
+      { status: 503 },
+    );
+  }
+  if (!["http:", "https:"].includes(backendOrigin.protocol) || backendOrigin.pathname !== "/" || backendOrigin.search || backendOrigin.hash) {
+    return NextResponse.json(
+      { detail: "NEXT_PUBLIC_API_URL must contain only the backend origin." },
+      { status: 503 },
+    );
+  }
+
   try {
     const cookie = request.cookies.get("access_token");
     const accessToken = cookie?.value;
