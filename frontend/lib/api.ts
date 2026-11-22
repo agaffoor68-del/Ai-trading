@@ -195,7 +195,7 @@ export interface ExpiriesResponse {
 
 export interface InstrumentInfoResponse {
   symbol: string;
-  lot_size: number;
+  lot_size: number | null;
   tick_size: number | null;
   expiry_dates: string[];
 }
