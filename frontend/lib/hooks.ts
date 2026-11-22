@@ -1,5 +1,6 @@
 "use client";
 
+import { useCallback, useEffect, useRef, useState } from "react";
 import useSWR, { mutate as mutateSWR } from "swr";
 import {
   fetchWithTimeout,
@@ -243,50 +244,86 @@ export function useMarketQuotes(symbols: string[]) {
 
 export function useOptionChain(symbol: string, expiry: string, strikes = 10) {
   const { status, isLoading: isStatusLoading } = useFyersStatus();
-  const { expiries, isLoading: isInstrumentLoading } = useExpiries(symbol);
   const fyersConnected = isFyersConnected(status);
-  const resolvedExpiry = expiry || expiries[0] || "";
-  const key = fyersConnected && symbol && resolvedExpiry
-    ? `/api/v1/market/options/chain?symbol=${encodeURIComponent(symbol)}&expiry=${encodeURIComponent(resolvedExpiry)}&strike_count=${strikes}`
+  const key = symbol
+    ? `/api/v1/market/options/chain?symbol=${encodeURIComponent(symbol)}${expiry ? `&expiry=${encodeURIComponent(expiry)}` : ""}&strike_count=${strikes}`
     : null;
-  const { data, error, isLoading, mutate } = useSWR<OptionChainResponse>(key as string | null, key ? async () => {
-    const payload = await createFetcher<any>(key, true)();
-    if (!Array.isArray(payload)) return payload as OptionChainResponse;
-    const rows: StrikeData[] = payload.map((row: any) => ({
-      strike: Number(row.strike_price), is_atm: Boolean(row.is_atm), call_itm: false, put_itm: false,
-      call: row.call_symbol ? { symbol: row.call_symbol, ltp: row.call_ltp } : null,
-      put: row.put_symbol ? { symbol: row.put_symbol, ltp: row.put_ltp } : null,
-    }));
-    return {
-      symbol,
-      expiry: resolvedExpiry,
-      spot_price: 0,
-      atm_strike: rows.find((row) => row.is_atm)?.strike ?? 0,
-      strike_interval: 50,
-      option_chain: rows,
-      expiries,
-      timestamp: new Date().toISOString(),
-    };
-  } : null, { 
-    refreshInterval: 15000,
-    revalidateOnFocus: true,
-    revalidateOnReconnect: true,
-    dedupingInterval: 2000,
-  });
-  const sessionExpired = isFyersSessionExpired(error);
-  console.log("API Response (option-chain):", data);
+  const [chainData, setChainData] = useState<OptionChainResponse>();
+  const [chainError, setChainError] = useState<unknown>();
+  const [chainLoading, setChainLoading] = useState(Boolean(key));
+  const requestId = useRef(0);
+
+  const fetchChain = useCallback(async () => {
+    if (!key) {
+      setChainData(undefined);
+      setChainError(undefined);
+      setChainLoading(false);
+      return;
+    }
+
+    const currentRequest = ++requestId.current;
+    setChainLoading(true);
+    setChainError(undefined);
+    try {
+      const payload = await createFetcher<any>(key, true)();
+      if (!Array.isArray(payload) && !Array.isArray(payload?.option_chain)) {
+        throw new Error("Options chain API returned an invalid response.");
+      }
+      const rows: StrikeData[] = Array.isArray(payload)
+        ? payload.map((row: any) => ({
+            strike: Number(row.strike_price),
+            is_atm: Boolean(row.is_atm),
+            call_itm: false,
+            put_itm: false,
+            call: row.call_symbol ? { symbol: row.call_symbol, ltp: row.call_ltp } : null,
+            put: row.put_symbol ? { symbol: row.put_symbol, ltp: row.put_ltp } : null,
+          }))
+        : payload.option_chain;
+
+      if (requestId.current === currentRequest) {
+        setChainData({
+          symbol,
+          expiry: Array.isArray(payload) ? expiry : payload?.expiry ?? expiry,
+          spot_price: Array.isArray(payload) ? 0 : Number(payload?.spot_price ?? 0),
+          atm_strike: Array.isArray(payload)
+            ? rows.find((row) => row.is_atm)?.strike ?? 0
+            : Number(payload?.atm_strike ?? 0),
+          strike_interval: 50,
+          option_chain: rows,
+          expiries: [],
+          timestamp: new Date().toISOString(),
+        });
+      }
+    } catch (error) {
+      if (requestId.current === currentRequest) {
+        setChainError(error);
+        setChainData(undefined);
+      }
+    } finally {
+      if (requestId.current === currentRequest) setChainLoading(false);
+    }
+  }, [key, symbol, expiry]);
+
+  useEffect(() => {
+    void fetchChain();
+    if (!key) return;
+    const interval = window.setInterval(() => void fetchChain(), 15000);
+    return () => window.clearInterval(interval);
+  }, [fetchChain, key]);
+
+  const sessionExpired = isFyersSessionExpired(chainError);
   return {
-    chainData: sessionExpired ? undefined : data,
-    isLoading: isStatusLoading || isInstrumentLoading || isLoading,
-    isError: !!error,
-    error: (error as any)?.message,
-    errorCode: (error as any)?.code,
-    isFyersNotConnected: sessionExpired || (!isStatusLoading && Boolean(status) && !fyersConnected) || ((error as any)?.status === 401 && isFyersNotConnected(error) && !fyersConnected),
+    chainData: sessionExpired ? undefined : chainData,
+    isLoading: chainLoading,
+    isError: !!chainError,
+    error: (chainError as any)?.message,
+    errorCode: (chainError as any)?.code,
+    isFyersNotConnected: sessionExpired || (!isStatusLoading && Boolean(status) && !fyersConnected) || ((chainError as any)?.status === 401 && isFyersNotConnected(chainError) && !fyersConnected),
     isFyersConnected: fyersConnected && !sessionExpired,
-    isFyersError: isFyersError(error),
-    isFyersUnreachable: isFyersUnreachable(error),
-    isServerWakingUp: isServerWakingUp(error),
-    mutate,
+    isFyersError: isFyersError(chainError),
+    isFyersUnreachable: isFyersUnreachable(chainError),
+    isServerWakingUp: isServerWakingUp(chainError),
+    mutate: fetchChain,
   };
 }
 
