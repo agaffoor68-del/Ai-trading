@@ -1,87 +1,163 @@
 "use client";
 
-import { motion } from "framer-motion";
-import { Maximize2, AlertCircle, Wifi } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { useOptionChain, useExpiries, SERVER_WAKING_MESSAGE } from "@/lib/hooks";
+import { AlertCircle, Loader2, RefreshCw } from "lucide-react";
+import { api } from "@/lib/api-client";
+
+interface ChainRow {
+  strike_price: number;
+  call_ltp: number | null;
+  call_symbol: string | null;
+  put_ltp: number | null;
+  put_symbol: string | null;
+  is_atm: boolean;
+}
+
+const SYMBOLS = ["NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "SENSEX"];
 
 export function OptionsChain() {
-  const [selectedSymbol, setSelectedSymbol] = useState("NIFTY");
-  const [selectedExpiry, setSelectedExpiry] = useState("");
-  const [strikes, setStrikes] = useState(10);
-  const [searchQuery, setSearchQuery] = useState("");
-  const { expiries, isLoading: expiriesLoading, isError: expiriesError, error: expiriesErrorMessage, mutate: refreshExpiries } = useExpiries(selectedSymbol);
+  const [symbol, setSymbol] = useState("NIFTY");
+  const [expiry, setExpiry] = useState("");
+  const [strikeCount, setStrikeCount] = useState(10);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [rows, setRows] = useState<ChainRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
   useEffect(() => {
-    if (expiries.length && (!selectedExpiry || !expiries.includes(selectedExpiry))) {
-      setSelectedExpiry(expiries[0]);
+    let cancelled = false;
+
+    async function fetchChain() {
+      setLoading(true);
+      setError(null);
+
+      try {
+        const payload = await api.getOptionChain(symbol, expiry || undefined, strikeCount);
+        if (!Array.isArray(payload)) {
+          throw new Error("Options chain API returned an invalid response.");
+        }
+        if (!cancelled) setRows(payload as ChainRow[]);
+      } catch (err) {
+        if (!cancelled) {
+          setRows([]);
+          setError(err instanceof Error ? err.message : "Failed to load options chain.");
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
     }
-  }, [expiries, selectedExpiry]);
 
-  const {
-    chainData,
-    isLoading,
-    isError,
-    error,
-    isFyersNotConnected,
-    isFyersConnected,
-    isServerWakingUp: wakingUp,
-    mutate,
-  } = useOptionChain(selectedSymbol, selectedExpiry, strikes);
+    void fetchChain();
+    return () => { cancelled = true; };
+  }, [symbol, expiry, strikeCount, refreshKey]);
 
-  const transformedStrikes = useMemo(() => {
-    const rows = chainData?.option_chain ?? [];
-    return rows.map((row) => ({
-      strike: Number(row.strike),
-      isATM: Boolean(row.is_atm),
-      ceLtp: row.call?.ltp == null ? null : Number(row.call.ltp),
-      ceSymbol: row.call?.symbol ?? null,
-      peLtp: row.put?.ltp == null ? null : Number(row.put.ltp),
-      peSymbol: row.put?.symbol ?? null,
-    }));
-  }, [chainData]);
-
-  const filteredStrikes = useMemo(
-    () => transformedStrikes.filter((row: any) => !searchQuery.trim() || String(row.strike).includes(searchQuery.trim())),
-    [transformedStrikes, searchQuery],
+  const formattedRows = useMemo(
+    () => rows.map((row) => ({ ...row, strike_price: Number(row.strike_price) })),
+    [rows],
   );
-  const formatNumber = (value: number) => value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const showConnectButton = isFyersNotConnected && !isFyersConnected;
 
-  if (isLoading) {
-    return <section aria-label="Loading option chain" aria-busy="true" className="glass rounded-2xl border border-glow-border min-h-[350px] overflow-hidden"><header className="border-b border-glow-border px-4 py-3"><div className="h-5 w-36 rounded bg-card-bg animate-pulse" /></header><div className="flex flex-col gap-3 p-4">{Array.from({ length: 6 }, (_, index) => <div key={index} className="grid grid-cols-5 gap-3 py-2"><div className="h-4 rounded bg-card-bg animate-pulse" /><div className="h-4 rounded bg-card-bg animate-pulse" /><div className="h-4 rounded bg-card-bg animate-pulse" /><div className="h-4 rounded bg-card-bg animate-pulse" /><div className="h-4 rounded bg-card-bg animate-pulse" /></div>)}</div></section>;
-  }
-
-  if (isError && !isFyersNotConnected) {
-    return <section className="glass rounded-2xl border border-glow-border min-h-[350px] flex flex-col items-center justify-center p-6 text-center"><AlertCircle className="mb-3 h-10 w-10 text-neon-orange/70" /><p className="font-medium text-white">{wakingUp ? SERVER_WAKING_MESSAGE : "Failed to load option chain"}</p><p className="mt-2 text-sm text-text-muted">{error}</p><button onClick={() => mutate()} className="mt-4 rounded-lg border border-glow-border px-4 py-2">Retry</button></section>;
-  }
+  const formatLtp = (ltp: number | null) =>
+    ltp == null
+      ? "—"
+      : Number(ltp).toLocaleString(undefined, {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        });
 
   return (
-    <motion.section initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="glass rounded-2xl border border-glow-border min-h-[350px] flex flex-col overflow-hidden">
+    <section className="glass flex min-h-[350px] flex-col overflow-hidden rounded-2xl border border-glow-border">
       <header className="flex flex-wrap items-center justify-between gap-3 border-b border-glow-border bg-card-bg/50 px-4 py-3">
-        <div className="flex items-center gap-2"><h3 className="font-semibold text-white">Options Chain</h3><span className="rounded bg-neon-cyan/20 px-2 py-0.5 text-xs text-neon-cyan">{selectedSymbol}</span></div>
+        <h2 className="font-semibold text-white">Options Chain</h2>
         <div className="flex flex-wrap items-center gap-2">
-          <select aria-label="Underlying symbol" value={selectedSymbol} onChange={(event) => { setSelectedSymbol(event.target.value); setSelectedExpiry(""); }} className="rounded-lg border border-glow-border bg-card-bg px-2 py-1.5 text-sm text-white">
-            {["NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "SENSEX"].map((symbol) => <option key={symbol} value={symbol}>{symbol}</option>)}
+          <select
+            aria-label="Underlying symbol"
+            value={symbol}
+            onChange={(event) => setSymbol(event.target.value)}
+            className="rounded-lg border border-glow-border bg-card-bg px-2 py-1.5 text-sm text-white"
+          >
+            {SYMBOLS.map((item) => (
+              <option key={item} value={item}>{item}</option>
+            ))}
           </select>
-          <select aria-label="Expiry" value={selectedExpiry} onChange={(event) => setSelectedExpiry(event.target.value)} disabled={expiriesLoading || expiries.length === 0} className="rounded-lg border border-glow-border bg-card-bg px-2 py-1.5 text-sm text-white">
-            {expiries.map((expiry) => <option key={expiry} value={expiry}>{expiry}</option>)}
+
+          <input
+            type="date"
+            aria-label="Expiry (optional; blank uses nearest expiry)"
+            value={expiry}
+            onChange={(event) => setExpiry(event.target.value)}
+            className="rounded-lg border border-glow-border bg-card-bg px-2 py-1.5 text-sm text-white"
+          />
+
+          <select
+            aria-label="Strikes on each side"
+            value={strikeCount}
+            onChange={(event) => setStrikeCount(Number(event.target.value))}
+            className="rounded-lg border border-glow-border bg-card-bg px-2 py-1.5 text-sm text-white"
+          >
+            {[5, 10, 15, 20].map((count) => (
+              <option key={count} value={count}>{count} strikes each side</option>
+            ))}
           </select>
-          <select aria-label="Number of strikes" value={strikes} onChange={(event) => setStrikes(Number(event.target.value))} className="rounded-lg border border-glow-border bg-card-bg px-2 py-1.5 text-sm text-white">
-            {[5, 10, 15, 20].map((count) => <option key={count} value={count}>{count} strikes each side</option>)}
-          </select>
-          <input aria-label="Search strikes" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Search strike..." className="w-32 rounded-lg border border-glow-border bg-card-bg px-2 py-1.5 text-sm text-white" />
-          <button onClick={() => mutate()} title="Refresh" className="rounded-lg border border-glow-border bg-card-bg p-1.5"><Maximize2 className="h-4 w-4 text-text-secondary" /></button>
+
+          <button
+            type="button"
+            onClick={() => setRefreshKey((key) => key + 1)}
+            aria-label="Refresh options chain"
+            className="rounded-lg border border-glow-border bg-card-bg p-2 text-text-secondary"
+          >
+            <RefreshCw className="h-4 w-4" />
+          </button>
         </div>
       </header>
-      {expiriesError ? (
-        <div role="alert" className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center"><AlertCircle className="h-10 w-10 text-neon-orange" /><p className="font-semibold text-white">Could not load instrument information.</p><p className="text-sm text-text-muted">{expiriesErrorMessage || "Check the backend URL and Symbol Master availability."}</p><button onClick={() => refreshExpiries()} className="rounded-lg border border-glow-border px-4 py-2">Retry</button></div>
-      ) : isFyersNotConnected && !isFyersConnected ? (
-        <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center"><AlertCircle className="h-10 w-10 text-neon-orange" /><p className="font-semibold text-white">Fyers is disconnected. Connect to load the option chain.</p>{showConnectButton && <a href="/broker-connect" className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-neon-cyan to-neon-purple px-5 py-3 font-bold text-true-black"><Wifi className="h-4 w-4" />Connect Fyers</a>}</div>
-      ) : filteredStrikes.length ? (
-        <div className="flex-1 overflow-auto p-2"><table className="w-full min-w-[700px] text-sm"><thead className="sticky top-0 bg-card-bg/90 text-text-muted"><tr><th className="px-2 py-2 text-right">Call LTP</th><th className="px-2 py-2 text-right">Call symbol</th><th className="px-2 py-2 text-center">STRIKE</th><th className="px-2 py-2 text-left">Put symbol</th><th className="px-2 py-2 text-left">Put LTP</th></tr></thead><tbody>{filteredStrikes.map((row: any) => <tr key={row.strike} className={`border-t border-glow-border/40 hover:bg-card-bg/50 ${row.isATM ? "bg-neon-cyan/5" : ""}`}><td className="px-2 py-2 text-right font-mono text-neon-green">{row.ceLtp == null ? "—" : formatNumber(row.ceLtp)}</td><td className="max-w-[180px] truncate px-2 py-2 text-right font-mono text-text-secondary" title={row.ceSymbol ?? "No call contract"}>{row.ceSymbol ?? "—"}</td><td className={`px-2 py-2 text-center font-mono font-bold ${row.isATM ? "text-neon-cyan" : "text-white"}`}>{row.strike.toLocaleString()}{row.isATM && <span className="ml-1 text-[10px]">ATM</span>}</td><td className="max-w-[180px] truncate px-2 py-2 font-mono text-text-secondary" title={row.peSymbol ?? "No put contract"}>{row.peSymbol ?? "—"}</td><td className="px-2 py-2 text-left font-mono text-neon-red">{row.peLtp == null ? "—" : formatNumber(row.peLtp)}</td></tr>)}</tbody></table></div>
+
+      {loading ? (
+        <div aria-busy="true" aria-label="Loading options chain" className="flex flex-1 items-center justify-center gap-2 text-text-secondary">
+          <Loader2 className="h-5 w-5 animate-spin" />
+          Loading options chain…
+        </div>
+      ) : error ? (
+        <div role="alert" className="flex flex-1 items-center justify-center gap-2 p-6 text-center text-neon-red">
+          <AlertCircle className="h-5 w-5 shrink-0" />
+          <span>Could not load options chain: {error}</span>
+        </div>
+      ) : rows.length === 0 ? (
+        <div className="flex flex-1 items-center justify-center p-6 text-center text-text-muted">
+          No options available for this expiry
+        </div>
       ) : (
-        <div className="flex flex-1 items-center justify-center p-6 text-center text-text-muted"><div><AlertCircle className="mx-auto mb-2 h-8 w-8 text-neon-orange/50" /><p>{transformedStrikes.length === 0 ? "No data" : "No matching strikes."}</p></div></div>
+        <div className="flex-1 overflow-auto p-2">
+          <table className="w-full min-w-[600px] text-sm">
+            <thead className="sticky top-0 bg-card-bg/90 text-text-muted">
+              <tr>
+                <th className="px-3 py-2 text-right">Call</th>
+                <th className="px-3 py-2 text-center">Strike</th>
+                <th class="px-3 py-2 text-left">Put</th>
+              </tr>
+            </thead>
+            <tbody>
+              {formattedRows.map((row) => (
+                <tr
+                  key={row.strike_price}
+                  className={`border-t border-glow-border/40 ${row.is_atm ? "bg-neon-cyan/10" : "hover:bg-card-bg/50"}`}
+                >
+                  <td className="px-3 py-2 text-right font-mono text-neon-green">
+                    {formatLtp(row.call_ltp)}
+                    {row.call_symbol && <span className="ml-2 text-xs text-text-secondary">{row.call_symbol}</span>}
+                  </td>
+                  <td className="px-3 py-2 text-center font-mono font-bold text-white">
+                    {row.strike_price.toLocaleString()}
+                    {row.is_atm && <span className="ml-1 text-[10px] text-neon-cyan">ATM</span>}
+                  </td>
+                  <td className="px-3 py-2 text-left font-mono text-neon-red">
+                    {formatLtp(row.put_ltp)}
+                    {row.put_symbol && <span className="ml-2 text-xs text-text-secondary">{row.put_symbol}</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
-    </motion.section>
+    </section>
   );
 }

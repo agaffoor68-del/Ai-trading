@@ -2,14 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import {
-  AlertCircle,
-  Loader2,
-  Maximize2,
-  Wifi,
-} from "lucide-react";
-import { Header } from "@/components/Header";
-import { Sidebar } from "@/components/Sidebar";
+import { AlertCircle, Loader2, Maximize2, Wifi } from "lucide-react";
 import {
   useOptionChain,
   useExpiries,
@@ -95,6 +88,7 @@ export default function OptionChainPage() {
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         className="glass rounded-2xl border border-glow-border overflow-hidden min-h-[350px] flex flex-col"
+        aria-busy="true"
       >
         <div className="flex items-center px-4 py-3 border-b border-glow-border bg-card-bg/50">
           <h3 className="font-semibold text-white">Options Chain</h3>
@@ -171,7 +165,7 @@ export default function OptionChainPage() {
         <div className="flex-1 flex items-center justify-center text-text-muted">
           <div className="text-center">
             <AlertCircle className="mx-auto mb-2 h-8 w-8 text-neon-orange/50" />
-            <p>No data</p>
+            <p>No options available for this expiry</p>
           </div>
         </div>
       </motion.div>
@@ -204,6 +198,7 @@ export default function OptionChainPage() {
 
         <div className="flex items-center gap-2 flex-wrap">
           <select
+            aria-label="Underlying symbol"
             value={selectedIndex.value}
             onChange={(event) => {
               const index = INDEXES.find((item) => item.value === event.target.value) ?? INDEXES[0];
@@ -218,6 +213,7 @@ export default function OptionChainPage() {
           </select>
 
           <select
+            aria-label="Expiry"
             value={selectedExpiry}
             onChange={(event) => setSelectedExpiry(event.target.value)}
             disabled={expiriesLoading || expiries.length === 0}
@@ -229,6 +225,7 @@ export default function OptionChainPage() {
           </select>
 
           <select
+            aria-label="Number of strikes"
             value={strikes}
             onChange={(event) => setStrikes(Number(event.target.value))}
             className="px-2 py-1.5 bg-card-bg border border-glow-border rounded-lg text-white text-sm"
@@ -240,6 +237,7 @@ export default function OptionChainPage() {
 
           <input
             type="text"
+            aria-label="Search strikes"
             value={searchQuery}
             onChange={(event) => setSearchQuery(event.target.value)}
             placeholder="Search strike..."
@@ -252,6 +250,7 @@ export default function OptionChainPage() {
             whileTap={{ scale: 0.95 }}
             className="p-1.5 rounded-lg bg-card-bg border border-glow-border"
             title="Refresh"
+            aria-label="Refresh options chain"
           >
             <Maximize2 className="w-4 h-4 text-text-secondary" />
           </motion.button>
@@ -278,7 +277,7 @@ export default function OptionChainPage() {
                 <td className="px-2 py-2 text-right font-mono font-medium text-neon-green">
                   {formatNumber(row.ceLtp)}
                   {row.ceSymbol && (
-                    <span className="ml-2 text-xs text-text-secondary">{row.ceSymbol}</span>
+                    <span class="ml-2 text-xs text-text-secondary">{row.ceSymbol}</span>
                   )}
                 </td>
                 <td className={`px-2 py-2 text-center font-mono font-bold ${row.isATM ? "text-neon-cyan" : "text-white"}`}>
