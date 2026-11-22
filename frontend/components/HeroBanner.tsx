@@ -1,15 +1,33 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { TrendingUp, Sparkles, Zap, Brain, Shield, Globe, BarChart3 } from "lucide-react";
 import { useMarketStatus } from "@/lib/hooks";
 
 export function HeroBanner() {
   const { status, isLoading } = useMarketStatus();
+  const [currentTime, setCurrentTime] = useState("--:--:--");
   const isMarketOpen = status?.is_open || false;
   const isTradingDay = status?.is_trading_day || false;
   const timeToClose = status?.time_to_close_minutes || 0;
-  const nextTradingDay = status?.next_open ? new Date(status.next_open) : new Date();
+  const nextTradingDay = status?.next_open ? new Date(status.next_open) : null;
+
+  useEffect(() => {
+    const updateClock = () => {
+      setCurrentTime(new Date().toLocaleTimeString("en-IN", {
+        timeZone: "Asia/Kolkata",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false,
+      }));
+    };
+
+    updateClock();
+    const interval = window.setInterval(updateClock, 1000);
+    return () => window.clearInterval(interval);
+  }, []);
   
   const marketStatus = isMarketOpen ? "OPEN" : "CLOSED";
   const marketStatusColor = isMarketOpen ? "neon-green" : "neon-red";
@@ -45,13 +63,13 @@ export function HeroBanner() {
               <span className="text-sm md:text-base">
                 Market {marketStatus}
                 {isMarketOpen && <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-neon-green/30 text-neon-green font-mono">{timeToClose}m to close</span>}
-                {!isMarketOpen && !isTradingDay && <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-neon-orange/30 text-neon-orange font-mono">Next: {nextTradingDay.toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" })}</span>}
+                {!isMarketOpen && !isTradingDay && nextTradingDay && <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-neon-orange/30 text-neon-orange font-mono">Next: {nextTradingDay.toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short", timeZone: "Asia/Kolkata" })}</span>}
               </span>
             </motion.span>
             
             <span className="text-xs text-text-muted flex items-center gap-1">
               <span className="w-1.5 h-1.5 rounded-full bg-neon-cyan" />
-              IST: {new Date().toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })}
+              IST: {currentTime}
             </span>
           </div>
         </div>
