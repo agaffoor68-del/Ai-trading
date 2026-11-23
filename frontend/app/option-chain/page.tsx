@@ -38,9 +38,11 @@ export default function OptionChainPage() {
   const [searchQuery, setSearchQuery] = useState("");
 
   const { expiries, isLoading: expiriesLoading } = useExpiries(selectedIndex.value);
+  console.log("[OptionChain] expiries fetched:", expiries, "loading:", expiriesLoading);
 
   useEffect(() => {
     if (expiries.length > 0 && (!selectedExpiry || !expiries.includes(selectedExpiry))) {
+      console.log("[OptionChain] auto-selecting expiry:", expiries[0]);
       setSelectedExpiry(expiries[0]);
     }
   }, [expiries, selectedExpiry]);

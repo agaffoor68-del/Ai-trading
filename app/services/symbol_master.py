@@ -194,12 +194,23 @@ class SymbolMasterDownloader:
                     expiry = None
                     expiry_value = row.get('expiry_date')
                     if expiry_value:
-                        for date_format in ("%Y-%m-%d", "%d-%b-%Y"):
+                        for date_format in ("%Y-%m-%d", "%d-%b-%Y", "%d-%B-%Y", "%Y/%m/%d", "%d/%m/%Y", "%d-%b-%y", "%d-%b-%Y"):
                             try:
                                 expiry = datetime.strptime(expiry_value, date_format)
                                 break
                             except ValueError:
                                 continue
+                    # Fallback: derive expiry from the symbol ticker when the
+                    # CSV expiry column is empty or unparseable (e.g. NIFTY26DEC25800CE).
+                    if expiry is None:
+                        try:
+                            import re
+                            m = re.search(r"(\d{2})([A-Z]{3})(\d{3,})", symbol_ticker)
+                            if m:
+                                dd, mon, _ = m.groups()
+                                expiry = datetime.strptime(f"{dd}-{mon}-26", "%d-%b-%Y")
+                        except Exception:
+                            pass
 
                     instruments.append(
                         {

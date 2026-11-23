@@ -551,6 +551,8 @@ async def get_instrument_info(
             ).order_by(Instrument.expiry.asc()).all()
 
             expiries = sorted({item.expiry.date().isoformat() for item in contracts if item.expiry})
+            logger.info("instrument-info DEBUG: symbol=%s exchange=%s underlying=%s total_rows=%d expiries=%s",
+                        symbol, exchange, underlying, len(contracts), expiries)
             if not contracts or not expiries:
                 return {
                     "symbol": underlying,
@@ -686,7 +688,8 @@ async def get_option_chain(
                     Instrument.expiry >= datetime.combine(chosen_expiry, time.min),
                     Instrument.expiry <= datetime.combine(chosen_expiry, time.max),
                 ).all()
-            logger.debug("option-chain: %d contracts after symbol/expiry filter for %s", len(contracts), normalized)
+            logger.info("option-chain DEBUG: symbol=%s expiry=%s spot_price=%s contracts_after_filter=%d",
+                        normalized, expiry_date, spot_price, len(contracts))
             result = {}
             for contract in contracts:
                 option_type = (contract.option_type or "").upper()
@@ -711,7 +714,7 @@ async def get_option_chain(
                 month_code = contract.expiry.strftime("%y%b").upper() if contract.expiry else ""
                 canonical_symbol = f"{contract.exchange.split('_')[0]}:{normalized.replace(' ', '')}{month_code}{strike:g}{option_type}"
                 result.setdefault(strike, {})[option_type] = canonical_symbol
-            logger.debug("option-chain: %d strikes after ATM filter", len(result))
+            logger.info("option-chain DEBUG: strikes_after_atm_filter=%d", len(result))
             return result
         finally:
             db.close()
