@@ -95,15 +95,29 @@ async def get_options_chain(
                 code = str(item.instrument_type or "").strip().upper()
                 has_option_code = code in {"12", "12.0", "OPT", "OPTION"}
                 has_option_suffix = ticker_upper.endswith(("CE", "PE"))
-                if side in {"CE", "PE"} and (has_option_code or has_option_suffix):
+                # Only accept contracts for this exact underlying. A broad
+                # ilike("NIFTY%") can otherwise mix other index products or
+                # stale/malformed rows into the chain.
+                expected_prefix = f"{exchange}:{underlying}".upper()
+                if (
+                    side in {"CE", "PE"}
+                    and (has_option_code or has_option_suffix)
+                    and ticker_upper.startswith(expected_prefix)
+                ):
                     candidates.append((item, side))
 
+            active_expiries = sorted({
+                item.expiry.date()
+                for item, _ in candidates
+                if item.expiry and item.expiry.date() >= today
+            })
             if requested_expiry is None:
-                expiry_dates = [item.expiry.date() for item, _ in candidates if item.expiry]
-                if not expiry_dates:
+                if not active_expiries:
                     return {}
-                chosen_expiry = min(expiry_dates)
+                chosen_expiry = active_expiries[0]
             else:
+                if requested_expiry not in active_expiries:
+                    return {}
                 chosen_expiry = requested_expiry
 
             by_strike = {}
@@ -114,7 +128,14 @@ async def get_options_chain(
                     strike = float(item.strike)
                 except (TypeError, ValueError):
                     continue
-                by_strike.setdefault(strike, {})[side] = item.symbol
+                # Exclude obviously stale/mismapped strikes before finding ATM.
+                # The wide bound accommodates deep ITM/OTM listings while
+                # preventing obsolete index strike series from dominating.
+                if abs(strike - spot_price) > max(spot_price * 0.20, 5000):
+                    continue
+                month_code = item.expiry.strftime("%y%b").upper()
+                canonical_symbol = f"{exchange}:{underlying}{month_code}{strike:g}{side}"
+                by_strike.setdefault(strike, {})[side] = canonical_symbol
             return by_strike
         finally:
             db.close()
