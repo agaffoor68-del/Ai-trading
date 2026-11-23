@@ -277,7 +277,7 @@ export default function OptionChainPage() {
                 <td className="px-2 py-2 text-right font-mono font-medium text-neon-green">
                   {formatNumber(row.ceLtp)}
                   {row.ceSymbol && (
-                    <span class="ml-2 text-xs text-text-secondary">{row.ceSymbol}</span>
+                    <span className="ml-2 text-xs text-text-secondary">{row.ceSymbol}</span>
                   )}
                 </td>
                 <td className={`px-2 py-2 text-center font-mono font-bold ${row.isATM ? "text-neon-cyan" : "text-white"}`}>

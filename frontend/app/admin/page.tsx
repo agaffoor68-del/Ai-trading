@@ -464,7 +464,7 @@ setGrantForm({ email: "", plan: "Pro", days: 30 });
                       </td>
                       <td className="px-3 md:px-5 py-3 md:py-4 text-center">
                         <span className={`px-2 py-1 rounded text-xs font-medium ${getStatusColor(user.subscription_status)}`}>
-                          {user.subscription_status.toUpperCase()}
+                          {user.subscription_status?.toUpperCase?.() ?? "UNKNOWN"}
                         </span>
                       </td>
                       <td className="px-3 md:px-5 py-3 md:py-4 text-center font-mono text-text-secondary">
@@ -477,7 +477,7 @@ setGrantForm({ email: "", plan: "Pro", days: 30 });
                         {formatDateTime(user.last_login)}
                       </td>
                       <td className="px-3 md:px-5 py-3 md:py-4 text-center font-mono text-text-secondary">
-                        {user.api_calls_today.toLocaleString()}
+                        {(user.api_calls_today ?? 0).toLocaleString()}
                       </td>
                       <td className="px-3 md:px-5 py-3 md:py-4 text-center">
                         <div className="flex items-center justify-center gap-1">
