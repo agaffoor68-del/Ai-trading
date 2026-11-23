@@ -521,14 +521,25 @@ async def get_quotes(request: QuotesRequest):
 async def get_live_quotes(
     symbols: str = Query(..., description="Comma-separated Fyers symbols"),
 ):
-    """Get live quotes from Redis cache only (NO Fyers API call)."""
+    """
+    Get live quotes from Redis cache, with Fyers REST fallback.
+
+    Reads from Redis tick cache (populated by Fyers WebSocket) first.
+    If a symbol is missing from cache, fetches it from Fyers REST API
+    and writes it back to Redis. This ensures data always flows even if
+    WebSocket/Redis is temporarily empty.
+    """
     from app.services.redis_ws import redis_tick_store
+    from app.services.fyers_api import fyers_api_client
 
     symbol_list = [s.strip() for s in symbols.split(",") if s.strip()]
     if not symbol_list:
         return {"quotes": {}, "total": 0, "source": "redis_cache"}
 
     results = {}
+    missing = []
+
+    # 1. Read from Redis cache first
     for symbol in symbol_list:
         try:
             cached = await redis_tick_store.get_tick(symbol)
@@ -542,29 +553,74 @@ async def get_live_quotes(
                     "updated_at": cached.get("updated_at"),
                 }
             else:
-                results[symbol] = {
-                    "symbol": symbol,
-                    "ltp": None,
-                    "change": None,
-                    "change_percent": None,
-                    "source": "redis_cache",
-                    "updated_at": None,
-                }
+                missing.append(symbol)
         except Exception as e:
             logger.warning(f"Redis tick read failed for {symbol}: {e}")
-            results[symbol] = {
-                "symbol": symbol,
-                "ltp": None,
-                "change": None,
-                "change_percent": None,
-                "source": "redis_cache",
-                "updated_at": None,
-            }
+            missing.append(symbol)
+
+    # 2. Fallback to Fyers REST for symbols missing from cache
+    if missing:
+        try:
+            fyers_quotes = await fyers_api_client.get_quotes(missing)
+            if isinstance(fyers_quotes, dict) and not fyers_quotes.get("error"):
+                for symbol, quote in fyers_quotes.items():
+                    if isinstance(quote, dict) and quote.get("ltp") is not None:
+                        results[symbol] = {
+                            "symbol": symbol,
+                            "ltp": quote.get("ltp"),
+                            "change": quote.get("change"),
+                            "change_percent": quote.get("change_percent"),
+                            "source": "fyers_rest_fallback",
+                            "updated_at": quote.get("updated_at") or quote.get("timestamp"),
+                        }
+                        # Write back to Redis for next time
+                        try:
+                            await redis_tick_store.write_tick(symbol, {
+                                "symbol": symbol,
+                                "ltp": quote.get("ltp"),
+                                "change": quote.get("change"),
+                                "change_percent": quote.get("change_percent"),
+                                "updated_at": quote.get("updated_at") or quote.get("timestamp"),
+                            })
+                        except Exception:
+                            pass
+                    else:
+                        results[symbol] = {
+                            "symbol": symbol,
+                            "ltp": None,
+                            "change": None,
+                            "change_percent": None,
+                            "source": "fyers_rest_fallback",
+                            "updated_at": None,
+                        }
+            # Symbols not returned by Fyers at all
+            for symbol in missing:
+                if symbol not in results:
+                    results[symbol] = {
+                        "symbol": symbol,
+                        "ltp": None,
+                        "change": None,
+                        "change_percent": None,
+                        "source": "fyers_rest_fallback",
+                        "updated_at": None,
+                    }
+        except Exception as e:
+            logger.warning(f"Fyers REST fallback failed: {e}")
+            for symbol in missing:
+                if symbol not in results:
+                    results[symbol] = {
+                        "symbol": symbol,
+                        "ltp": None,
+                        "change": None,
+                        "change_percent": None,
+                        "source": "error",
+                        "updated_at": None,
+                    }
 
     return {
         "quotes": results,
         "total": len(symbol_list),
-        "source": "redis_cache",
+        "source": "redis_cache_with_fyers_fallback",
     }
 @router.get("/instrument-info")
 async def get_instrument_info(
