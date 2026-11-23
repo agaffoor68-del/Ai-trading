@@ -27,7 +27,9 @@ export function getBackendApiUrl(path: string): string {
 }
 
 // Backend on Render sleeps when idle, so cold requests can take a while.
-export const API_TIMEOUT_MS = 15000;
+// 15s was too tight: a cold Render start regularly exceeds it, which surfaced
+// as empty/failed dashboards rather than a slow first load.
+export const API_TIMEOUT_MS = 45000;
 export const SERVER_WAKING_MESSAGE = "Server is waking up. Please wait...";
 
 export interface ApiError {

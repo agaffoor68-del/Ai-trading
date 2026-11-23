@@ -37,7 +37,13 @@ export default function OptionChainPage() {
   const [strikes, setStrikes] = useState(10);
   const [searchQuery, setSearchQuery] = useState("");
 
-  const { expiries, isLoading: expiriesLoading } = useExpiries(selectedIndex.value);
+  const {
+    expiries,
+    isLoading: expiriesLoading,
+    isError: expiriesIsError,
+    error: expiriesError,
+    mutate: mutateExpiries,
+  } = useExpiries(selectedIndex.value);
   console.log("[OptionChain] expiries fetched:", expiries, "loading:", expiriesLoading);
 
   useEffect(() => {
@@ -83,6 +89,95 @@ export default function OptionChainPage() {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     });
+
+  // Rendered in every state so the user can always change symbol/expiry or
+  // retry, instead of getting a dead-end card when there is no data.
+  const toolbar = (
+    <div className="flex items-center justify-between px-4 py-3 border-b border-glow-border bg-card-bg/50 flex-wrap gap-2">
+      <div className="flex items-center gap-2">
+        <h3 className="font-semibold text-white">Options Chain</h3>
+        <span className="text-[10px] px-2 py-0.5 rounded bg-neon-cyan/20 text-neon-cyan">
+          {selectedIndex.label}
+        </span>
+        {selectedExpiry && (
+          <span className="text-[10px] px-2 py-0.5 rounded bg-neon-orange/20 text-neon-orange">
+            {selectedExpiry}
+          </span>
+        )}
+        {chainData && chainData.atm_strike > 0 && (
+          <span className="text-[10px] px-2 py-0.5 rounded bg-neon-purple/20 text-neon-purple">
+            ATM: {chainData.atm_strike.toLocaleString()}
+          </span>
+        )}
+      </div>
+
+      <div className="flex items-center gap-2 flex-wrap">
+        <select
+          aria-label="Underlying symbol"
+          value={selectedIndex.value}
+          onChange={(event) => {
+            const index = INDEXES.find((item) => item.value === event.target.value) ?? INDEXES[0];
+            setSelectedIndex(index);
+            setSelectedExpiry("");
+          }}
+          className="px-2 py-1.5 bg-card-bg border border-glow-border rounded-lg text-white text-sm"
+        >
+          {INDEXES.map((index) => (
+            <option key={index.value} value={index.value}>{index.label}</option>
+          ))}
+        </select>
+
+        <select
+          aria-label="Expiry"
+          value={selectedExpiry}
+          onChange={(event) => setSelectedExpiry(event.target.value)}
+          disabled={expiriesLoading || expiries.length === 0}
+          className="px-2 py-1.5 bg-card-bg border border-glow-border rounded-lg text-white text-sm"
+        >
+          {expiries.length === 0 && (
+            <option value="">{expiriesLoading ? "Loading expiries…" : "No expiries"}</option>
+          )}
+          {expiries.map((expiry) => (
+            <option key={expiry} value={expiry}>{expiry}</option>
+          ))}
+        </select>
+
+        <select
+          aria-label="Number of strikes"
+          value={strikes}
+          onChange={(event) => setStrikes(Number(event.target.value))}
+          className="px-2 py-1.5 bg-card-bg border border-glow-border rounded-lg text-white text-sm"
+        >
+          {[5, 10, 15, 20].map((count) => (
+            <option key={count} value={count}>{count} strikes each side</option>
+          ))}
+        </select>
+
+        <input
+          type="text"
+          aria-label="Search strikes"
+          value={searchQuery}
+          onChange={(event) => setSearchQuery(event.target.value)}
+          placeholder="Search strike..."
+          className="px-2 py-1.5 bg-card-bg border border-glow-border rounded-lg text-white text-sm w-32"
+        />
+
+        <motion.button
+          onClick={() => {
+            mutateExpiries();
+            mutate();
+          }}
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          className="p-1.5 rounded-lg bg-card-bg border border-glow-border"
+          title="Refresh"
+          aria-label="Refresh options chain"
+        >
+          <Maximize2 className="w-4 h-4 text-text-secondary" />
+        </motion.button>
+      </div>
+    </div>
+  );
 
   if (isLoading) {
     return (
@@ -152,22 +247,59 @@ export default function OptionChainPage() {
   }
 
   if (!chainData || transformedStrikes.length === 0) {
+    // Distinguish "we could not load expiries at all" from "expiry loaded but
+    // has no contracts", so a failed request is not misreported as empty data.
+    const emptyTitle = expiriesIsError
+      ? "Could not load expiry list"
+      : expiriesLoading
+        ? "Loading expiries…"
+        : expiries.length === 0
+          ? "No expiries returned for this symbol"
+          : "No option contracts for this expiry";
+    const emptyDetail = expiriesIsError
+      ? String(expiriesError || "Backend request failed. Check NEXT_PUBLIC_API_URL and that the API is awake.")
+      : expiriesLoading
+        ? "Fetching listed expiries from the backend."
+        : expiries.length === 0
+          ? "The symbol master has no active F&O rows yet. Re-run the symbol master sync."
+          : "Pick another expiry above, or press Refresh to retry.";
+
     return (
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         className="glass rounded-2xl border border-glow-border overflow-hidden min-h-[350px] flex flex-col"
       >
-        <div className="flex items-center px-4 py-3 border-b border-glow-border bg-card-bg/50">
-          <h3 className="font-semibold text-white">Options Chain</h3>
-          <span className="ml-2 text-[10px] px-2 py-0.5 rounded bg-neon-cyan/20 text-neon-cyan">
-            {selectedIndex.label}
-          </span>
-        </div>
-        <div className="flex-1 flex items-center justify-center text-text-muted">
-          <div className="text-center">
+        {toolbar}
+        <div className="flex-1 flex items-center justify-center text-text-muted p-6">
+          <div className="text-center max-w-md">
             <AlertCircle className="mx-auto mb-2 h-8 w-8 text-neon-orange/50" />
-            <p>No options available for this expiry</p>
+            <p className="font-medium text-white mb-1">{emptyTitle}</p>
+            <p className="text-sm">{emptyDetail}</p>
+            <div className="mt-4 flex items-center justify-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  mutateExpiries();
+                  mutate();
+                }}
+                className="px-4 py-2 rounded-lg bg-card-bg border border-glow-border text-white text-sm"
+              >
+                Retry
+              </button>
+              {expiries.length > 0 && (
+                <select
+                  aria-label="Expiry retry"
+                  value={selectedExpiry}
+                  onChange={(event) => setSelectedExpiry(event.target.value)}
+                  className="px-2 py-2 bg-card-bg border border-glow-border rounded-lg text-white text-sm"
+                >
+                  {expiries.map((expiry) => (
+                    <option key={expiry} value={expiry}>{expiry}</option>
+                  ))}
+                </select>
+              )}
+            </div>
           </div>
         </div>
       </motion.div>
@@ -180,84 +312,7 @@ export default function OptionChainPage() {
       animate={{ opacity: 1, y: 0 }}
       className="glass rounded-2xl border border-glow-border overflow-hidden h-full min-h-[350px] flex flex-col"
     >
-      <div className="flex items-center justify-between px-4 py-3 border-b border-glow-border bg-card-bg/50 flex-wrap gap-2">
-        <div className="flex items-center gap-2">
-          <h3 className="font-semibold text-white">Options Chain</h3>
-          <span className="text-[10px] px-2 py-0.5 rounded bg-neon-cyan/20 text-neon-cyan">
-            {selectedIndex.label}
-          </span>
-          {selectedExpiry && (
-            <span className="text-[10px] px-2 py-0.5 rounded bg-neon-orange/20 text-neon-orange">
-              {selectedExpiry}
-            </span>
-          )}
-          {chainData.atm_strike > 0 && (
-            <span className="text-[10px] px-2 py-0.5 rounded bg-neon-purple/20 text-neon-purple">
-              ATM: {chainData.atm_strike.toLocaleString()}
-            </span>
-          )}
-        </div>
-
-        <div className="flex items-center gap-2 flex-wrap">
-          <select
-            aria-label="Underlying symbol"
-            value={selectedIndex.value}
-            onChange={(event) => {
-              const index = INDEXES.find((item) => item.value === event.target.value) ?? INDEXES[0];
-              setSelectedIndex(index);
-              setSelectedExpiry("");
-            }}
-            className="px-2 py-1.5 bg-card-bg border border-glow-border rounded-lg text-white text-sm"
-          >
-            {INDEXES.map((index) => (
-              <option key={index.value} value={index.value}>{index.label}</option>
-            ))}
-          </select>
-
-          <select
-            aria-label="Expiry"
-            value={selectedExpiry}
-            onChange={(event) => setSelectedExpiry(event.target.value)}
-            disabled={expiriesLoading || expiries.length === 0}
-            className="px-2 py-1.5 bg-card-bg border border-glow-border rounded-lg text-white text-sm"
-          >
-            {expiries.map((expiry) => (
-              <option key={expiry} value={expiry}>{expiry}</option>
-            ))}
-          </select>
-
-          <select
-            aria-label="Number of strikes"
-            value={strikes}
-            onChange={(event) => setStrikes(Number(event.target.value))}
-            className="px-2 py-1.5 bg-card-bg border border-glow-border rounded-lg text-white text-sm"
-          >
-            {[5, 10, 15, 20].map((count) => (
-              <option key={count} value={count}>{count} strikes each side</option>
-            ))}
-          </select>
-
-          <input
-            type="text"
-            aria-label="Search strikes"
-            value={searchQuery}
-            onChange={(event) => setSearchQuery(event.target.value)}
-            placeholder="Search strike..."
-            className="px-2 py-1.5 bg-card-bg border border-glow-border rounded-lg text-white text-sm w-32"
-          />
-
-          <motion.button
-            onClick={() => mutate()}
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            className="p-1.5 rounded-lg bg-card-bg border border-glow-border"
-            title="Refresh"
-            aria-label="Refresh options chain"
-          >
-            <Maximize2 className="w-4 h-4 text-text-secondary" />
-          </motion.button>
-        </div>
-      </div>
+      {toolbar}
 
       <div className="flex-1 overflow-x-auto overflow-y-auto p-2">
         <table className="w-full text-sm min-w-[800px]" role="grid">
