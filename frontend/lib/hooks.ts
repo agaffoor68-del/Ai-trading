@@ -212,10 +212,10 @@ export function useMarketQuotes(symbols: string[]) {
   const stableSymbols = [...symbols].sort();
   const symbolsKey = stableSymbols.join(",");
   const { data, error, isLoading, mutate } = useSWR<unknown>(
-    symbolsKey ? ["/api/v1/market/quotes", symbolsKey] : null,
-    () => createPostFetcher<unknown>("/api/v1/market/quotes", { symbols: stableSymbols })(),
+    symbolsKey ? ["/api/v1/market/live-quotes", symbolsKey] : null,
+    () => createFetcher<unknown>(`/api/v1/market/live-quotes?symbols=${encodeURIComponent(symbolsKey)}`, true)(),
     {
-      refreshInterval: 1000,
+      refreshInterval: 2000,
       revalidateOnFocus: true,
       revalidateOnReconnect: true,
       dedupingInterval: 2000,
@@ -224,7 +224,7 @@ export function useMarketQuotes(symbols: string[]) {
   const { status } = useFyersStatus();
   const quotes = normalizeQuotes(data, stableSymbols);
   const sessionExpired = isFyersSessionExpired(error);
-  console.log("API Response (quotes):", data);
+  console.log("API Response (live-quotes):", data);
   return {
     quotes: sessionExpired ? {} : quotes,
     response: data && typeof data === "object" ? { data } : undefined,

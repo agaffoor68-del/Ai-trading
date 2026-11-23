@@ -516,6 +516,56 @@ async def get_quotes(request: QuotesRequest):
         logger.error(f"Quotes error: {str(e)}")
         raise HTTPException(status_code=502, detail={"code": "FYERS_ERROR", "message": str(e)})
 
+
+@router.get("/live-quotes")
+async def get_live_quotes(
+    symbols: str = Query(..., description="Comma-separated Fyers symbols"),
+):
+    """Get live quotes from Redis cache only (NO Fyers API call)."""
+    from app.services.redis_ws import redis_tick_store
+
+    symbol_list = [s.strip() for s in symbols.split(",") if s.strip()]
+    if not symbol_list:
+        return {"quotes": {}, "total": 0, "source": "redis_cache"}
+
+    results = {}
+    for symbol in symbol_list:
+        try:
+            cached = await redis_tick_store.get_tick(symbol)
+            if cached and cached.get("ltp") is not None:
+                results[symbol] = {
+                    "symbol": symbol,
+                    "ltp": cached.get("ltp"),
+                    "change": cached.get("change"),
+                    "change_percent": cached.get("change_percent"),
+                    "source": "redis_cache",
+                    "updated_at": cached.get("updated_at"),
+                }
+            else:
+                results[symbol] = {
+                    "symbol": symbol,
+                    "ltp": None,
+                    "change": None,
+                    "change_percent": None,
+                    "source": "redis_cache",
+                    "updated_at": None,
+                }
+        except Exception as e:
+            logger.warning(f"Redis tick read failed for {symbol}: {e}")
+            results[symbol] = {
+                "symbol": symbol,
+                "ltp": None,
+                "change": None,
+                "change_percent": None,
+                "source": "redis_cache",
+                "updated_at": None,
+            }
+
+    return {
+        "quotes": results,
+        "total": len(symbol_list),
+        "source": "redis_cache",
+    }
 @router.get("/instrument-info")
 async def get_instrument_info(
     symbol: str = Query(..., min_length=1, max_length=32, description="Underlying symbol, e.g. NIFTY"),
