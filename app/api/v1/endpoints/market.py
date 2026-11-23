@@ -546,7 +546,6 @@ async def get_instrument_info(
             contracts = db.query(Instrument).filter(
                 Instrument.exchange == "NSE_FO" if exchange == "NSE" else Instrument.exchange == "BSE_FO",
                 Instrument.symbol.ilike(f"{exchange}:{underlying}%"),
-                Instrument.instrument_type.in_(["12", "12.0", "OPT", "OPTION"]),
                 Instrument.is_active == 1,
                 Instrument.expiry >= today,
             ).order_by(Instrument.expiry.asc()).all()
