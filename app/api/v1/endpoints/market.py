@@ -694,7 +694,15 @@ async def get_option_chain(
                     strike = float(contract.strike)
                 except (TypeError, ValueError):
                     continue
-                result.setdefault(strike, {})[contract.option_type.upper()] = contract.symbol
+                # Exclude obviously stale/mismapped strikes before finding ATM.
+                if abs(strike - spot_price) > max(spot_price * 0.20, 5000):
+                    continue
+                # Rebuild the canonical Fyers symbol so the expiry month is
+                # formatted as a 3-letter month code (e.g. NSE:NIFTY26DEC25800CE)
+                # instead of relying on whatever was stored in the symbol master.
+                month_code = contract.expiry.strftime("%y%b").upper() if contract.expiry else ""
+                canonical_symbol = f"{contract.exchange.split('_')[0]}:{normalized.replace(' ', '')}{month_code}{strike:g}{contract.option_type.upper()}"
+                result.setdefault(strike, {})[contract.option_type.upper()] = canonical_symbol
             return result
         finally:
             db.close()
