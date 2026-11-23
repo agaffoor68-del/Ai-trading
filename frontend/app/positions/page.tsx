@@ -30,10 +30,10 @@ export default function PositionsPage() {
     "/api/v1/execution/positions",
     fetcher,
     {
-      refreshInterval: 5000,
+      refreshInterval: 1000,
       revalidateOnFocus: true,
       revalidateOnReconnect: true,
-      dedupingInterval: 2000,
+      dedupingInterval: 1000,
     }
   );
 

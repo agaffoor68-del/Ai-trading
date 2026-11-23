@@ -24,7 +24,7 @@ export function Header() {
   const router = useRouter();
 
   useEffect(() => {
-    const interval = setInterval(() => mutate(), 30000);
+    const interval = setInterval(() => mutate(), 1000);
     return () => clearInterval(interval);
   }, [mutate]);
 
