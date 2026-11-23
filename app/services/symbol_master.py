@@ -205,10 +205,12 @@ class SymbolMasterDownloader:
                     if expiry is None:
                         try:
                             import re
-                            m = re.search(r"(\d{2})([A-Z]{3})(\d{3,})", symbol_ticker)
+                            m = re.search(r"(\d{2})([A-Z]{3})", symbol_ticker)
                             if m:
-                                dd, mon, _ = m.groups()
-                                expiry = datetime.strptime(f"{dd}-{mon}-26", "%d-%b-%Y")
+                                yy, mon = m.groups()
+                                # Symbol master only encodes month+year; use the
+                                # 15th as a placeholder so the row still sorts.
+                                expiry = datetime.strptime(f"15-{mon}-20{yy}", "%d-%b-%Y")
                         except Exception:
                             pass
 
