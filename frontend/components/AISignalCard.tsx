@@ -10,6 +10,14 @@ export function AISignalCard() {
   // Get the first signal (NIFTY) or none
   const signal = signals[0];
 
+  // Backend sends confidence as a 0-1 score; both the label and the bar need a
+  // percentage, otherwise 0.5 renders as "0.5%" and the bar looks empty.
+  const rawConfidence = Number(signal?.confidence);
+  const confidencePct = Number.isFinite(rawConfidence)
+    ? (rawConfidence <= 1 ? rawConfidence * 100 : rawConfidence)
+    : 0;
+  const confidenceLabel = Number.isFinite(rawConfidence) ? confidencePct.toFixed(0) + "%" : "—";
+
   const showConnectCard = isFyersNotConnected;
 
   // Loading state
@@ -174,12 +182,12 @@ export function AISignalCard() {
         <div className="mb-5">
           <div className="flex items-center justify-between mb-1">
             <span className="text-sm text-text-secondary">Confidence Score</span>
-            <span className="font-mono font-bold text-neon-cyan text-glow-cyan">{signal.confidence}%</span>
+            <span className="font-mono font-bold text-neon-cyan text-glow-cyan">{confidenceLabel}</span>
           </div>
           <div className="h-2 bg-card-bg rounded-full overflow-hidden">
             <motion.div
               initial={{ width: 0 }}
-              animate={{ width: `${signal.confidence}%` }}
+              animate={{ width: `${confidencePct}%` }}
               transition={{ type: "spring", stiffness: 100, damping: 15, delay: 0.6 }}
               className="h-full bg-gradient-to-r from-neon-cyan to-neon-green rounded-full shadow-glow-cyan"
             />
