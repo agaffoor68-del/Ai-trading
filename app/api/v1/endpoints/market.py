@@ -486,6 +486,16 @@ async def get_quotes(request: QuotesRequest):
             else:
                 for symbol, quote in fyers_quotes.items():
                     results[symbol] = quote
+                # Fyers omits illiquid/invalid symbols instead of returning a
+                # quote row. Keep response shape stable so clients render a dash.
+                for symbol in missing:
+                    results.setdefault(symbol, {
+                        "symbol": symbol,
+                        "ltp": None,
+                        "change": None,
+                        "change_percent": None,
+                        "source": "fyers_api_v3",
+                    })
         
         # Return all results (live + cached)
         market_cal = MarketCalendar()
