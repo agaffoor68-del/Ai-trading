@@ -1,6 +1,5 @@
 """
 Phase 2: Admin Endpoints
-
 Protected by Admin role dependency.
 Endpoints for user management and subscription control.
 """
@@ -174,13 +173,50 @@ async def revoke_access(
     db.commit()
 
     logger.warning(
-        f"Admin {admin_user.email} revoked access for user {user.email} (id={user_id})"
+        f"Admin {admin_user.email} revoked access for {user.email} (id={user_id})"
     )
 
     return {
-        "message": f"Access revoked for user {user.email}",
+        "message": f"Access revoked for {user.email}",
         "user_id": user_id,
         "is_active": False,
+    }
+
+
+@router.post("/symbol-master/sync")
+async def force_symbol_master_sync(
+    admin_user=Depends(require_admin),
+):
+    """
+    Force a fresh download and re-parse of the Fyers Symbol Master CSVs.
+
+    This clears the existing `instruments` table and re-runs the
+    SymbolMasterDownloader so the latest expiry-fallback logic takes
+    effect immediately. Use this when the symbol master was loaded
+    before a code fix that changes how expiries/strikes are parsed.
+    """
+    from app.services.symbol_master import SymbolMasterDownloader
+    from app.core.database import SessionLocal, Instrument
+
+    # Clear existing instruments so the "already loaded today" guard
+    # in _should_sync_symbols() does not skip the re-parse.
+    db = SessionLocal()
+    try:
+        deleted = db.query(Instrument).delete()
+        db.commit()
+        logger.info("Cleared %d existing instrument rows before forced re-sync", deleted)
+    finally:
+        db.close()
+
+    downloader = SymbolMasterDownloader()
+    try:
+        total = await downloader.load_all()
+    finally:
+        await downloader.close()
+
+    return {
+        "message": "Symbol master re-sync complete",
+        "instruments_loaded": total,
     }
 
 
@@ -191,7 +227,6 @@ async def get_admin_stats(
 ):
     """
     Get platform statistics for admin dashboard.
-    Admin only.
     """
     total_users = db.query(User).count()
     active_users = db.query(User).filter(User.is_active == True).count()

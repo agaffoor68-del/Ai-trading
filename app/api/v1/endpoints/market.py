@@ -551,10 +551,10 @@ async def get_instrument_info(
 
             # Derive expiry from symbol ticker when the DB column is NULL
             # (e.g. Fyers CSV expiry_date field was empty or unparseable).
-            import re
+            import re as _re
             for item in contracts:
                 if item.expiry is None:
-                    m = re.search(r"(\d{2})([A-Z]{3})(\d{3,})", (item.symbol or ""))
+                    m = _re.search(r"(\d{2})([A-Z]{3})(\d{3,})", (item.symbol or "").upper())
                     if m:
                         dd, mon, _ = m.groups()
                         try:
@@ -700,6 +700,18 @@ async def get_option_chain(
                     Instrument.expiry >= datetime.combine(chosen_expiry, time.min),
                     Instrument.expiry <= datetime.combine(chosen_expiry, time.max),
                 ).all()
+            # Derive expiry from symbol ticker when DB column is NULL
+            # (e.g. NIFTY26DEC25800CE -> 26-DEC-2026).
+            import re as _re
+            for contract in contracts:
+                if contract.expiry is None:
+                    m = _re.search(r"(\d{2})([A-Z]{3})(\d{3,})", (contract.symbol or "").upper())
+                    if m:
+                        dd, mon, _ = m.groups()
+                        try:
+                            contract.expiry = datetime.strptime(f"{dd}-{mon}-{today.year}", "%d-%b-%Y")
+                        except ValueError:
+                            pass
             logger.info("option-chain DEBUG: symbol=%s expiry=%s spot_price=%s contracts_after_filter=%d",
                         normalized, expiry_date, spot_price, len(contracts))
             result = {}

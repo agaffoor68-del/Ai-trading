@@ -104,6 +104,17 @@ async def get_options_chain(
                     and (has_option_code or has_option_suffix)
                     and ticker_upper.startswith(expected_prefix)
                 ):
+                    # Derive expiry from the symbol ticker when the DB
+                    # column is NULL (e.g. NIFTY26DEC25800CE -> 26-DEC-2026).
+                    if item.expiry is None:
+                        import re as _re
+                        m = _re.search(r"(\d{2})([A-Z]{3})(\d{3,})", ticker_upper)
+                        if m:
+                            dd, mon, _ = m.groups()
+                            try:
+                                item.expiry = datetime.strptime(f"{dd}-{mon}-{today.year}", "%d-%b-%Y")
+                            except ValueError:
+                                pass
                     candidates.append((item, side))
 
             active_expiries = sorted({
@@ -111,6 +122,8 @@ async def get_options_chain(
                 for item, _ in candidates
                 if item.expiry and item.expiry.date() >= today
             })
+            logger.info("options-chain DEBUG: %s total_instruments=%d candidates=%d active_expiries=%s requested=%s spot=%s",
+                        normalized, len(instruments), len(candidates), active_expiries, requested_expiry, spot_price)
             if requested_expiry is None:
                 if not active_expiries:
                     return {}

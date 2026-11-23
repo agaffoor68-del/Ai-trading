@@ -51,20 +51,39 @@ def _get_active_nearest_option_symbols(spot_prices: dict[str, float]) -> list[st
                 Instrument.option_type,
             ).filter(
                 Instrument.is_active == 1,
-                Instrument.instrument_type.in_(["12", "OPT", "OPTION"]),
                 Instrument.symbol.ilike(f"NSE:{underlying}%"),
-                Instrument.expiry >= today,
-                Instrument.option_type.in_(["CE", "PE"]),
             ).all()
 
+            import re as _re
             valid_rows = []
             for symbol, strike_value, expiry, option_type in rows:
                 # Ignore old malformed exchange_segment:symbol entries.
-                if not symbol or not symbol.startswith("NSE:") or strike_value is None or expiry is None:
+                if not symbol or not symbol.startswith("NSE:") or strike_value is None:
+                    continue
+                # Derive CE/PE from the symbol suffix when option_type is
+                # stored as a numeric code or is missing entirely.
+                sym_upper = symbol.upper()
+                if sym_upper.endswith("CE"):
+                    option_type = "CE"
+                elif sym_upper.endswith("PE"):
+                    option_type = "PE"
+                else:
                     continue
                 try:
                     strike = float(strike_value)
                 except (TypeError, ValueError):
+                    continue
+                # Derive expiry from the symbol ticker when the DB column
+                # is NULL (e.g. NIFTY26DEC25800CE -> 26-DEC-2026).
+                if expiry is None:
+                    m = _re.search(r"(\d{2})([A-Z]{3})(\d{3,})", sym_upper)
+                    if m:
+                        dd, mon, _yy = m.groups()
+                        try:
+                            expiry = datetime.strptime(f"{dd}-{mon}-{today.year}", "%d-%b-%Y")
+                        except ValueError:
+                            pass
+                if expiry is None or expiry.date() < today.date():
                     continue
                 valid_rows.append((symbol, strike, expiry, option_type))
 
