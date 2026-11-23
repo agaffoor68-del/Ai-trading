@@ -205,7 +205,7 @@ class SymbolMasterDownloader:
                     if expiry is None:
                         try:
                             import re
-                            m = re.search(r"(\d{2})([A-Z]{3})", symbol_ticker)
+                            m = re.search(r"(\d{2})([A-Z]{3})\d{3,}", symbol_ticker)
                             if m:
                                 yy, mon = m.groups()
                                 # Symbol master only encodes month+year; use the
