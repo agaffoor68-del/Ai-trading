@@ -131,12 +131,25 @@ def _should_sync_symbols() -> bool:
     new logic is applied to every deployment.
     """
     try:
-        from app.services.symbol_master import SymbolMasterDownloader
-        downloader = SymbolMasterDownloader()
-        # Synchronous check: does the DB have any rows with a non-NULL
-        # expiry? If not, the old format is still in place and we must sync.
         db = SessionLocal()
         try:
+            # Check for the old broken symbol pattern (e.g. NIFTY26D0117600CE).
+            # If ANY row matches, the DB still holds the pre-fix format and
+            # we must re-sync.
+            old_format_count = db.query(Instrument).filter(
+                Instrument.is_active == 1,
+                Instrument.symbol.like("%D0%"),
+            ).count()
+            if old_format_count > 0:
+                logger.warning(
+                    "Detected %d rows with the old broken symbol format "
+                    "(e.g. NIFTY26D0117600CE). Forcing symbol master re-sync.",
+                    old_format_count,
+                )
+                return True
+
+            # Also re-sync if there are no active option rows with a valid
+            # expiry at all (the NULL-expiry case).
             today = date.today()
             with_expiry = db.query(Instrument).filter(
                 Instrument.is_active == 1,
