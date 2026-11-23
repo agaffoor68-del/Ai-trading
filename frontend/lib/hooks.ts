@@ -215,10 +215,10 @@ export function useMarketQuotes(symbols: string[]) {
     symbolsKey ? ["/api/v1/market/quotes", symbolsKey] : null,
     () => createPostFetcher<unknown>("/api/v1/market/quotes", { symbols: stableSymbols })(),
     {
-      refreshInterval: 1000,
+      refreshInterval: 50,
       revalidateOnFocus: true,
       revalidateOnReconnect: true,
-      dedupingInterval: 2000,
+      dedupingInterval: 50,
     },
   );
   const { status } = useFyersStatus();
@@ -307,7 +307,7 @@ export function useOptionChain(symbol: string, expiry: string, strikes = 10) {
   useEffect(() => {
     void fetchChain();
     if (!key) return;
-    const interval = window.setInterval(() => void fetchChain(), 1000);
+    const interval = window.setInterval(() => void fetchChain(), 50);
     return () => window.clearInterval(interval);
   }, [fetchChain, key]);
 
@@ -331,7 +331,7 @@ export function useAISignals(symbols: string[] = ["NIFTY", "BANKNIFTY", "FINNIFT
   const query = symbols.map(encodeURIComponent).join(",");
   const key = symbols.length ? `/api/v1/market/ai/signals?symbols=${query}` : null;
   const { data, error, isLoading, mutate } = useSWR<any>(key, key ? createFetcher<any>(key, true) : null, {
-    refreshInterval: 1000, revalidateOnFocus: true, revalidateOnReconnect: true, dedupingInterval: 1000,
+    refreshInterval: 50, revalidateOnFocus: true, revalidateOnReconnect: true, dedupingInterval: 50,
   });
   const { status } = useFyersStatus();
   const sessionExpired = isFyersSessionExpired(error);
@@ -356,7 +356,7 @@ export function useAISignals(symbols: string[] = ["NIFTY", "BANKNIFTY", "FINNIFT
 export function useCandles(symbol: string, interval = "5m", days = 5) {
   const key = symbol ? `/api/v1/market/candles?symbol=${encodeURIComponent(symbol)}&interval=${encodeURIComponent(interval)}&days=${days}` : null;
   const { data, error, isLoading, mutate } = useSWR<any>(key, key ? createFetcher<any>(key) : null, {
-    refreshInterval: 1000, revalidateOnFocus: true, revalidateOnReconnect: true, dedupingInterval: 1000,
+    refreshInterval: 50, revalidateOnFocus: true, revalidateOnReconnect: true, dedupingInterval: 50,
   });
   const sessionExpired = isFyersSessionExpired(error);
   return {
@@ -376,14 +376,14 @@ export function useCandles(symbol: string, interval = "5m", days = 5) {
 
 export function useMarketStatus() {
   const { data, error, isLoading, mutate } = useSWR<any>("/api/v1/market/status", createFetcher<any>("/api/v1/market/status"), {
-    refreshInterval: 1000, revalidateOnFocus: true, revalidateOnReconnect: true, dedupingInterval: 1000,
+    refreshInterval: 50, revalidateOnFocus: true, revalidateOnReconnect: true, dedupingInterval: 50,
   });
   return { status: data, isLoading, isError: !!error, error: (error as any)?.message, mutate };
 }
 
 export function useFyersStatus() {
   const { data, error, isLoading, mutate } = useSWR<any>(FYERS_STATUS_KEY, createFetcher<any>(FYERS_STATUS_KEY), {
-    refreshInterval: 1000, revalidateOnFocus: true, revalidateOnReconnect: true, dedupingInterval: 1000,
+    refreshInterval: 50, revalidateOnFocus: true, revalidateOnReconnect: true, dedupingInterval: 50,
   });
   return { status: data, isLoading, isError: !!error, error: (error as any)?.message, mutate };
 }
