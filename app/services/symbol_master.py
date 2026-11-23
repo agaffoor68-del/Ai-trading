@@ -8,7 +8,6 @@ Non-Negotiable Rule: Fyers API v3 is the ONLY data source.
 """
 
 import asyncio
-import csv
 import io
 import logging
 from datetime import datetime
@@ -92,34 +91,10 @@ class SymbolMasterDownloader:
             return []
 
         try:
-            # csv.reader counts fields correctly even when a quoted value contains a comma.
-            reader = csv.reader(io.StringIO(csv_content.lstrip("\ufeff")))
-            valid_rows = []
-            bad_rows = 0
-            for line_number, row in enumerate(reader, start=1):
-                if not row or all(not field.strip() for field in row):
-                    continue
-                if len(row) != len(FYERS_COLUMNS):
-                    bad_rows += 1
-                    if bad_rows <= 5:
-                        logger.warning(
-                            "Skipping malformed %s CSV record at logical row %s: expected %s fields, got %s",
-                            exchange, line_number, len(FYERS_COLUMNS), len(row),
-                        )
-                    continue
-                valid_rows.append(row)
-
-            if bad_rows:
-                logger.warning("Skipped %s malformed CSV records for %s", bad_rows, exchange)
-            if not valid_rows:
-                logger.error("No rows matched the %s-field Fyers schema for %s", len(FYERS_COLUMNS), exchange)
-                return []
-
-            normalized_csv = io.StringIO()
-            csv.writer(normalized_csv, lineterminator="\n").writerows(valid_rows)
-            normalized_csv.seek(0)
+            # Fyers masters are headerless; assigning the schema during parsing
+            # prevents pandas from inferring a first-row header or shifting names.
             df = pd.read_csv(
-                normalized_csv,
+                io.StringIO(csv_content.lstrip("\ufeff")),
                 header=None,
                 names=FYERS_COLUMNS,
                 dtype=str,
@@ -127,6 +102,9 @@ class SymbolMasterDownloader:
                 encoding="utf-8-sig",
                 on_bad_lines="warn",
             )
+            if df.empty:
+                logger.warning("No rows found in %s symbol master", exchange)
+                return []
 
             logger.info("Raw DataFrame shape for %s: %s", exchange, df.shape)
             logger.info("Columns for %s: %s", exchange, list(df.columns))

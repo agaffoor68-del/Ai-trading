@@ -122,7 +122,7 @@ export function OptionsChain() {
         </div>
       ) : rows.length === 0 ? (
         <div className="flex flex-1 items-center justify-center p-6 text-center text-text-muted">
-          No options available for this expiry
+          No option data available for this symbol and expiry
         </div>
       ) : (
         <div className="flex-1 overflow-auto p-2">
@@ -131,7 +131,7 @@ export function OptionsChain() {
               <tr>
                 <th className="px-3 py-2 text-right">Call</th>
                 <th className="px-3 py-2 text-center">Strike</th>
-                <th class="px-3 py-2 text-left">Put</th>
+                <th className="px-3 py-2 text-left">Put</th>
               </tr>
             </thead>
             <tbody>

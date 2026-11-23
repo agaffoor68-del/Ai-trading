@@ -85,7 +85,7 @@ export function OrderTicket() {
     return () => controller.abort();
   }, [selectedSymbol]);
 
-  const effectiveQty = lotSize ? quantity * lotSize : 0;
+  const effectiveQty = lotSize && quantity > 0 ? quantity * lotSize : 0;
 
   const validateForm = () => {
     if (!selectedSymbol) return "Select a symbol";
