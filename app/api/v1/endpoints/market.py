@@ -547,10 +547,22 @@ async def get_instrument_info(
                 Instrument.exchange == "NSE_FO" if exchange == "NSE" else Instrument.exchange == "BSE_FO",
                 Instrument.symbol.ilike(f"{exchange}:{underlying}%"),
                 Instrument.is_active == 1,
-                Instrument.expiry >= today,
             ).order_by(Instrument.expiry.asc()).all()
 
-            expiries = sorted({item.expiry.date().isoformat() for item in contracts if item.expiry})
+            # Derive expiry from symbol ticker when the DB column is NULL
+            # (e.g. Fyers CSV expiry_date field was empty or unparseable).
+            import re
+            for item in contracts:
+                if item.expiry is None:
+                    m = re.search(r"(\d{2})([A-Z]{3})(\d{3,})", (item.symbol or ""))
+                    if m:
+                        dd, mon, _ = m.groups()
+                        try:
+                            item.expiry = datetime.strptime(f"{dd}-{mon}-{today.year}", "%d-%b-%Y")
+                        except ValueError:
+                            pass
+
+            expiries = sorted({item.expiry.date().isoformat() for item in contracts if item.expiry and item.expiry.date() >= today})
             logger.info("instrument-info DEBUG: symbol=%s exchange=%s underlying=%s total_rows=%d expiries=%s",
                         symbol, exchange, underlying, len(contracts), expiries)
             if not contracts or not expiries:
