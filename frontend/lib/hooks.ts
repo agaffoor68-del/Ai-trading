@@ -330,7 +330,7 @@ export function useOptionChain(symbol: string, expiry: string, strikes = 10) {
 export function useAISignals(symbols: string[] = ["NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY"]) {
   const query = symbols.map(encodeURIComponent).join(",");
   const key = symbols.length ? `/api/v1/market/ai/signals?symbols=${query}` : null;
-  const { data, error, isLoading, mutate } = useSWR<any>(key, key ? createFetcher<any>(key) : null, {
+  const { data, error, isLoading, mutate } = useSWR<any>(key, key ? createFetcher<any>(key, true) : null, {
     refreshInterval: 30000, revalidateOnFocus: true, revalidateOnReconnect: true, dedupingInterval: 10000,
   });
   const { status } = useFyersStatus();
