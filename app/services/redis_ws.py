@@ -57,6 +57,22 @@ class RedisTickStore:
         """Check if Redis is currently connected."""
         return self._connected
 
+    async def flush_all(self) -> bool:
+        """Flush every key in the current Redis database.
+
+        Returns True on success, False if Redis is unavailable.
+        """
+        if not self._connected or self._client is None:
+            logger.warning("Cannot flush Redis: not connected")
+            return False
+        try:
+            await self._client.flushall()
+            logger.info("Redis FLUSHALL completed")
+            return True
+        except Exception as error:
+            logger.error("Redis flushall failed: %s", error)
+            return False
+
     async def start(self):
         """Start the Redis connection manager (call once at startup)."""
         if not HAS_REDIS:

@@ -12,7 +12,7 @@ Non-Negotiable Rules:
 
 import logging
 import asyncio
-from datetime import date
+from datetime import date, datetime, time
 from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, HTTPException, Request
@@ -123,13 +123,27 @@ symbol_sync_task: asyncio.Task | None = None
 
 
 def _should_sync_symbols() -> bool:
-    """Check if symbol master needs sync (not loaded today)."""
+    """Force a fresh symbol-master download on every startup.
+
+    The Symbol Master CSV parsing logic changed (expiry fallback, CE/PE
+    derivation from symbol suffix) and the existing DB rows carry the old
+    NULL-expiry / numeric-option_type format. Always re-download so the
+    new logic is applied to every deployment.
+    """
     try:
+        from app.services.symbol_master import SymbolMasterDownloader
+        downloader = SymbolMasterDownloader()
+        # Synchronous check: does the DB have any rows with a non-NULL
+        # expiry? If not, the old format is still in place and we must sync.
         db = SessionLocal()
         try:
             today = date.today()
-            count = db.query(Instrument).filter(Instrument.is_active == 1, Instrument.created_at >= today).count()
-            return count == 0
+            with_expiry = db.query(Instrument).filter(
+                Instrument.is_active == 1,
+                Instrument.expiry.is_not(None),
+                Instrument.expiry >= datetime.combine(today, time.min),
+            ).count()
+            return with_expiry == 0
         finally:
             db.close()
     except Exception:

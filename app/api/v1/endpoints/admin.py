@@ -214,6 +214,15 @@ async def force_symbol_master_sync(
     finally:
         await downloader.close()
 
+    # Flush Redis caches so stale symbol/quote data does not linger.
+    try:
+        from app.services.redis_ws import redis_tick_store
+        if redis_tick_store.is_connected():
+            await redis_tick_store.flush_all()
+            logger.info("Redis cache flushed after symbol master re-sync")
+    except Exception as cache_error:
+        logger.warning("Redis flush failed: %s", cache_error)
+
     return {
         "message": "Symbol master re-sync complete",
         "instruments_loaded": total,
