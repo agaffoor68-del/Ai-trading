@@ -675,7 +675,6 @@ async def get_option_chain(
                 Instrument.exchange.in_(["NSE_FO"] if normalized != "SENSEX" else ["BSE_FO"]),
                 Instrument.symbol.ilike(f"%:{normalized.replace(' ', '')}%"),
                 Instrument.is_active == 1,
-                Instrument.option_type.in_(["CE", "PE"]),
             )
             if expiry_date:
                 contracts = query.all()
@@ -688,8 +687,18 @@ async def get_option_chain(
                     Instrument.expiry >= datetime.combine(chosen_expiry, time.min),
                     Instrument.expiry <= datetime.combine(chosen_expiry, time.max),
                 ).all()
+            logger.debug("option-chain: %d contracts after symbol/expiry filter for %s", len(contracts), normalized)
             result = {}
             for contract in contracts:
+                option_type = (contract.option_type or "").upper()
+                if option_type not in ("CE", "PE"):
+                    sym = (contract.symbol or "").upper()
+                    if sym.endswith("CE"):
+                        option_type = "CE"
+                    elif sym.endswith("PE"):
+                        option_type = "PE"
+                    else:
+                        continue
                 try:
                     strike = float(contract.strike)
                 except (TypeError, ValueError):
@@ -701,8 +710,9 @@ async def get_option_chain(
                 # formatted as a 3-letter month code (e.g. NSE:NIFTY26DEC25800CE)
                 # instead of relying on whatever was stored in the symbol master.
                 month_code = contract.expiry.strftime("%y%b").upper() if contract.expiry else ""
-                canonical_symbol = f"{contract.exchange.split('_')[0]}:{normalized.replace(' ', '')}{month_code}{strike:g}{contract.option_type.upper()}"
-                result.setdefault(strike, {})[contract.option_type.upper()] = canonical_symbol
+                canonical_symbol = f"{contract.exchange.split('_')[0]}:{normalized.replace(' ', '')}{month_code}{strike:g}{option_type}"
+                result.setdefault(strike, {})[option_type] = canonical_symbol
+            logger.debug("option-chain: %d strikes after ATM filter", len(result))
             return result
         finally:
             db.close()
