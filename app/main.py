@@ -30,6 +30,7 @@ from app.api.v1.endpoints.market import router as market_router
 from app.api.v1.endpoints.options_chain import router as options_chain_router
 from app.api.v1.endpoints.auth import router as auth_router, get_current_user_info, MeResponse
 from app.api.v1.endpoints.admin import router as admin_router
+from app.api.v1.endpoints.backtest import router as backtest_router
 from app.services.symbol_master import SymbolMasterDownloader
 from app.services.redis_ws import redis_tick_store
 from app.services.fyers_websocket import start_fyers_websocket, stop_fyers_websocket, get_fyers_ws_status
@@ -91,6 +92,7 @@ app.include_router(market_router, prefix="/api/v1/market", tags=["market-data"])
 app.include_router(auth_router, prefix="/api/v1/auth", tags=["auth"])
 app.add_api_route("/api/auth/me", get_current_user_info, methods=["GET"], response_model=MeResponse, tags=["auth"])
 app.include_router(admin_router, prefix="/api/v1/admin", tags=["admin"])
+app.include_router(backtest_router, prefix="/api/v1", tags=["backtest"])
 
 
 @app.get("/", tags=["root"])
