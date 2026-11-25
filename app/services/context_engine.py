@@ -287,7 +287,7 @@ class ContextRetrievalEngine:
         """Calculate technical indicators."""
         try:
             indicators = await self.service.calculate_indicators(
-                symbol, timeframe, indicators, None, 200
+                symbol, timeframe, indicators, category, lookback
             )
             return {
                 "success": True,
@@ -313,7 +313,7 @@ class ContextRetrievalEngine:
     ) -> Dict[str, Any]:
         """Get option chain with Greeks and analytics."""
         try:
-            chain = await self.service.get_options_chain(symbol, None, 10)
+            chain = await self.service.get_options_chain(symbol, expiry, strike_count)
             if chain:
                 return {"success": True, "data": chain.model_dump()}
             return {"success": False, "error": "No options data available"}
@@ -335,12 +335,17 @@ class ContextRetrievalEngine:
     ) -> Dict[str, Any]:
         """Get filtered news articles."""
         try:
-            news = await self.service.get_news(instrument, None, 24, None, 20)
+            news = await self.service.get_news(
+                instrument, sector, timeframe_hours, sentiment, limit
+            )
             return {
-                "success": True,
+                "success": bool(news),
+                "available": bool(news),
+                "status": "available" if news else "news_provider_not_configured",
                 "count": len(news),
                 "data": [n.model_dump() for n in news],
                 "timestamp": datetime.now(IST).isoformat(),
+                "warning": None if news else "News ingestion is not configured; do not infer market sentiment from this empty result.",
             }
         except Exception as e:
             logger.error(f"get_news failed: {e}")
@@ -355,20 +360,14 @@ class ContextRetrievalEngine:
         symbol: str,
         timeframe: str,
     ) -> Dict[str, Any]:
-        """Analyze market structure (placeholder - needs implementation)."""
+        """Report the unavailable analysis rather than presenting a placeholder as market data."""
         return {
-            "success": True,
+            "success": False,
+            "available": False,
+            "status": "market_structure_analysis_not_implemented",
             "symbol": symbol,
             "timeframe": timeframe,
-            "structure": {
-                "trend": "unknown",
-                "support_levels": [],
-                "resistance_levels": [],
-                "swing_highs": [],
-                "swing_lows": [],
-                "order_blocks": [],
-                "fair_value_gaps": [],
-            },
+            "structure": None,
             "timestamp": datetime.now(IST).isoformat(),
         }
 
@@ -384,9 +383,10 @@ class ContextRetrievalEngine:
         days: int = 30,
     ) -> Dict[str, Any]:
         """Retrieve trade memory and learning insights."""
-        # Placeholder - would query ai_decisions, trade_lifecycles, learning_insights tables
         return {
-            "success": True,
+            "success": False,
+            "available": False,
+            "status": "persistent_trade_memory_not_configured",
             "decisions": [],
             "learning_insights": [],
             "timestamp": datetime.now(IST).isoformat(),
@@ -394,19 +394,19 @@ class ContextRetrievalEngine:
 
     async def get_user_preferences(self, user_id: int) -> Dict[str, Any]:
         """Get user trading preferences."""
-        # Placeholder - would query user_ai_preferences table
+        preferences = await self.service.get_user_preferences(user_id)
+        if preferences is None:
+            return {
+                "success": False,
+                "available": False,
+                "status": "user_trading_preferences_not_configured",
+                "user_id": user_id,
+                "timestamp": datetime.now(IST).isoformat(),
+            }
         return {
             "success": True,
-            "preferences": {
-                "selected_instruments": ["NIFTY", "BANKNIFTY"],
-                "preferred_timeframes": ["5m", "15m", "1h"],
-                "risk_per_trade_pct": 2.0,
-                "max_daily_loss_pct": 5.0,
-                "max_open_positions": 5,
-                "enabled_strategies": [],
-                "selected_indicators": ["RSI", "MACD", "EMA", "VWAP", "Supertrend"],
-                "trading_mode": "ANALYSIS_ONLY",
-            },
+            "available": True,
+            "preferences": preferences.model_dump(),
             "timestamp": datetime.now(IST).isoformat(),
         }
 
@@ -424,11 +424,12 @@ class ContextRetrievalEngine:
         stop_loss: Optional[float] = None,
         targets: Optional[List[float]] = None,
     ) -> Dict[str, Any]:
-        """Execute a simulated paper trade."""
+        """Fail closed until a durable, validated paper-trading adapter is configured."""
         return {
-            "success": True,
-            "paper_trade_id": f"PAPER_{datetime.now(IST).strftime('%Y%m%d%H%M%S')}",
-            "message": "Paper trade executed (simulated)",
+            "success": False,
+            "available": False,
+            "status": "paper_trading_adapter_not_configured",
+            "message": "No paper order was submitted or recorded.",
             "timestamp": datetime.now(IST).isoformat(),
         }
 
@@ -443,12 +444,12 @@ class ContextRetrievalEngine:
         targets: Optional[List[float]] = None,
         rationale: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Propose a live order for user approval (MODE 3)."""
+        """Fail closed: no durable risk approval/order workflow is configured."""
         return {
-            "success": True,
-            "proposal_id": f"PROP_{datetime.now(IST).strftime('%Y%m%d%H%M%S')}",
-            "status": "pending_approval",
-            "message": "Order proposal created. Awaiting user approval.",
+            "success": False,
+            "available": False,
+            "status": "live_order_workflow_not_configured",
+            "message": "No live order was authorized or submitted.",
             "timestamp": datetime.now(IST).isoformat(),
         }
 
@@ -479,7 +480,17 @@ class ContextRetrievalEngine:
         )
         
         context = await trading_service.assemble_grok_context(symbol, timeframe, config)
-        return {"success": True, "context": context.model_dump()}
+        serialized_context = context.model_dump()
+        data_quality = serialized_context.get("data_quality", {})
+        warnings = data_quality.get("warnings", [])
+        return {
+            "success": True,
+            "trading_eligible": False,
+            "decision": "NO TRADE",
+            "status": "analysis_context_only",
+            "ineligibility_reasons": warnings,
+            "context": serialized_context,
+        }
 
 
 # ============================================================================

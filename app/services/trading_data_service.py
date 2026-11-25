@@ -740,10 +740,9 @@ class TradingDataService:
     # User Preferences
     # -------------------------------------------------------------------------
 
-    async def get_user_preferences(self, user_id: int) -> UserPreferences:
-        """Get user trading preferences."""
-        # This would query user_ai_preferences table
-        return UserPreferences()
+    async def get_user_preferences(self, user_id: int) -> Optional[UserPreferences]:
+        """Return no preferences until persistent per-user settings are implemented."""
+        return None
 
     # -------------------------------------------------------------------------
     # Context Assembly for Grok
@@ -812,11 +811,12 @@ class TradingDataService:
         sources = []
         warnings = []
         
-        if live_quotes and live_quotes.get(instrument):
+        market_quote = live_quotes.get(instrument) if isinstance(live_quotes, dict) else None
+        if market_quote and market_quote.ltp is not None:
             completeness += 0.3
-            sources.append(live_quotes[instrument].source)
+            sources.append(market_quote.source)
         else:
-            warnings.append(f"No live quote for {instrument}")
+            warnings.append(f"No usable live quote for {instrument}")
         
         if candles:
             completeness += 0.3
@@ -834,9 +834,41 @@ class TradingDataService:
         if news:
             completeness += 0.1
 
+        quote_freshness_seconds = None
+        quote_timestamp = market_quote.timestamp if market_quote else None
+        if quote_timestamp:
+            try:
+                parsed_timestamp = datetime.fromisoformat(
+                    quote_timestamp.replace("Z", "+00:00")
+                )
+                if parsed_timestamp.tzinfo is None:
+                    parsed_timestamp = parsed_timestamp.replace(tzinfo=IST)
+                quote_freshness_seconds = int(
+                    (datetime.now(parsed_timestamp.tzinfo) - parsed_timestamp).total_seconds()
+                )
+                if quote_freshness_seconds < 0:
+                    warnings.append("Live quote timestamp is in the future")
+                    quote_freshness_seconds = None
+                elif quote_freshness_seconds > 30:
+                    warnings.append(
+                        f"Live quote is stale ({quote_freshness_seconds}s old; maximum 30s)"
+                    )
+            except (TypeError, ValueError):
+                warnings.append("Live quote timestamp is missing or invalid")
+        else:
+            warnings.append("Live quote timestamp is missing or invalid")
+
+        if cfg.include_options and options is None:
+            warnings.append("Options data unavailable")
+        if cfg.include_news and not news:
+            warnings.append("News data unavailable")
+        warnings.append(
+            "User-specific risk settings are not connected to this context; trading is ineligible"
+        )
+
         data_quality = DataQuality(
             completeness=completeness,
-            freshness_seconds=30 if live_quotes.get(instrument, {}).get("source") == "redis_cache" else None,
+            freshness_seconds=quote_freshness_seconds,
             source=", ".join(set(sources)) or "unknown",
             warnings=warnings,
         )
