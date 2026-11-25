@@ -78,7 +78,13 @@ export function CandlestickChart({ symbol: initialSymbol = "NIFTY 50", height = 
   const chartRef = useRef<IChartApi | null>(null);
   const candleRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const volumeRef = useRef<ISeriesApi<"Histogram"> | null>(null);
+  const smaRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const emaRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const bbUpperRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const bbMiddleRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const bbLowerRef = useRef<ISeriesApi<"Line"> | null>(null);
   const lastRef = useRef<Candle | null>(null);
+  const [visibleIndicators, setVisibleIndicators] = useState({ sma: true, ema: true, bollinger: false });
   const [status, setStatus] = useState<"loading" | "ready" | "error" | "empty">("loading");
   const [selectedInterval, setSelectedInterval] = useState<typeof INTERVALS[number]["value"]>(INTERVALS[1].value); // 5m default
   const [selectedSymbol, setSelectedSymbol] = useState(initialSymbol);
@@ -125,13 +131,24 @@ export function CandlestickChart({ symbol: initialSymbol = "NIFTY 50", height = 
       priceScaleId: "volume",
     });
     chart.priceScale("volume").applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
+    const sma = chart.addLineSeries({ color: "#facc15", lineWidth: 2, title: "SMA 20", priceLineVisible: false, lastValueVisible: false });
+    const ema = chart.addLineSeries({ color: "#22d3ee", lineWidth: 2, title: "EMA 12", priceLineVisible: false, lastValueVisible: false });
+    const bbUpper = chart.addLineSeries({ color: "rgba(192,132,252,0.8)", lineWidth: 1, title: "BB Upper", priceLineVisible: false, lastValueVisible: false });
+    const bbMiddle = chart.addLineSeries({ color: "rgba(192,132,252,0.55)", lineWidth: 1, title: "BB Middle", priceLineVisible: false, lastValueVisible: false });
+    const bbLower = chart.addLineSeries({ color: "rgba(192,132,252,0.8)", lineWidth: 1, title: "BB Lower", priceLineVisible: false, lastValueVisible: false });
 
     chartRef.current = chart;
     candleRef.current = candles;
     volumeRef.current = volume;
+    smaRef.current = sma;
+    emaRef.current = ema;
+    bbUpperRef.current = bbUpper;
+    bbMiddleRef.current = bbMiddle;
+    bbLowerRef.current = bbLower;
     return () => {
       chart.remove();
       chartRef.current = candleRef.current = volumeRef.current = null;
+      smaRef.current = emaRef.current = bbUpperRef.current = bbMiddleRef.current = bbLowerRef.current = null;
     };
   }, []);
 
@@ -156,11 +173,43 @@ export function CandlestickChart({ symbol: initialSymbol = "NIFTY 50", height = 
         color: c.close >= c.open ? "rgba(0,255,102,0.4)" : "rgba(255,0,60,0.4)" 
       }))
     );
+
+    const sma = data.flatMap((candle, index) => {
+      if (index < 19) return [];
+      const average = data.slice(index - 19, index + 1).reduce((sum, item) => sum + item.close, 0) / 20;
+      return [{ time: candle.time, value: average }];
+    });
+    let emaValue = data[0]?.close ?? 0;
+    const multiplier = 2 / 13;
+    const ema = data.map((candle, index) => {
+      emaValue = index === 0 ? candle.close : candle.close * multiplier + emaValue * (1 - multiplier);
+      return { time: candle.time, value: emaValue };
+    });
+    const bands = data.flatMap((candle, index) => {
+      if (index < 19) return [];
+      const window = data.slice(index - 19, index + 1).map((item) => item.close);
+      const mean = window.reduce((sum, value) => sum + value, 0) / window.length;
+      const deviation = Math.sqrt(window.reduce((sum, value) => sum + (value - mean) ** 2, 0) / window.length);
+      return [{ time: candle.time, upper: mean + deviation * 2, middle: mean, lower: mean - deviation * 2 }];
+    });
+    smaRef.current?.setData(sma);
+    emaRef.current?.setData(ema);
+    bbUpperRef.current?.setData(bands.map(({ time, upper }) => ({ time, value: upper })));
+    bbMiddleRef.current?.setData(bands.map(({ time, middle }) => ({ time, value: middle })));
+    bbLowerRef.current?.setData(bands.map(({ time, lower }) => ({ time, value: lower })));
     lastRef.current = data[data.length - 1];
     chartRef.current?.timeScale().fitContent();
     setStatus("ready");
     setErrorMessage(null);
   }, [candles, isLoading, isError, error]);
+
+  useEffect(() => {
+    smaRef.current?.applyOptions({ visible: visibleIndicators.sma });
+    emaRef.current?.applyOptions({ visible: visibleIndicators.ema });
+    [bbUpperRef.current, bbMiddleRef.current, bbLowerRef.current].forEach((series) =>
+      series?.applyOptions({ visible: visibleIndicators.bollinger })
+    );
+  }, [visibleIndicators]);
 
   // Handle quotes for live LTP update of last candle
   useEffect(() => {
@@ -257,6 +306,25 @@ export function CandlestickChart({ symbol: initialSymbol = "NIFTY 50", height = 
       </div>
 
       <div ref={containerRef} className="absolute inset-0" />
+
+      <div className="absolute bottom-2 left-3 z-10 flex flex-wrap items-center gap-1.5 rounded-lg border border-white/10 bg-black/80 p-1.5 backdrop-blur-sm" aria-label="Chart indicators">
+        <span className="px-1 text-[10px] uppercase tracking-wide text-white/50">Indicators</span>
+        {([
+          ["sma", "SMA 20", "text-yellow-300"],
+          ["ema", "EMA 12", "text-cyan-300"],
+          ["bollinger", "Bollinger Bands", "text-purple-300"],
+        ] as const).map(([key, label, color]) => (
+          <button
+            key={key}
+            type="button"
+            aria-pressed={visibleIndicators[key]}
+            onClick={() => setVisibleIndicators((current) => ({ ...current, [key]: !current[key] }))}
+            className={`rounded px-2 py-1 text-[10px] transition-colors ${visibleIndicators[key] ? `${color} bg-white/10` : "text-white/50 hover:text-white"}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
       
       {status !== "ready" && (
         <div className="absolute inset-0 z-10 flex items-center justify-center text-sm text-white/60 bg-black/60 pointer-events-none flex-col gap-2 p-4">

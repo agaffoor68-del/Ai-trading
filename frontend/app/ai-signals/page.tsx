@@ -7,6 +7,16 @@ import { useAISignals, SERVER_WAKING_MESSAGE } from "@/lib/hooks";
 
 const AI_SYMBOLS = ["NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY"];
 
+type AISignal = {
+  symbol?: string;
+  signal: string;
+  price?: number;
+  rsi?: number;
+  ema_trend?: string;
+  confidence?: unknown;
+  timestamp?: string;
+};
+
 /** Backend returns confidence as a 0-1 score; tolerate an already-percent value. */
 function formatConfidence(raw: unknown): string {
   const value = Number(raw);
@@ -93,7 +103,7 @@ export default function AISignalsPage() {
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                {signals.map((signal, index) => {
+                {signals.map((signal: AISignal, index: number) => {
                   const tone = signalTone(signal.signal);
                   const SignalIcon =
                     signal.signal === "BUY" ? TrendingUp :
