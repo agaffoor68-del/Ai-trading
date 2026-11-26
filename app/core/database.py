@@ -75,12 +75,16 @@ def get_db():
 def init_db():
     """Create missing tables without deleting persisted Fyers tokens."""
     from app.core import models  # noqa: F401 - register every model with metadata
+    from app.core.migrations_brain import run_migrations
+
     try:
         # create_all is non-destructive: unlike DROP TABLE, it preserves OAuth
         # tokens and credentials across application restarts.
         Base.metadata.create_all(bind=engine)
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
+        # AI Brain tables (decision audit, learning, news, risk, memory).
+        run_migrations()
         logger.info("Database connection successful; existing Fyers tokens preserved")
     except Exception:
         logger.exception("Database initialization failed")

@@ -23,6 +23,7 @@ from sqlalchemy import text
 from app.core.config import settings
 from app.core.database import SessionLocal, Instrument, init_db
 from app.core.models import User, Subscription, FyersToken  # noqa: F401 - register models with Base.metadata
+from app.core import brain_models  # noqa: F401 - register AI Brain tables with Base.metadata
 from app.core.time_sync import time_syncer
 from app.core.auth import seed_admin_user
 from app.api.v1.endpoints.fyers_auth import router as fyers_router
@@ -32,6 +33,8 @@ from app.api.v1.endpoints.auth import router as auth_router, get_current_user_in
 from app.api.v1.endpoints.admin import router as admin_router
 from app.api.v1.endpoints.backtest import router as backtest_router
 from app.api.v1.endpoints.indicators import router as indicators_router
+from app.api.v1.endpoints.brain import router as brain_router
+from app.api.v1.endpoints.brain_risk import router as brain_risk_router
 from app.services.symbol_master import SymbolMasterDownloader
 from app.services.redis_ws import redis_tick_store
 from app.services.fyers_websocket import start_fyers_websocket, stop_fyers_websocket, get_fyers_ws_status
@@ -95,6 +98,9 @@ app.add_api_route("/api/auth/me", get_current_user_info, methods=["GET"], respon
 app.include_router(admin_router, prefix="/api/v1/admin", tags=["admin"])
 app.include_router(backtest_router, prefix="/api/v1", tags=["backtest"])
 app.include_router(indicators_router, prefix="/api/v1/indicators", tags=["indicators"])
+# AI Brain (Grok autonomous decision engine) + its independent risk controls.
+app.include_router(brain_router, prefix="/api/v1/brain", tags=["ai-brain"])
+app.include_router(brain_risk_router, prefix="/api/v1/brain/risk", tags=["ai-brain-risk"])
 
 
 @app.get("/", tags=["root"])
@@ -102,9 +108,10 @@ app.include_router(indicators_router, prefix="/api/v1/indicators", tags=["indica
 async def root():
     return {
         "message": "Autonomous Options Trading Platform - Phase 2", "version": "2.0.0", "status": "running", "phase": 2,
-        "modules": ["core_setup", "fyers_auth", "redis_cache", "fyers_websocket", "auth", "admin"],
+        "modules": ["core_setup", "fyers_auth", "redis_cache", "fyers_websocket", "auth", "admin", "ai_brain"],
         "data_source": "Fyers API v3 ONLY", "execution": "Kotak Neo (Phase 2)", "ai": "Grok API (Phase 3)",
         "database": "PostgreSQL", "timezone": "IST (Asia/Kolkata)",
+        "ai_brain": {"enabled": settings.BRAIN_ENABLED, "autonomous": False, "live_adapter": settings.LIVE_BROKER_ADAPTER_ENABLED},
     }
 
 
@@ -318,6 +325,14 @@ async def startup_event():
         logger.error("Fyers token load error: %s", error)
     global symbol_sync_task
     symbol_sync_task = asyncio.create_task(sync_symbols_and_start_websocket(), name="fyers-symbol-sync-and-websocket")
+    if settings.BRAIN_ENABLED:
+        try:
+            from app.services.brain.jobs import start_background_jobs
+
+            started = start_background_jobs()
+            logger.info(">>> AI Brain background jobs: %s <<<", started or "none")
+        except Exception as error:
+            logger.error("AI Brain jobs failed to start: %s", error)
     logger.info(">>> Phase 2 Startup Complete; symbol sync running in background <<<")
 
 
@@ -333,6 +348,12 @@ async def shutdown_event():
             pass
     await stop_fyers_websocket()
     logger.info("Fyers WebSocket manager stopped")
+    try:
+        from app.services.brain.jobs import stop_background_jobs
+
+        await stop_background_jobs()
+    except Exception as error:
+        logger.error("Error stopping AI Brain jobs: %s", error)
     try:
         await redis_tick_store.stop()
         logger.info("Redis connection manager stopped")
