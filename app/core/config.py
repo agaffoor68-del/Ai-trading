@@ -196,6 +196,42 @@ class Settings(BaseSettings):
     )
 
     # -------------------------------------------------------------------------
+    # 8b. AI BRAIN (Grok autonomous decision engine)
+    # -------------------------------------------------------------------------
+    # The Brain is read-only with respect to risk configuration: these flags
+    # cannot widen limits, they only enable/disable background automation.
+    BRAIN_ENABLED: bool = Field(
+        default=True,
+        description="Master switch for the AI Brain API and decision pipeline",
+    )
+    BRAIN_NEWS_INGEST_ENABLED: bool = Field(
+        default=True,
+        description="Background job: refresh India + global news feeds",
+    )
+    BRAIN_MONITOR_ENABLED: bool = Field(
+        default=True,
+        description="Background job: monitor open positions and risk usage",
+    )
+    BRAIN_RECONCILE_ENABLED: bool = Field(
+        default=True,
+        description="Background job: reconcile local orders with broker positions",
+    )
+    BRAIN_STRATEGY_LEARNING_ENABLED: bool = Field(
+        default=False,
+        description="Background job: validate candidate strategy versions (off by default)",
+    )
+    BRAIN_MAX_QUOTE_AGE_SECONDS: int = Field(
+        default=90,
+        description="Quotes older than this make the decision engine return NO_TRADE",
+    )
+    # Live order submission stays impossible until a verified adapter exists.
+    # Setting this true without an adapter still results in a rejection.
+    LIVE_BROKER_ADAPTER_ENABLED: bool = Field(
+        default=False,
+        description="Enable live broker submission (requires a verified adapter)",
+    )
+
+    # -------------------------------------------------------------------------
     # 9. NOTIFICATIONS (OPTIONAL)
     # -------------------------------------------------------------------------
     TELEGRAM_BOT_TOKEN: Optional[str] = Field(
