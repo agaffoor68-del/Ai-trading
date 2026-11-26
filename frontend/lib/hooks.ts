@@ -419,30 +419,77 @@ export {
   SERVER_WAKING_MESSAGE,
 } from "@/lib/api-client";
 
+export interface IndicatorDefinition {
+  id: string;
+  name: string;
+  category: string;
+  category_label: string;
+  description: string;
+  formula: string;
+  params: { name: string; default: any; type: string; min?: number; max?: number; step?: number; label: string }[];
+  required_data: string;
+  status: string;
+  chart: string;
+  repaint: boolean;
+  markets: string[];
+  timeframes: string[];
+  interpretation: string;
+  limitations: string;
+  note?: string | null;
+}
+
+export interface IndicatorLibraryResponse {
+  indicators: IndicatorDefinition[];
+  total: number;
+  library_total: number;
+  categories: { id: string; label: string; order: number; count: number; statuses: Record<string, number> }[];
+}
+
+/** Full 169-indicator library with search / category / status filters. */
+export function useIndicatorLibrary(params: {
+  category?: string; q?: string; status?: string; market?: string; timeframe?: string; chart?: string;
+} = {}) {
+  const search = new URLSearchParams();
+  Object.entries(params).forEach(([k, v]) => { if (v) search.set(k, v); });
+  const qs = search.toString();
+  const key = "/api/v1/indicators" + (qs ? "?" + qs : "");
+  const { data, error, isLoading, mutate } = useSWR<IndicatorLibraryResponse>(key, createFetcher<IndicatorLibraryResponse>(key), {
+    revalidateOnFocus: false, dedupingInterval: 30000,
+  });
+  return {
+    indicators: data?.indicators || [], categories: data?.categories || [],
+    total: data?.total ?? 0, libraryTotal: data?.library_total ?? 169,
+    isLoading, isError: !!error, error: (error as any)?.message, mutate,
+  };
+}
+
+export interface IndicatorCalculationResponse {
+  symbol: string; interval: string; candles: number; data_available: boolean;
+  message?: string; as_of?: number; last_close?: number | null; extras_used?: string[];
+  results: Record<string, any>;
+}
+
+/** Calculate a batch of indicators for one symbol on the real provider candles. */
+export function useIndicatorCalculation(symbol: string, interval: string, ids: string[], enabled = true, params: Record<string, any> = {}) {
+  const paramKey = JSON.stringify(params);
+  const key = symbol && ids.length ? ["/api/v1/indicators/calculate", symbol, interval, [...ids].sort().join(","), paramKey] : null;
+  const { data, error, isLoading, mutate } = useSWR<IndicatorCalculationResponse>(
+    key,
+    key ? () => createPostFetcher<IndicatorCalculationResponse>("/api/v1/indicators/calculate", {
+      symbol, interval, indicator_ids: ids, limit: 300,
+      params,
+    })() : null,
+    { revalidateOnFocus: false, dedupingInterval: 20000, keepPreviousData: true },
+  );
+  return { data, isLoading, isError: !!error, error: (error as any)?.message, mutate, enabled };
+}
+
 export function useStrategies() {
   const { data, error, isLoading, mutate } = useSWR<any>("/api/v1/strategies", createFetcher<any>("/api/v1/strategies"), {
     revalidateOnFocus: true, revalidateOnReconnect: true, dedupingInterval: 5000,
   });
   return {
     strategies: Array.isArray(data) ? data : (data?.strategies || []),
-    isLoading,
-    isError: !!error,
-    error: (error as any)?.message,
-    mutate,
-  };
-}
-
-export function useIndicators(symbol: string, interval: string = "15m") {
-  const key = symbol ? "/api/v1/indicators?symbol=" + encodeURIComponent(symbol) + "&interval=" + encodeURIComponent(interval) : null;
-  const { data, error, isLoading, mutate } = useSWR<any>(key, key ? createFetcher<any>(key) : null, {
-    refreshInterval: 30000, revalidateOnFocus: true, revalidateOnReconnect: true, dedupingInterval: 10000,
-  });
-  return {
-    indicators: data?.indicators || [],
-    symbol: data?.symbol,
-    interval: data?.interval,
-    data_source: data?.data_source,
-    timestamp: data?.timestamp,
     isLoading,
     isError: !!error,
     error: (error as any)?.message,

@@ -93,7 +93,7 @@ export default function AISignalsPage() {
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                {signals.map((signal, index) => {
+                {signals.map((signal: any, index: number) => {
                   const tone = signalTone(signal.signal);
                   const SignalIcon =
                     signal.signal === "BUY" ? TrendingUp :
