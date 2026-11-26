@@ -7,7 +7,7 @@ PostgreSQL only - no SQLite.
 
 from datetime import datetime
 from enum import Enum as PyEnum
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Boolean, Enum, Text
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Boolean, Enum, Text, JSON
 from sqlalchemy.orm import relationship
 from app.core.database import Base
 from zoneinfo import ZoneInfo
@@ -76,3 +76,27 @@ class FyersToken(Base):
 
     def __repr__(self):
         return f"<FyersToken(id={self.id}, expires_in={self.expires_in})>"
+
+
+class UserIndicatorPreference(Base):
+    """Per-user Indicator Library state: enabled, favourite and parameters.
+
+    One row per (user, indicator).  ``params`` is a JSON object so new indicator
+    parameters do not need a migration.
+    """
+
+    __tablename__ = "user_indicator_preferences"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    indicator_id = Column(String(64), nullable=False, index=True)
+    enabled = Column(Boolean, default=True, nullable=False)
+    favorite = Column(Boolean, default=False, nullable=False)
+    params = Column(JSON, nullable=True)
+    updated_at = Column(DateTime, default=lambda: datetime.now(IST), nullable=False)
+
+    def __repr__(self):
+        return (
+            f"<UserIndicatorPreference(user_id={self.user_id}, "
+            f"indicator_id={self.indicator_id}, enabled={self.enabled})>"
+        )

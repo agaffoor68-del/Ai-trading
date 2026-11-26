@@ -12,6 +12,7 @@ import {
   GitBranch,
   RotateCcw,
   BarChart,
+  BarChart3,
   Link as LinkIcon,
   Shield,
   Settings,
@@ -51,6 +52,7 @@ const navGroups = [
     label: "QUANT",
     items: [
       { href: "/strategies", label: "Strategies", icon: GitBranch },
+      { href: "/indicators", label: "Indicators", icon: BarChart3 },
       { href: "/backtest", label: "Backtest", icon: RotateCcw },
       { href: "/analytics", label: "Analytics", icon: BarChart },
     ],
