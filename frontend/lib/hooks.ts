@@ -418,3 +418,34 @@ export {
   formatFyersSymbol,
   SERVER_WAKING_MESSAGE,
 } from "@/lib/api-client";
+
+export function useStrategies() {
+  const { data, error, isLoading, mutate } = useSWR<any>("/api/v1/strategies", createFetcher<any>("/api/v1/strategies"), {
+    revalidateOnFocus: true, revalidateOnReconnect: true, dedupingInterval: 5000,
+  });
+  return {
+    strategies: Array.isArray(data) ? data : (data?.strategies || []),
+    isLoading,
+    isError: !!error,
+    error: (error as any)?.message,
+    mutate,
+  };
+}
+
+export function useIndicators(symbol: string, interval: string = "15m") {
+  const key = symbol ? "/api/v1/indicators?symbol=" + encodeURIComponent(symbol) + "&interval=" + encodeURIComponent(interval) : null;
+  const { data, error, isLoading, mutate } = useSWR<any>(key, key ? createFetcher<any>(key) : null, {
+    refreshInterval: 30000, revalidateOnFocus: true, revalidateOnReconnect: true, dedupingInterval: 10000,
+  });
+  return {
+    indicators: data?.indicators || [],
+    symbol: data?.symbol,
+    interval: data?.interval,
+    data_source: data?.data_source,
+    timestamp: data?.timestamp,
+    isLoading,
+    isError: !!error,
+    error: (error as any)?.message,
+    mutate,
+  };
+}
