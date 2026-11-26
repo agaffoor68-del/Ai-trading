@@ -80,6 +80,7 @@ class GrokResponse(BaseModel):
 class GrokCallResult:
     success: bool
     response: Optional[GrokResponse] = None
+    structured_data: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
     error_code: Optional[str] = None
     latency_ms: float = 0.0
@@ -383,6 +384,7 @@ class GrokService:
                         return GrokCallResult(
                             success=True,
                             response=result.response,
+                            structured_data=args,
                             error=None,
                             latency_ms=result.latency_ms,
                             tokens_used=result.tokens_used,
