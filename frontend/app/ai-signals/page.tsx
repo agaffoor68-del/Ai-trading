@@ -7,6 +7,16 @@ import { useAISignals, SERVER_WAKING_MESSAGE } from "@/lib/hooks";
 
 const AI_SYMBOLS = ["NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY"];
 
+type AISignal = {
+  symbol?: string;
+  signal: string;
+  price?: number;
+  rsi?: number;
+  ema_trend?: string;
+  confidence?: unknown;
+  timestamp?: string;
+};
+
 /** Backend returns confidence as a 0-1 score; tolerate an already-percent value. */
 function formatConfidence(raw: unknown): string {
   const value = Number(raw);
