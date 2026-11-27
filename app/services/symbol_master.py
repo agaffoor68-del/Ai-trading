@@ -54,6 +54,28 @@ FYERS_COLUMNS = [
 ]
 
 
+def _cell(value) -> str:
+    """Normalise a CSV cell to a stripped string.
+
+    Blank cells arrive as ``None`` *or* as a float NaN depending on the pandas
+    version (``DataFrame.replace("", None)`` re-introduces NaN on pandas 3).
+    NaN is truthy, so passing it straight to ``strptime``/``.isdigit()`` raised
+    and the row was silently dropped.  Anything that is not a real string
+    becomes ``""`` so the caller's own validation decides what to do.
+    """
+    if value is None:
+        return ""
+    if isinstance(value, float):
+        # NaN is the only float a CSV cell can produce here.
+        return "" if value != value else str(value)
+    try:
+        if pd.isna(value):
+            return ""
+    except (TypeError, ValueError):
+        pass
+    return str(value).strip()
+
+
 class SymbolMasterDownloader:
     """
     Downloads and parses Fyers Symbol Master CSVs into PostgreSQL.
@@ -109,7 +131,10 @@ class SymbolMasterDownloader:
             logger.info("Raw DataFrame shape for %s: %s", exchange, df.shape)
             logger.info("Columns for %s: %s", exchange, list(df.columns))
 
-            for col in df.select_dtypes(include=["object"]).columns:
+            # pandas 3 stores CSV text as ``str`` dtype rather than ``object``;
+            # asking for both keeps this working on 2.x and 3.x without the
+            # Pandas4Warning that ``include=["object"]`` now emits.
+            for col in df.select_dtypes(include=["object", "str"]).columns:
                 df[col] = df[col].str.strip()
             # Keep blank cells as None rather than pandas NaN (which is truthy and
             # can otherwise reach datetime parsing as a float).
@@ -182,9 +207,9 @@ class SymbolMasterDownloader:
                     if ':' not in symbol_ticker:
                         symbol_ticker = f"NSE:{symbol_ticker}"
 
-                    lot_size_value = row.get('lot_size')
-                    lot_size = int(lot_size_value) if lot_size_value and lot_size_value.isdigit() else None
-                    strike_value = row.get('strike_price')
+                    lot_size_value = _cell(row.get('lot_size'))
+                    lot_size = int(lot_size_value) if lot_size_value.isdigit() else None
+                    strike_value = _cell(row.get('strike_price'))
                     try:
                         strike = float(strike_value) if strike_value else None
                     except (TypeError, ValueError):
@@ -192,7 +217,7 @@ class SymbolMasterDownloader:
 
                     # Parse expiry date - handle multiple formats.
                     expiry = None
-                    expiry_value = row.get('expiry_date')
+                    expiry_value = _cell(row.get('expiry_date'))
                     if expiry_value:
                         for date_format in ("%Y-%m-%d", "%d-%b-%Y", "%d-%B-%Y", "%Y/%m/%d", "%d/%m/%Y", "%d-%b-%y", "%d-%b-%Y"):
                             try:
