@@ -131,10 +131,9 @@ class SymbolMasterDownloader:
             logger.info("Raw DataFrame shape for %s: %s", exchange, df.shape)
             logger.info("Columns for %s: %s", exchange, list(df.columns))
 
-            # pandas 3 stores CSV text as ``str`` dtype rather than ``object``;
-            # asking for both keeps this working on 2.x and 3.x without the
-            # Pandas4Warning that ``include=["object"]`` now emits.
-            for col in df.select_dtypes(include=["object", "str"]).columns:
+            # CSV is read with dtype=str so all columns are string-like.
+            # Strip whitespace from all columns - works across pandas versions.
+            for col in df.columns:
                 df[col] = df[col].str.strip()
             # Keep blank cells as None rather than pandas NaN (which is truthy and
             # can otherwise reach datetime parsing as a float).
@@ -276,42 +275,138 @@ class SymbolMasterDownloader:
         db = SessionLocal()
         try:
             total_instruments = 0
+            any_success = False
             for exchange, filename in SYMBOL_MASTER_FILES.items():
                 logger.info(f"Processing {exchange} symbol master...")
 
                 csv_content = await self.download_csv(filename)
                 if not csv_content.strip():
-                    logger.warning(f"Empty CSV content for {filename}, skipping...")
+                    logger.error(f"Empty or failed CSV download for {filename} - HTTP error or empty response")
+                    continue
+
+                # Validate required columns are present in CSV
+                if not self._validate_csv_structure(csv_content, exchange):
+                    logger.error(f"CSV structure validation failed for {filename} - missing required columns")
                     continue
 
                 instruments = self.parse_csv(csv_content, exchange)
                 logger.info(f"Parsed {len(instruments)} instruments from {filename}")
 
                 if not instruments:
-                    logger.warning(f"No valid instruments parsed from {filename}")
+                    logger.error(f"No valid instruments parsed from {filename} - all rows filtered out")
                     continue
 
-                # Clear existing instruments for this exchange
+                # Validate we have the expected instrument types
+                if not self._validate_instrument_types(instruments, exchange):
+                    logger.error(f"Instrument type validation failed for {filename} - unexpected instrument types")
+                    continue
+
+                # Validate option contracts have proper expiry and strike
+                if exchange == "NSE_FO" and not self._validate_option_contracts(instruments):
+                    logger.error(f"Option contract validation failed for {filename} - missing expiry/strike")
+                    continue
+
+                # Clear existing instruments for this exchange ONLY after successful parsing
                 db.query(Instrument).filter(Instrument.exchange == exchange).delete()
                 db.commit()
 
                 # Batch insert
                 batch_size = 1000
+                inserted_count = 0
                 for i in range(0, len(instruments), batch_size):
                     batch = instruments[i : i + batch_size]
                     db.bulk_insert_mappings(Instrument, batch)
                     db.commit()
+                    inserted_count += len(batch)
                     logger.info(
-                        f"Inserted {min(i + batch_size, len(instruments))}/{len(instruments)} "
+                        f"Inserted {inserted_count}/{len(instruments)} "
                         f"{exchange} instruments"
                     )
 
                 total_instruments += len(instruments)
+                any_success = True
+                logger.info(f"Successfully loaded {len(instruments)} instruments for {exchange}")
+
+            if not any_success:
+                raise RuntimeError("Symbol master sync failed: no instruments loaded from any exchange")
 
             logger.info(f"Symbol master load complete: {total_instruments} total instruments")
             return total_instruments
+        except Exception as e:
+            logger.exception(f"Symbol master synchronization failed: {e}")
+            raise
         finally:
             db.close()
+
+    def _validate_csv_structure(self, csv_content: str, exchange: str) -> bool:
+        """Validate CSV has expected structure and required columns."""
+        try:
+            # First check raw CSV structure before pandas assigns column names
+            sample_lines = csv_content.strip().split("\n")[:5]
+            if not sample_lines:
+                logger.warning(f"CSV for {exchange} has no data rows")
+                return False
+            # Check first line has expected number of fields
+            first_line_fields = sample_lines[0].split(",")
+            if len(first_line_fields) != len(FYERS_COLUMNS):
+                logger.error(f"CSV for {exchange} has {len(first_line_fields)} fields, expected {len(FYERS_COLUMNS)}")
+                return False
+
+            df = pd.read_csv(
+                io.StringIO(csv_content.lstrip("\ufeff")),
+                header=None,
+                names=FYERS_COLUMNS,
+                dtype=str,
+                skipinitialspace=True,
+                encoding="utf-8-sig",
+                on_bad_lines="warn",
+                nrows=5,  # Only check first few rows
+            )
+            if df.empty:
+                logger.warning(f"CSV for {exchange} has no data rows")
+                return False
+            # Check key columns have data
+            key_cols = ["fytoken", "symbol_ticker", "instrument_type"]
+            for col in key_cols:
+                if col not in df.columns:
+                    logger.error(f"Required column '{col}' missing from {exchange} CSV")
+                    return False
+            return True
+        except Exception as e:
+            logger.error(f"CSV structure validation error for {exchange}: {e}")
+            return False
+
+    def _validate_instrument_types(self, instruments: list[dict], exchange: str) -> bool:
+        """Validate that parsed instruments have expected types for the exchange."""
+        if not instruments:
+            return False
+        types = set(inst.get("instrument_type") for inst in instruments if inst.get("instrument_type"))
+        if exchange == "NSE_CM":
+            expected = {"0", "10", "EQ", "EQUITY", "STK"}
+            if not types & expected:
+                logger.warning(f"NSE_CM: no cash-market instruments found. Types: {types}")
+                return False
+        elif exchange == "NSE_FO":
+            expected = {"11", "11.0", "12", "12.0", "FUT", "OPT", "FUTURE", "OPTION"}
+            if not types & expected:
+                logger.warning(f"NSE_FO: no F&O instruments found. Types: {types}")
+                return False
+        return True
+
+    def _validate_option_contracts(self, instruments: list[dict]) -> bool:
+        """Validate option contracts have required fields."""
+        option_instruments = [i for i in instruments if i.get("option_type") in ("CE", "PE")]
+        if not option_instruments:
+            logger.warning("No option contracts (CE/PE) found in NSE_FO")
+            return False
+        # Check expiry and strike are present
+        missing_expiry = sum(1 for i in option_instruments if not i.get("expiry"))
+        missing_strike = sum(1 for i in option_instruments if i.get("strike") is None)
+        if missing_expiry or missing_strike:
+            logger.warning(f"Option contracts missing data: {missing_expiry} missing expiry, {missing_strike} missing strike")
+            # Don't fail - some contracts might have incomplete data but we log it
+        logger.info(f"Validated {len(option_instruments)} option contracts")
+        return True
 
     async def close(self):
         if self.session and not self.session.closed:

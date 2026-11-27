@@ -136,3 +136,88 @@ def test_pandas_is_importable_and_modern():
     import pandas
 
     assert pandas.__version__
+
+
+def test_validate_csv_structure_passes_for_valid_csv():
+    """_validate_csv_structure returns True for valid Fyers CSV."""
+    csv = "\n".join([
+        _row(fytoken="10001", symbol_ticker="NSE:NIFTY50-INDEX", instrument_type="10"),
+        _row(fytoken="10002", symbol_ticker="NSE:SBIN-EQ", instrument_type="0"),
+    ])
+    downloader = SymbolMasterDownloader()
+    assert downloader._validate_csv_structure(csv, "NSE_CM") is True
+
+
+def test_validate_csv_structure_fails_for_empty_csv():
+    """_validate_csv_structure returns False for empty CSV."""
+    downloader = SymbolMasterDownloader()
+    assert downloader._validate_csv_structure("   ", "NSE_CM") is False
+    assert downloader._validate_csv_structure("", "NSE_CM") is False
+
+
+def test_validate_csv_structure_fails_for_missing_columns():
+    """_validate_csv_structure returns False when required columns missing."""
+    # CSV with only 5 columns instead of 21
+    csv = "1,2,3,4,5\n6,7,8,9,10"
+    downloader = SymbolMasterDownloader()
+    assert downloader._validate_csv_structure(csv, "NSE_CM") is False
+
+
+def test_validate_instrument_types_passes_for_cash_market():
+    """_validate_instrument_types accepts valid NSE_CM instrument types."""
+    instruments = [
+        {"instrument_type": "0", "symbol_ticker": "NSE:SBIN-EQ"},
+        {"instrument_type": "10", "symbol_ticker": "NSE:NIFTY50-INDEX"},
+    ]
+    downloader = SymbolMasterDownloader()
+    assert downloader._validate_instrument_types(instruments, "NSE_CM") is True
+
+
+def test_validate_instrument_types_fails_for_wrong_types():
+    """_validate_instrument_types rejects unexpected instrument types."""
+    instruments = [
+        {"instrument_type": "12", "symbol_ticker": "NSE:NIFTY25JAN24500CE"},  # option type in CM
+    ]
+    downloader = SymbolMasterDownloader()
+    assert downloader._validate_instrument_types(instruments, "NSE_CM") is False
+
+
+def test_validate_instrument_types_passes_for_fo():
+    """_validate_instrument_types accepts valid NSE_FO instrument types."""
+    instruments = [
+        {"instrument_type": "12", "symbol_ticker": "NSE:NIFTY25JAN24500CE", "option_type": "CE"},
+        {"instrument_type": "11", "symbol_ticker": "NSE:NIFTY25JANFUT", "option_type": ""},
+    ]
+    downloader = SymbolMasterDownloader()
+    assert downloader._validate_instrument_types(instruments, "NSE_FO") is True
+
+
+def test_validate_option_contracts_passes_for_valid_options():
+    """_validate_option_contracts returns True for contracts with CE/PE, expiry, strike."""
+    instruments = [
+        {"option_type": "CE", "expiry": "2025-01-23", "strike": 24500.0},
+        {"option_type": "PE", "expiry": "2025-01-23", "strike": 24500.0},
+    ]
+    downloader = SymbolMasterDownloader()
+    assert downloader._validate_option_contracts(instruments) is True
+
+
+def test_validate_option_contracts_fails_when_no_options():
+    """_validate_option_contracts returns False when no CE/PE contracts present."""
+    instruments = [
+        {"option_type": "", "expiry": "2025-01-23", "strike": 24500.0},  # future
+        {"option_type": "XX", "expiry": "2025-01-23", "strike": 24500.0},  # invalid
+    ]
+    downloader = SymbolMasterDownloader()
+    assert downloader._validate_option_contracts(instruments) is False
+
+
+def test_validate_option_contracts_warns_for_missing_fields():
+    """_validate_option_contracts still returns True but logs warning for incomplete data."""
+    instruments = [
+        {"option_type": "CE", "expiry": None, "strike": None},
+        {"option_type": "PE", "expiry": "2025-01-23", "strike": 24500.0},
+    ]
+    downloader = SymbolMasterDownloader()
+    # Should pass but log warning - we just check it returns True (doesn't fail hard)
+    assert downloader._validate_option_contracts(instruments) is True
