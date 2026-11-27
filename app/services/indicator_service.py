@@ -9,8 +9,10 @@ prices.
 from __future__ import annotations
 
 import logging
+import math
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
+from app.core.datetime_utils import now_ist
 from app.services.indicators import CATEGORIES, REGISTRY, get_engine
 from app.services.indicators.engine import IndicatorError
 
@@ -28,6 +30,38 @@ RESOLUTION_BY_INTERVAL: Dict[str, str] = {
 SUPPORTED_INTERVALS: List[str] = ["1m", "3m", "5m", "10m", "15m", "30m", "1h", "2h", "4h", "1d", "1wk", "1mo"]
 
 _SECONDS_PER_DAY = 86400
+
+
+def validate_candle(candle: Any) -> bool:
+    """Return True only when a candle can be fed to the indicator engine.
+
+    A candle must carry a positive finite OHLC tuple (high >= low, and every
+    price inside that band) plus a non-negative finite volume.  Anything else
+    is dropped before it reaches an indicator, because a single NaN or a
+    zero/negative price silently poisons every series derived from it.
+    """
+    if not isinstance(candle, dict):
+        return False
+    try:
+        ts = int(candle.get("ts"))
+        o = float(candle.get("open"))
+        h = float(candle.get("high"))
+        l = float(candle.get("low"))
+        c = float(candle.get("close"))
+        v = float(candle.get("volume") or 0.0)
+    except (TypeError, ValueError):
+        return False
+    if ts <= 0:
+        return False
+    if not all(math.isfinite(x) for x in (o, h, l, c, v)):
+        return False
+    if min(o, h, l, c) <= 0:
+        return False
+    if h < l:
+        return False
+    if not (l <= o <= h and l <= c <= h):
+        return False
+    return v >= 0
 
 
 def normalize_interval(interval: str) -> str:
@@ -85,16 +119,18 @@ async def fetch_candles(symbol: str, interval: str = "5m", limit: int = 300) -> 
     for row in result["candles"]:
         if len(row) < 5:
             continue
-        candles.append(
-            {
-                "ts": int(row[0]),
-                "open": row[1],
-                "high": row[2],
-                "low": row[3],
-                "close": row[4],
-                "volume": row[5] if len(row) > 5 else 0,
-            }
-        )
+        candle = {
+            "ts": int(row[0]),
+            "open": row[1],
+            "high": row[2],
+            "low": row[3],
+            "close": row[4],
+            "volume": row[5] if len(row) > 5 else 0,
+        }
+        if not validate_candle(candle):
+            logger.debug("Skipping malformed candle for %s: %r", fyers_symbol, row)
+            continue
+        candles.append(candle)
     candles.sort(key=lambda c: c["ts"])
     return candles[-limit:]
 
@@ -270,16 +306,34 @@ def assemble(
             "message": "Data unavailable: the provider returned no candles for this symbol/interval.",
             "results": {},
         }
+
+    # Drop anything the engine cannot consume rather than letting one bad bar
+    # poison every derived series.
+    clean = [c for c in candles if validate_candle(c)]
+    rejected = len(candles) - len(clean)
+    if not clean:
+        return {
+            "symbol": symbol,
+            "interval": interval,
+            "candles": 0,
+            "data_available": False,
+            "rejected_candles": rejected,
+            "message": "Data unavailable: every candle returned by the provider failed validation.",
+            "results": {},
+        }
+
     prepared_extras = extras or {}
-    results = engine.calculate_many(indicator_ids, candles, params, prepared_extras)
-    last = candles[-1]
+    results = engine.calculate_many(indicator_ids, clean, params, prepared_extras)
+    last = clean[-1]
     return {
         "symbol": symbol,
         "interval": interval,
-        "candles": len(candles),
+        "candles": len(clean),
         "data_available": True,
+        "rejected_candles": rejected,
         "as_of": last.get("ts"),
         "last_close": last.get("close"),
+        "calculated_at": now_ist().isoformat(),
         "extras_used": sorted(k for k in prepared_extras if k != "raw_keys"),
         "results": results,
     }

@@ -30,10 +30,12 @@ export default function PositionsPage() {
     "/api/v1/execution/positions",
     fetcher,
     {
-      refreshInterval: 1000,
+      // Open positions are not a tick-by-tick view; 10s keeps PnL usable
+      // without hammering the execution API (was 1000ms).
+      refreshInterval: 10000,
       revalidateOnFocus: true,
       revalidateOnReconnect: true,
-      dedupingInterval: 2000,
+      dedupingInterval: 5000,
     }
   );
 

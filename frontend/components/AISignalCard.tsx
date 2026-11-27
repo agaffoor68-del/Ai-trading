@@ -20,6 +20,10 @@ export function AISignalCard() {
 
   const showConnectCard = isFyersNotConnected;
 
+  // The backend reports data_available=false with a reason instead of
+  // inventing an RSI. Render that reason rather than a fabricated number.
+  const dataUnavailable = signal ? signal.data_available === false : false;
+
   // Loading state
   if (isLoading) {
     return (
@@ -154,13 +158,55 @@ export function AISignalCard() {
           <h3 className="font-semibold text-white">Grok AI Radar</h3>
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-[10px] px-2 py-0.5 rounded bg-neon-green/20 text-neon-green font-medium flex items-center gap-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-neon-green animate-pulse-glow" />
-            LIVE
+          <span
+            className={`text-[10px] px-2 py-0.5 rounded font-medium flex items-center gap-1 ${
+              dataUnavailable
+                ? "bg-neon-orange/20 text-neon-orange"
+                : "bg-neon-green/20 text-neon-green"
+            }`}
+          >
+            <span
+              className={`w-1.5 h-1.5 rounded-full ${
+                dataUnavailable ? "bg-neon-orange" : "bg-neon-green animate-pulse-glow"
+              }`}
+            />
+            {dataUnavailable ? "NO DATA" : "LIVE"}
           </span>
         </div>
       </div>
 
+      {dataUnavailable ? (
+        <div className="flex-1 flex items-center justify-center p-5">
+          <div className="text-center text-text-muted max-w-sm">
+            <AlertCircle className="w-10 h-10 mx-auto mb-3 text-neon-orange/60" strokeWidth={2} />
+            <p className="font-medium text-white mb-1">Data unavailable</p>
+            <p className="text-sm mb-1">{signal.symbol}</p>
+            <p className="text-sm">
+              {signal.message || "No candle history was returned for this symbol."}
+            </p>
+            {signal.timestamp && (
+              <p className="mt-3 text-[11px]">
+                Checked at{" "}
+                {new Date(signal.timestamp).toLocaleTimeString("en-IN", {
+                  timeZone: "Asia/Kolkata",
+                })}
+              </p>
+            )}
+            {showConnectCard && (
+              <motion.a
+                href="/broker-connect"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="mt-4 inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-neon-cyan to-neon-purple text-true-black font-bold transition-all duration-300 shadow-glow-cyan hover:opacity-90"
+              >
+                <Wifi className="w-4 h-4" strokeWidth={2.5} />
+                Connect Fyers
+              </motion.a>
+            )}
+          </div>
+        </div>
+      ) : (
+        <>
       {/* Signal Content */}
       <div className="flex-1 p-5 flex flex-col justify-center">
         {/* Signal Type & Instrument */}
@@ -227,7 +273,9 @@ export function AISignalCard() {
           <Check className="w-5 h-5" strokeWidth={2.5} />
           Refresh Signal
         </motion.button>
-      </div>
+        </div>
+        </>
+      )}
     </motion.div>
   );
 }

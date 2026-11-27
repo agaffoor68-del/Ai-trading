@@ -24,7 +24,9 @@ export function Header() {
   const router = useRouter();
 
   useEffect(() => {
-    const interval = setInterval(() => mutate(), 1000);
+    // Connection status changes on a minutes scale; polling every second only
+    // hammered the backend and produced the repeated /fyers/status log lines.
+    const interval = setInterval(() => mutate(), 30000);
     return () => clearInterval(interval);
   }, [mutate]);
 
