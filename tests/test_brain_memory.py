@@ -124,12 +124,14 @@ def test_store_dedupes_and_classifies(clean_db, user_id):
         item["source"] = "FixtureWire"
         item["region"] = "india"
         item["reliability"] = "secondary"
-    stored, dupes = service._store(items, user_id)
+    stored, dupes, failed = service._store(items, user_id)
     assert stored >= 2
     assert dupes == 0
-    again, dupes2 = service._store(items, user_id)
+    assert failed == 0
+    again, dupes2, failed2 = service._store(items, user_id)
     assert again == 0
     assert dupes2 == stored
+    assert failed2 == 0
 
 
 def test_content_hash_is_stable():

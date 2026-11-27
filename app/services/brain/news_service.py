@@ -29,6 +29,8 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 from zoneinfo import ZoneInfo
 
+from sqlalchemy import insert
+
 from app.core import market_time as mt
 from app.core.brain_models import NewsItem
 from app.core.database import SessionLocal
@@ -150,6 +152,7 @@ class IngestReport:
     fetched: int = 0
     stored: int = 0
     duplicates: int = 0
+    failed: int = 0
     sources_ok: List[str] = field(default_factory=list)
     errors: List[Dict[str, str]] = field(default_factory=list)
 
@@ -158,6 +161,7 @@ class IngestReport:
             "fetched": self.fetched,
             "stored": self.stored,
             "duplicates": self.duplicates,
+            "failed": self.failed,
             "sources_ok": self.sources_ok,
             "errors": self.errors,
         }
@@ -331,9 +335,10 @@ class NewsIntelligence:
                     continue
                 report.sources_ok.append(name)
                 report.fetched += len(items)
-                stored, dupes = self._store(items, user_id)
+                stored, dupes, failed = self._store(items, user_id)
                 report.stored += stored
                 report.duplicates += dupes
+                report.failed += failed
         if report.stored:
             self._promote_confirmations()
         return report.to_dict()
@@ -359,33 +364,39 @@ class NewsIntelligence:
 
     def _store(
         self, items: Iterable[Dict[str, Any]], user_id: Optional[int]
-    ) -> Tuple[int, int]:
+    ) -> Tuple[int, int, int]:
         stored = 0
         duplicates = 0
+        failed = 0
         if not items:
-            return stored, duplicates
+            return stored, duplicates, failed
         with SessionLocal() as db:
-            for item in items:
-                headline = item.get("headline") or ""
-                if not headline:
-                    continue
-                if item.get("url") is None:
-                    continue
-                digest = content_hash(headline, item.get("source") or "", item.get("url"))
-                exists = db.query(NewsItem).filter(NewsItem.content_hash == digest).first()
-                if exists is not None:
-                    duplicates += 1
-                    continue
-                meta = classify(headline, item.get("summary") or "")
-                db.add(
-                    NewsItem(
+            # Determine dialect for upsert compatibility
+            dialect_name = "sqlite"
+            try:
+                dialect_name = db.get_bind().engine.dialect.name
+            except Exception:
+                pass
+            try:
+                for item in items:
+                    headline = item.get("headline") or ""
+                    if not headline:
+                        continue
+                    if item.get("url") is None:
+                        continue
+                    digest = content_hash(headline, item.get("source") or "", item.get("url"))
+                    exists = db.query(NewsItem).filter(NewsItem.content_hash == digest).first()
+                    if exists is not None:
+                        duplicates += 1
+                        continue
+                    meta = classify(headline, item.get("summary") or "")
+                    stmt = insert(NewsItem).values(
                         user_id=user_id,
                         headline=headline,
                         source=item.get("source") or "unknown",
                         url=item.get("url"),
                         region=item.get("region") or "global",
                         published_at=item.get("published_at"),
-                        event_at=None,  # only set when a provider states it explicitly
                         instruments=meta["instruments"],
                         sectors=meta["sectors"],
                         sentiment=meta["sentiment"],
@@ -395,17 +406,25 @@ class NewsIntelligence:
                         confirmation="single_source",
                         impact_duration=meta["impact_duration"],
                         summary=(item.get("summary") or "")[:MAX_EXCERPT_CHARS] or None,
+                        raw_excerpt=item.get("raw_excerpt") or "",
+                        ingested_at=now_ist(),
                         content_hash=digest,
                     )
-                )
-                stored += 1
-            try:
+                    if dialect_name.startswith("postgresql"):
+                        stmt = stmt.on_conflict_do_nothing(index_elements=["content_hash"])
+                    try:
+                        db.execute(stmt)
+                        stored += 1
+                    except Exception as exc:
+                        logger.error(f"Failed to insert news item '{headline}': {exc}")
+                        duplicates += 1
+                        failed += 1
                 db.commit()
-            except Exception:
+            except Exception as exc:
                 db.rollback()
-                logger.exception("News persistence failed; discarding batch")
-                return 0, duplicates
-        return stored, duplicates
+                logger.exception("News batch persistence failed; discarding batch")
+                return 0, duplicates, failed
+        return stored, duplicates, failed
 
     def _promote_confirmations(self) -> int:
         """Mark events reported by 2+ independent sources as multi_source."""
