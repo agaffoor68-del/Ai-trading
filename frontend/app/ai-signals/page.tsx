@@ -98,16 +98,31 @@ export default function AISignalsPage() {
                   const SignalIcon =
                     signal.signal === "BUY" ? TrendingUp :
                     signal.signal === "SELL" ? TrendingDown : Minus;
+                  const unavailable = signal.data_available === false;
 
                   return (
                     <div key={signal.symbol ?? index} className="glass rounded-xl border border-glow-border p-4">
                       <div className="flex items-center justify-between mb-3">
                         <h3 className="font-bold text-white">{signal.symbol}</h3>
-                        <span className={`text-[10px] px-2 py-0.5 rounded border ${tone.bg} ${tone.text} font-semibold`}>
-                          {signal.signal}
+                        <span
+                          className={`text-[10px] px-2 py-0.5 rounded border font-semibold ${
+                            unavailable
+                              ? "bg-neon-orange/15 border-neon-orange/30 text-neon-orange"
+                              : `${tone.bg} ${tone.text}`
+                          }`}
+                        >
+                          {unavailable ? "NO DATA" : signal.signal}
                         </span>
                       </div>
 
+                      {unavailable ? (
+                        <div className="text-sm text-text-muted">
+                          <p className="font-medium text-white mb-1">Data unavailable</p>
+                          <p className="text-xs">
+                            {signal.message || "No candle history was returned for this symbol."}
+                          </p>
+                        </div>
+                      ) : (
                       <dl className="space-y-1.5 text-sm">
                         <div className="flex items-center justify-between">
                           <dt className="text-text-muted">Price</dt>
@@ -137,6 +152,7 @@ export default function AISignalsPage() {
                           </dd>
                         </div>
                       </dl>
+                      )}
 
                       <p className="mt-3 flex items-center gap-1 text-[11px] text-text-muted">
                         <SignalIcon className="w-3 h-3" strokeWidth={2.5} />
@@ -152,8 +168,10 @@ export default function AISignalsPage() {
           )}
 
           <p className="mt-6 text-xs text-text-muted">
-            Signals are heuristic indicators from live Fyers quotes, not verified predictions. Treat confidence as a
-            rough score, not a calibrated probability.
+            Signals are calculated from real Fyers candle history (RSI 14, EMA 9/21) on the 15-minute
+            timeframe, not from the day&apos;s price change. When history is unavailable the symbol is
+            marked NO DATA rather than given a fabricated value. Treat confidence as a rough score, not
+            a calibrated probability.
           </p>
         </main>
       </div>

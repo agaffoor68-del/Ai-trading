@@ -34,6 +34,7 @@ BRAIN_TABLES = (
     "order_fills",
     "reconciliation_runs",
     "broker_credentials",
+    "user_strategies",
 )
 
 # Optional columns added to pre-existing tables.
@@ -45,6 +46,7 @@ ADDED_COLUMNS = {
 def run_migrations() -> dict:
     """Create the Brain tables and apply guarded column additions."""
     from app.core import brain_models  # noqa: F401 - register models
+    from app.core import strategy_models  # noqa: F401 - register model
 
     result = {"created_tables": [], "added_columns": [], "errors": []}
     inspector = inspect(engine)

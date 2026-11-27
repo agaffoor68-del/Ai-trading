@@ -44,11 +44,9 @@ export default function OptionChainPage() {
     error: expiriesError,
     mutate: mutateExpiries,
   } = useExpiries(selectedIndex.value);
-  console.log("[OptionChain] expiries fetched:", expiries, "loading:", expiriesLoading);
 
   useEffect(() => {
     if (expiries.length > 0 && (!selectedExpiry || !expiries.includes(selectedExpiry))) {
-      console.log("[OptionChain] auto-selecting expiry:", expiries[0]);
       setSelectedExpiry(expiries[0]);
     }
   }, [expiries, selectedExpiry]);

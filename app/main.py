@@ -24,6 +24,7 @@ from app.core.config import settings
 from app.core.database import SessionLocal, Instrument, init_db
 from app.core.models import User, Subscription, FyersToken  # noqa: F401 - register models with Base.metadata
 from app.core import brain_models  # noqa: F401 - register AI Brain tables with Base.metadata
+from app.core import strategy_models  # noqa: F401 - register Strategy Builder table
 from app.core.time_sync import time_syncer
 from app.core.auth import seed_admin_user
 from app.api.v1.endpoints.fyers_auth import router as fyers_router
@@ -35,6 +36,7 @@ from app.api.v1.endpoints.backtest import router as backtest_router
 from app.api.v1.endpoints.indicators import router as indicators_router
 from app.api.v1.endpoints.brain import router as brain_router
 from app.api.v1.endpoints.brain_risk import router as brain_risk_router
+from app.api.v1.endpoints.strategies import router as strategies_router
 from app.services.symbol_master import SymbolMasterDownloader
 from app.services.redis_ws import redis_tick_store
 from app.services.fyers_websocket import start_fyers_websocket, stop_fyers_websocket, get_fyers_ws_status
@@ -98,6 +100,7 @@ app.add_api_route("/api/auth/me", get_current_user_info, methods=["GET"], respon
 app.include_router(admin_router, prefix="/api/v1/admin", tags=["admin"])
 app.include_router(backtest_router, prefix="/api/v1", tags=["backtest"])
 app.include_router(indicators_router, prefix="/api/v1/indicators", tags=["indicators"])
+app.include_router(strategies_router, prefix="/api/v1/strategies", tags=["strategies"])
 # AI Brain (Grok autonomous decision engine) + its independent risk controls.
 app.include_router(brain_router, prefix="/api/v1/brain", tags=["ai-brain"])
 app.include_router(brain_risk_router, prefix="/api/v1/brain/risk", tags=["ai-brain-risk"])

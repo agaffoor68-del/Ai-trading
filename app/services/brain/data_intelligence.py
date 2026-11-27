@@ -39,11 +39,15 @@ UNAVAILABLE_WITHOUT_FEED = frozenset(
 
 # Indicators the Brain considers for a standard options/ index decision.  The
 # full 169 remain available through /indicators and the dashboard.
+#
+# Every id below must exist in ``app.services.indicators.REGISTRY``: the
+# snapshot builder silently drops unknown ids, which previously removed six
+# indicators from the decision without any error.
 DEFAULT_BRAIN_INDICATORS: Sequence[str] = (
     "ema", "sma", "macd", "rsi", "stochrsi", "supertrend", "adx", "donchian",
-    "keltner_channel", "bollinger_bands", "atr", "relative_volume", "obv",
-    "vwap", "pivot_points", "swing_high_low", "market_structure",
-    "higher_high_higher_low", "support_resistance_breakout", "pcr",
+    "keltner", "bollinger", "atr", "relative_volume", "obv",
+    "vwap", "pivot_points", "swing_high_low", "market_structure_break",
+    "support_resistance_zones", "put_call_ratio",
     "max_pain", "iv_rank",
 )
 

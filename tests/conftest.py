@@ -36,6 +36,10 @@ def _install_pydantic_stub() -> None:
         return
     try:  # real dependency available → use it
         import pydantic  # noqa: F401
+        import pydantic_settings  # noqa: F401
+        # v1 (no pydantic_settings) is not enough for this codebase.
+        if not hasattr(pydantic, "BaseModel") or not hasattr(pydantic, "Field"):
+            raise ModuleNotFoundError("pydantic v1")
         return
     except ModuleNotFoundError:
         pass

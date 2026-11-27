@@ -215,16 +215,17 @@ export function useMarketQuotes(symbols: string[]) {
     symbolsKey ? ["/api/v1/market/live-quotes", symbolsKey] : null,
     () => createFetcher<unknown>(`/api/v1/market/live-quotes?symbols=${encodeURIComponent(symbolsKey)}`, true)(),
     {
-      refreshInterval: 2000,
+      // Live quotes come from the Redis tick cache filled by the Fyers
+      // WebSocket; polling every 2s added load without improving freshness.
+      refreshInterval: 10000,
       revalidateOnFocus: true,
       revalidateOnReconnect: true,
-      dedupingInterval: 2000,
+      dedupingInterval: 5000,
     },
   );
   const { status } = useFyersStatus();
   const quotes = normalizeQuotes(data, stableSymbols);
   const sessionExpired = isFyersSessionExpired(error);
-  console.log("API Response (live-quotes):", data);
   return {
     quotes: sessionExpired ? {} : quotes,
     response: data && typeof data === "object" ? { data } : undefined,
@@ -307,7 +308,10 @@ export function useOptionChain(symbol: string, expiry: string, strikes = 10) {
   useEffect(() => {
     void fetchChain();
     if (!key) return;
-    const interval = window.setInterval(() => void fetchChain(), 1000);
+    // The chain is a snapshot that changes on a minutes scale. One request per
+    // second tripped the Fyers rate limiter and produced the repeated
+    // /market/status lines in the logs.
+    const interval = window.setInterval(() => void fetchChain(), 30000);
     return () => window.clearInterval(interval);
   }, [fetchChain, key]);
 
@@ -331,12 +335,13 @@ export function useAISignals(symbols: string[] = ["NIFTY", "BANKNIFTY", "FINNIFT
   const query = symbols.map(encodeURIComponent).join(",");
   const key = symbols.length ? `/api/v1/market/ai/signals?symbols=${query}` : null;
   const { data, error, isLoading, mutate } = useSWR<any>(key, key ? createFetcher<any>(key, true) : null, {
-    refreshInterval: 1000, revalidateOnFocus: true, revalidateOnReconnect: true, dedupingInterval: 1000,
+    // Signals are derived from quotes; 30s keeps them fresh without tripping
+    // the Fyers rate limiter (was 1000ms).
+    refreshInterval: 30000, revalidateOnFocus: true, revalidateOnReconnect: true, dedupingInterval: 20000,
   });
   const { status } = useFyersStatus();
   const sessionExpired = isFyersSessionExpired(error);
   const signals = sessionExpired ? [] : Array.isArray(data) ? data : Array.isArray(data?.signals) ? data.signals : [];
-  console.log("API Response (ai-signals):", data);
   return {
     signals,
     timestamp: data?.timestamp,
@@ -356,7 +361,9 @@ export function useAISignals(symbols: string[] = ["NIFTY", "BANKNIFTY", "FINNIFT
 export function useCandles(symbol: string, interval = "5m", days = 5) {
   const key = symbol ? `/api/v1/market/candles?symbol=${encodeURIComponent(symbol)}&interval=${encodeURIComponent(interval)}&days=${days}` : null;
   const { data, error, isLoading, mutate } = useSWR<any>(key, key ? createFetcher<any>(key) : null, {
-    refreshInterval: 1000, revalidateOnFocus: true, revalidateOnReconnect: true, dedupingInterval: 1000,
+    // Candle history is immutable once closed; refresh on the chart's own
+    // cadence instead of once per second.
+    refreshInterval: 60000, revalidateOnFocus: true, revalidateOnReconnect: true, dedupingInterval: 30000,
   });
   const sessionExpired = isFyersSessionExpired(error);
   return {
@@ -376,28 +383,29 @@ export function useCandles(symbol: string, interval = "5m", days = 5) {
 
 export function useMarketStatus() {
   const { data, error, isLoading, mutate } = useSWR<any>("/api/v1/market/status", createFetcher<any>("/api/v1/market/status"), {
-    refreshInterval: 1000, revalidateOnFocus: true, revalidateOnReconnect: true, dedupingInterval: 1000,
+    // Market open/close moves on a minute scale; 30s is plenty.
+    refreshInterval: 30000, revalidateOnFocus: true, revalidateOnReconnect: true, dedupingInterval: 20000,
   });
   return { status: data, isLoading, isError: !!error, error: (error as any)?.message, mutate };
 }
 
 export function useFyersStatus() {
   const { data, error, isLoading, mutate } = useSWR<any>(FYERS_STATUS_KEY, createFetcher<any>(FYERS_STATUS_KEY), {
-    refreshInterval: 1000, revalidateOnFocus: true, revalidateOnReconnect: true, dedupingInterval: 1000,
+    // Token validity changes on an hourly scale. This was the main source of
+    // the per-second GET /api/v1/fyers/status flood.
+    refreshInterval: 30000, revalidateOnFocus: true, revalidateOnReconnect: true, dedupingInterval: 25000,
   });
   return { status: data, isLoading, isError: !!error, error: (error as any)?.message, mutate };
 }
 
 export function useFullStatus() {
-  const result = useFyersStatus();
-  console.log("API Response (fyers/status):", result.status);
-  return result;
+  return useFyersStatus();
 }
 
 export function useExpiries(symbol: string) {
   const key = symbol ? `/api/v1/market/instrument-info?symbol=${encodeURIComponent(symbol)}` : null;
   const { data, error, isLoading, mutate } = useSWR<{ expiry_dates?: string[] }>(key, key ? createFetcher<{ expiry_dates?: string[] }>(key, true) : null, {
-    refreshInterval: 3600000, revalidateOnFocus: true, revalidateOnReconnect: true, dedupingInterval: 300000,
+    refreshInterval: 3600000, revalidateOnFocus: true, revalidateOnReconnect: true, dedupingInterval: 1800000,
   });
   return { expiries: data?.expiry_dates || [], isLoading, isError: !!error, error: (error as any)?.message, mutate };
 }

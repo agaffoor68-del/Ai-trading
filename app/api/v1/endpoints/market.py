@@ -890,6 +890,27 @@ class AISignalResponse(BaseModel):
     ema_trend: str  # BULLISH, BEARISH, NEUTRAL
     price: float
     timestamp: str
+    # Provenance so the UI can show freshness instead of implying live data.
+    source: str = "fyers_api_v3"
+    data_available: bool = True
+    candles: int = 0
+    as_of: Optional[str] = None
+    message: Optional[str] = None
+
+
+# Indicators the signal engine needs.  RSI(14) and two EMAs are enough for the
+# card on the dashboard; all 169 remain available via /indicators.
+SIGNAL_RSI_PERIOD = 14
+SIGNAL_EMA_FAST = 9
+SIGNAL_EMA_SLOW = 21
+SIGNAL_CANDLES = 120
+
+
+def _last_valid(series: List[Optional[float]]) -> Optional[float]:
+    for value in reversed(series or []):
+        if value is not None:
+            return value
+    return None
 
 
 @router.get("/ai/signals", response_model=List[AISignalResponse])
@@ -897,20 +918,20 @@ async def get_ai_signals(
     symbols: str = Query(..., description="Comma-separated symbols (e.g., NIFTY,BANKNIFTY)"),
 ):
     """
-    Get AI trading signals based on basic RSI/EMA calculation on live data.
-    
-    For each symbol:
-    - Fetches live quote
-    - Calculates RSI (14 period) - simplified using current price vs recent
-    - Determines EMA trend
-    - Generates BUY/SELL/HOLD signal
-    
-    Returns list of signals with confidence scores.
+    Trading signals derived from real Fyers candles.
+
+    For each symbol the engine fetches actual OHLCV history, calculates RSI(14)
+    and EMA(9)/EMA(21) with the indicator engine, and derives the trend and
+    signal from those values.  Nothing is inferred from the daily change
+    percentage: when history is unavailable the symbol is reported with
+    ``data_available: false`` instead of a fabricated RSI.
     """
     try:
         from app.services.fyers_api import fyers_api_client
         from app.services.fyers_token import get_fyers_token
-        
+        from app.services import indicator_service
+        from app.services.indicators import get_engine
+
         # Check Fyers authentication
         token = await run_in_threadpool(get_fyers_token) or settings.FYERS_ACCESS_TOKEN
         if not token:
@@ -918,9 +939,9 @@ async def get_ai_signals(
                 status_code=401,
                 detail={"code": "FYERS_NOT_CONNECTED", "message": "Fyers not authenticated. Please login via /api/v1/fyers/connect"}
             )
-        
-        symbol_list = [s.strip().upper() for s in symbols.split(",")]
-        
+
+        symbol_list = [s.strip().upper() for s in symbols.split(",") if s.strip()]
+
         # Map to index tickers
         index_symbol_map = {
             "NIFTY": "NSE:NIFTY50-INDEX",
@@ -928,70 +949,122 @@ async def get_ai_signals(
             "FINNIFTY": "NSE:FINNIFTY-INDEX",
             "MIDCPNIFTY": "NSE:MIDCPNIFTY-INDEX",
         }
-        
+
         tickers = []
         valid_symbols = []
         for sym in symbol_list:
             if sym in index_symbol_map:
                 tickers.append(index_symbol_map[sym])
                 valid_symbols.append(sym)
-        
+
         if not tickers:
             raise HTTPException(status_code=400, detail="No valid symbols provided")
-        
-        # Fetch live quotes
+
+        # Live quote for the current price (may be absent outside market hours).
         quotes = await fyers_api_client.get_quotes(tickers)
-        
-        signals = []
+
+        engine = get_engine()
+        signals: List[AISignalResponse] = []
         for i, ticker in enumerate(tickers):
             symbol = valid_symbols[i]
-            quote = quotes.get(ticker, {})
-            
-            ltp = quote.get("ltp")
-            change = quote.get("change", 0)
-            change_percent = quote.get("change_percent", 0)
-            
-            if ltp is None:
+            quote = quotes.get(ticker, {}) or {}
+
+            candles = await indicator_service.fetch_candles(
+                ticker, "15m", SIGNAL_CANDLES
+            )
+            if not candles:
+                signals.append(
+                    AISignalResponse(
+                        symbol=symbol,
+                        signal="HOLD",
+                        confidence=0.0,
+                        rsi=0.0,
+                        ema_trend="NEUTRAL",
+                        price=float(quote.get("ltp") or 0.0),
+                        timestamp=datetime.now(IST).isoformat(),
+                        data_available=False,
+                        message=(
+                            "DATA UNAVAILABLE: no candle history returned by Fyers "
+                            "for this symbol."
+                        ),
+                    )
+                )
                 continue
-            
-            # Simplified RSI calculation (using change_percent as proxy)
-            # In production, this would use historical data
-            # RSI > 70 = overbought, RSI < 30 = oversold
-            # Using a simplified heuristic based on momentum
-            rsi = 50 + (change_percent * 2)  # Heuristic: scale change% to RSI-like value
-            rsi = max(0, min(100, rsi))  # Clamp to 0-100
-            
-            # EMA Trend determination (simplified)
-            if change_percent > 0.5:
+
+            rsi_result = engine.calculate(
+                "rsi", candles, {"period": SIGNAL_RSI_PERIOD}
+            )
+            ema_fast = engine.calculate(
+                "ema", candles, {"period": SIGNAL_EMA_FAST}
+            )
+            ema_slow = engine.calculate(
+                "ema", candles, {"period": SIGNAL_EMA_SLOW}
+            )
+
+            rsi = _last_valid(rsi_result.get("series", {}).get("rsi"))
+            fast = _last_valid(ema_fast.get("series", {}).get("ema"))
+            slow = _last_valid(ema_slow.get("series", {}).get("ema"))
+            last_close = candles[-1].get("close")
+            price = float(quote.get("ltp") or last_close or 0.0)
+
+            if rsi is None or fast is None or slow is None:
+                signals.append(
+                    AISignalResponse(
+                        symbol=symbol,
+                        signal="HOLD",
+                        confidence=0.0,
+                        rsi=0.0,
+                        ema_trend="NEUTRAL",
+                        price=price,
+                        timestamp=datetime.now(IST).isoformat(),
+                        candles=len(candles),
+                        data_available=False,
+                        message=(
+                            "DATA UNAVAILABLE: not enough valid candles to "
+                            "calculate RSI(14)/EMA(9)/EMA(21)."
+                        ),
+                    )
+                )
+                continue
+
+            # Trend from the actual EMA pair, not from the day's change.
+            if fast > slow:
                 ema_trend = "BULLISH"
-            elif change_percent < -0.5:
+            elif fast < slow:
                 ema_trend = "BEARISH"
             else:
                 ema_trend = "NEUTRAL"
-            
-            # Signal generation
-            if rsi < 35 and ema_trend != "BEARISH":
+
+            # Signal from real RSI extremes confirmed by the EMA trend.
+            if rsi < 35 and ema_trend == "BULLISH":
                 signal = "BUY"
-                confidence = min(0.9, 0.5 + abs(35 - rsi) / 70)
-            elif rsi > 65 and ema_trend != "BULLISH":
+                confidence = min(0.9, 0.5 + (35 - rsi) / 70)
+            elif rsi > 65 and ema_trend == "BEARISH":
                 signal = "SELL"
-                confidence = min(0.9, 0.5 + abs(rsi - 65) / 35)
+                confidence = min(0.9, 0.5 + (rsi - 65) / 35)
             else:
                 signal = "HOLD"
                 confidence = 0.5
-            
-            signals.append(AISignalResponse(
-                symbol=symbol,
-                signal=signal,
-                confidence=round(confidence, 2),
-                rsi=round(rsi, 2),
-                ema_trend=ema_trend,
-                price=ltp,
-                timestamp=datetime.now(IST).isoformat(),
-            ))
-        
+
+            signals.append(
+                AISignalResponse(
+                    symbol=symbol,
+                    signal=signal,
+                    confidence=round(confidence, 2),
+                    rsi=round(rsi, 2),
+                    ema_trend=ema_trend,
+                    price=price,
+                    timestamp=datetime.now(IST).isoformat(),
+                    candles=len(candles),
+                    data_available=True,
+                    as_of=datetime.fromtimestamp(
+                        candles[-1]["ts"], tz=IST
+                    ).isoformat(),
+                )
+            )
+
         return signals
-        
+
     except HTTPException:
         raise
     except Exception as e:
