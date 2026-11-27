@@ -155,7 +155,8 @@ class FyersWebSocket:
             except Exception:
                 pass
         self._connected_event.set()
-        async def fetch_historical_candles(
+
+async def fetch_historical_candles(
     access_token, symbol, timeframe="1min", date_from=None, date_to=None, session=None
 ):
     """Fetch historical candles from Fyers API v3."""

@@ -13,7 +13,7 @@ Integrates all missed features:
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
 from app.core.charges import (
@@ -24,9 +24,15 @@ from app.core.charges import (
 )
 from app.core.market_calendar import MarketCalendar
 from app.services.auto_login import AutoLoginManager
-from app.services.redis_ws import RedisCandleAggregator, RedisTickStore
+from app.services.redis_ws import RedisTickStore
 from app.services.telegram_notifier import TelegramNotifier
 from app.services.trailing_stop import TrailingStop
+
+# ``RedisCandleAggregator`` has never existed in app.services.redis_ws (that
+# module only provides RedisTickStore).  Importing it eagerly made this module
+# unimportable, so the whole execution engine raised ImportError on load.  The
+# parameter is optional, so it is typed loosely and validated at runtime.
+CandleAggregator = Any
 
 IST = ZoneInfo("Asia/Kolkata")
 logger = logging.getLogger(__name__)
@@ -74,7 +80,7 @@ class ExecutionEngine:
         market_calendar: Optional[MarketCalendar] = None,
         telegram: Optional[TelegramNotifier] = None,
         redis_tick_store: Optional[RedisTickStore] = None,
-        candle_aggregator: Optional[RedisCandleAggregator] = None,
+        candle_aggregator: Optional[CandleAggregator] = None,
         auto_login: Optional[AutoLoginManager] = None,
         session_factory=None,
     ):

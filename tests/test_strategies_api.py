@@ -27,11 +27,11 @@ if str(ROOT) not in sys.path:
 
 
 # --------------------------------------------------------------- import shims
-def _install_fastapi_shim() -> None:
+def _install_fastapi_shim() -> list:
     """Just enough FastAPI for the router module to import."""
     try:
         import fastapi  # noqa: F401
-        return
+        return []
     except Exception:
         pass
 
@@ -69,13 +69,21 @@ def _install_fastapi_shim() -> None:
     module.HTTPException = HTTPException
     module.Request = Request
     sys.modules["fastapi"] = module
+    return [("fastapi", None)]
 
 
-def _install_auth_shim() -> None:
-    """The router only needs these two dependency callables."""
+def _install_auth_shim() -> list:
+    """The router only needs these two dependency callables.
+
+    Returns the (key, previous_value) pairs it replaced so the caller can
+    restore ``sys.modules`` once the router is imported; leaving a fake
+    ``app.core.auth``/``fastapi`` behind makes every later test module that
+    imports the real thing fail (order-dependent suite).
+    """
+    replaced = []
     try:
         import app.core.auth  # noqa: F401
-        return
+        return replaced
     except Exception:
         pass
 
@@ -89,14 +97,23 @@ def _install_auth_shim() -> None:
 
     module.get_db = get_db
     module.get_current_user = get_current_user
+    replaced.append(("app.core.auth", sys.modules.get("app.core.auth")))
     sys.modules["app.core.auth"] = module
+    return replaced
 
 
-_install_fastapi_shim()
-_install_auth_shim()
+_replaced_modules = _install_fastapi_shim() + _install_auth_shim()
 
 from app.api.v1.endpoints import strategies as mod  # noqa: E402
 from app.core.strategy_models import UserStrategy  # noqa: E402
+
+# The router module is imported and holds its own references, so the shims are
+# no longer needed and must not leak into other test modules.
+for _name, _previous in _replaced_modules:
+    if _previous is None:
+        sys.modules.pop(_name, None)
+    else:
+        sys.modules[_name] = _previous
 
 
 # --------------------------------------------------------------------- helpers

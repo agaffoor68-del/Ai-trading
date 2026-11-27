@@ -20,8 +20,20 @@ wsproto==1.3.2
 aiohttp==3.9.3
 # For CSV parsing (Fyers Symbol Master)
 pandas==2.2.2
+# Grok (xAI) HTTP client: app/services/grok_service.py -> app/services/brain/
+# decision_engine.py -> app/api/v1/endpoints/brain.py -> app/main.py.
+# Missing here crashed Render with: ModuleNotFoundError: No module named 'httpx'
+httpx==0.27.2
 # Redis cache for WebSocket ticks (PostgreSQL protection)
 redis==5.0.1
+# Daily 07:00 IST Fyers/Kotak auto-login (app/services/auto_login.py).
+# Without it AutoLoginManager.start() logs "apscheduler not installed" and the
+# scheduler never runs, so tokens are never refreshed automatically.
+apscheduler==3.11.0
+# Fyers TOTP generator for auto-login (app/services/auto_login.py::_generate_totp).
+# The import is guarded by an insecure dev fallback, so its absence does not
+# crash startup, but without it 07:00 IST auto-login cannot produce a valid TOTP.
+pyotp==2.9.0
 # NTP time synchronization
 ntplib==0.4.0
 # Authentication & Authorization
@@ -33,3 +45,6 @@ python-multipart==0.0.33
 email-validator==2.1.0.post1
 # Fyers API v3 Official SDK
 fyers-apiv3==3.2.1
+# Test tooling: the suite in tests/ imports every app.* module, so a missing
+# runtime dependency fails here instead of on Render.
+pytest==8.3.4
