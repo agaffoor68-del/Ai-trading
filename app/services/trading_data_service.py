@@ -413,64 +413,98 @@ class TradingDataService:
         category: Optional[str] = None,
         lookback: int = 200,
     ) -> List[IndicatorValue]:
-        """Calculate indicators for a symbol/timeframe."""
-        # Fetch candles for calculation
+        """Calculate indicators for a symbol/timeframe.
+
+        Runs on the platform's own 169-indicator engine
+        (``app.services.indicators``), which is pure Python and needs no extra
+        dependency.  The previous implementation imported ``pandas_ta`` and
+        ``app.services.indicator_engine`` — neither exists in this project — so
+        every call raised ``ModuleNotFoundError`` and the AI Brain assembled its
+        Grok context with **no technical indicators at all**.
+
+        A symbol with too little history, or an indicator the engine cannot
+        compute, is reported through the returned list being empty / that entry
+        being skipped; no value is ever fabricated.
+        """
         candles = await self.get_candles(symbol, timeframe, lookback)
         if len(candles) < 20:
+            logger.warning(
+                "calculate_indicators: only %s candles for %s %s (need 20)",
+                len(candles), symbol, timeframe,
+            )
             return []
 
-        # Convert to DataFrame for pandas_ta
-        import pandas as pd
-        import pandas_ta as ta
-        
-        df = pd.DataFrame([{
-            "open": c.open,
-            "high": c.high,
-            "low": c.low,
-            "close": c.close,
-            "volume": c.volume,
-        } for c in candles])
+        from app.services.indicators import REGISTRY, get_engine
 
-        results = []
-        
-        # Determine which indicators to calculate
-        from app.services.indicator_engine import INDICATOR_REGISTRY
-        
+        # Selection mirrors the old INDICATOR_REGISTRY filtering.
         if indicator_names:
-            indicators_to_calc = {k: v for k, v in INDICATOR_REGISTRY.items() if k in indicator_names}
+            wanted = [name for name in indicator_names if name in REGISTRY]
+            unknown = [name for name in indicator_names if name not in REGISTRY]
+            if unknown:
+                logger.warning(
+                    "calculate_indicators: unknown indicator ids ignored: %s", unknown
+                )
         elif category:
-            indicators_to_calc = {k: v for k, v in INDICATOR_REGISTRY.items() if v.get("category") == category}
+            wanted = [
+                spec_id
+                for spec_id, spec in REGISTRY.items()
+                if spec.get("category") == category
+            ]
         else:
-            indicators_to_calc = INDICATOR_REGISTRY
+            wanted = list(REGISTRY)
 
-        for name, config in indicators_to_calc.items():
-            try:
-                func = config["func"]
-                params = config["params"].get("default", {})
-                
-                # Call the pandas_ta function
-                result = func(df["close"], **params) if "close" in func.__code__.co_varnames else func(df, **params)
-                
-                if result is not None and not result.empty:
-                    # Get latest values
-                    output_cols = config.get("output_cols", [])
-                    output_names = config.get("output_names", {})
-                    
-                    for col in output_cols:
-                        if col in result.columns:
-                            latest_val = result[col].iloc[-1]
-                            if pd.notna(latest_val):
-                                display_name = output_names.get(col, col)
-                                results.append(IndicatorValue(
-                                    name=display_name,
-                                    value=float(latest_val),
-                                    parameters=params,
-                                    timestamp=now_ist().isoformat(),
-                                    category=config.get("category", "unknown"),
-                                ))
-            except Exception as e:
-                logger.warning(f"Indicator {name} calculation failed: {e}")
+        if not wanted:
+            return []
+
+        payload = [
+            {
+                "ts": c.time,
+                "open": c.open,
+                "high": c.high,
+                "low": c.low,
+                "close": c.close,
+                "volume": c.volume,
+            }
+            for c in candles
+        ]
+
+        calculated = get_engine().calculate_many(wanted, payload)
+
+        results: List[IndicatorValue] = []
+        for indicator_id in wanted:
+            outcome = calculated.get(indicator_id) or {}
+            if outcome.get("error"):
+                logger.warning(
+                    "Indicator %s calculation failed: %s",
+                    indicator_id, outcome["error"],
+                )
                 continue
+
+            series = outcome.get("series") or {}
+            latest: Dict[str, float] = {}
+            for key, values in series.items():
+                if not isinstance(values, (list, tuple)):
+                    continue
+                for value in reversed(values):
+                    if isinstance(value, (int, float)) and value == value:
+                        latest[key] = float(value)
+                        break
+            if not latest:
+                # insufficient_data / data_unavailable: nothing real to report.
+                continue
+
+            spec = REGISTRY.get(indicator_id, {})
+            primary = indicator_id if indicator_id in latest else next(iter(latest))
+            results.append(
+                IndicatorValue(
+                    name=spec.get("name", indicator_id),
+                    value=latest.get(primary),
+                    values=latest,
+                    parameters=outcome.get("indicator", {}).get("params", {}),
+                    timestamp=now_ist().isoformat(),
+                    category=spec.get("category"),
+                )
+            )
 
         return results
 
