@@ -24,6 +24,23 @@ export function AISignalCard() {
   // inventing an RSI. Render that reason rather than a fabricated number.
   const dataUnavailable = signal ? signal.data_available === false : false;
 
+  // Enhanced signal fields
+  const signalAction = signal?.signal || "HOLD";
+  const signalConfidence = Number(signal?.confidence) || 0;
+  const signalPrice = signal?.price || 0;
+  const signalRsi = Number(signal?.rsi) || 0;
+  const signalEmaTrend = signal?.ema_trend || "NEUTRAL";
+  const signalTimestamp = signal?.timestamp ? new Date(signal.timestamp).toLocaleTimeString() : "—";
+  const signalRegime = signal?.regime || "unknown";
+  const signalRegimeLabel = signal?.regime_label || "Unknown";
+  const signalRegimeConfidence = signal?.regime_confidence !== undefined ? Number(signal.regime_confidence) : 0;
+  const signalReason = signal?.reason || "No reason available";
+  const signalSupporting = Array.isArray(signal?.supporting_indicators) ? signal.supporting_indicators : [];
+  const signalConflicting = Array.isArray(signal?.conflicting_indicators) ? signal.conflicting_indicators : [];
+  const signalRiskReward = signal?.risk_reward_ratio !== undefined ? Number(signal.risk_reward_ratio) : null;
+  const signalCandles = Number(signal?.candles) || 0;
+  const signalDataAvailable = signal?.data_available !== false;
+
   // Loading state
   if (isLoading) {
     return (

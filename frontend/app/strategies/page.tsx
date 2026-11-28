@@ -1,30 +1,47 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { GitBranch, Plus, Save, Trash2, Edit, Settings, Layers, Zap, X, ShieldAlert, AlertCircle, Loader2 } from "lucide-react";
 import { Sidebar } from "@/components/Sidebar";
 import { Header } from "@/components/Header";
-import { useStrategies } from "@/lib/hooks";
+import { useStrategies, useIndicatorLibrary } from "@/lib/hooks";
 
-const INDICATORS = ["EMA", "RSI", "Supertrend", "MACD", "VWAP", "Bollinger Bands", "ATR", "ADX"];
-const CONDITIONS = [">", "<", ">=", "<=", "Crossover Up", "Crossover Down", "Crosses Above", "Crosses Below"];
 const TIMEFRAMES = ["1m", "3m", "5m", "15m", "30m", "1h", "4h", "1d"];
 
 
 export default function StrategiesPage() {
   const { strategies, isLoading, isError, error, mutate } = useStrategies();
+  const { indicators, categories, isLoading: indicatorsIsLoading, error: indicatorsError, mutate: mutateIndicators } = useIndicatorLibrary({ q: "all" });
   const [showBuilder, setShowBuilder] = useState(false);
   const [editingStrategy, setEditingStrategy] = useState<any | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [form, setForm] = useState({
     name: "", description: "",
-    conditions: [{ id: Date.now().toString(), indicator1: "EMA", condition: ">", indicator2: "EMA" }] as any[],
+    conditions: [],
     stopLoss: 1.5, target: 3.0, timeframe: "15m",
   });
 
+  // Map indicator registry into searchable options
+  const indicatorOptions = indicators.map((ind: any) => ({
+    id: ind.id,
+    name: ind.name || ind.id,
+    category: ind.category || "advanced",
+  }));
+
+  const categoryMap = categories || {
+    trend: "Trend",
+    momentum: "Momentum",
+    volatility: "Volatility",
+    volume: "Volume",
+    levels: "Support & Resistance",
+    structure: "Market Structure",
+    statistics: "Advanced & Statistical",
+    options: "Options & Derivatives",
+  };
+
   const addCondition = () => setForm((prev) => ({
-    ...prev, conditions: [...prev.conditions, { id: Date.now().toString(), indicator1: "EMA", condition: ">", indicator2: "EMA" }],
+    ...prev, conditions: [...prev.conditions, { id: Date.now().toString(), indicator1: indicatorOptions[0]?.id || "EMA", condition: ">", indicator2: indicatorOptions[1]?.id || "RSI" }],
   }));
 
   const removeCondition = (id: string) => {

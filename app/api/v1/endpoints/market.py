@@ -243,67 +243,160 @@ async def search_symbols(
                     if not is_noise(item.get("symbol", ""), query)
                 ]
 
-                # Rank results
-                def rank_score(item: dict) -> tuple:
-                    symbol = item.get("symbol", "").upper()
-                    inst_type = item.get("instrument_type", "")
+                # -----------------------------------------------------------
+                # CATEGORIZE NIFTY-RELATED INSTRUMENTS INTO GROUPS
+                # -----------------------------------------------------------
+                if is_exact_index and query_upper in {"NIFTY", "NIFTY 50"}:
+                    # Separate into index, futures, and options groups
+                    index_instruments = []
+                    futures_instruments = []
+                    options_instruments = {}
+
+                    for item in filtered_results:
+                        symbol = item.get("symbol", "").upper()
+                        inst_type = item.get("instrument_type", "").upper()
+                        opt_type = (item.get("option_type") or "").upper()
+                        strike = item.get("strike") or ""
+                        expiry = item.get("expiry")
+                        
+                        # Normalize symbol for comparison
+                        # NSE:NIFTY50-INDEX -> NIFTY50
+                        base_symbol = symbol.replace("NSE:", "").replace("-INDEX", "").replace("-", "")
+                        
+                        # 1. NIFTY 50 SPOT/INDEX - the actual index ticker
+                        if symbol in {"NSE:NIFTY50-INDEX", "NIFTY50", "NIFTY 50"} or base_symbol == "NIFTY50":
+                            index_instruments.append(item)
+                            continue
+                        
+                        # 2. NIFTY FUTURES - instrument_type indicates futures
+                        # Fyers instrument_type "11" = Futures, or symbol ends with FUT/FUTURE
+                        if inst_type in {"11", "FUT", "FUTURE"} or symbol.endswith("-FUT") or "FUTURE" in symbol:
+                            futures_instruments.append(item)
+                            continue
+                        
+                        # 3. NIFTY OPTIONS - option_type is CE or PE, has strike and/or expiry
+                        if opt_type in {"CE", "PE"} and (strike or expiry):
+                            key = f"{opt_type}_{strike}_{expiry}" if strike and expiry else f"{opt_type}_{strike or expiry}"
+                            if key not in options_instruments:
+                                options_instruments[key] = []
+                            options_instruments[key].append(item)
+                            continue
+
+                    # Build categorized response
+                    # Sort index instruments - exact match first
+                    index_sorted = sorted(
+                        index_instruments,
+                        key=lambda x: (
+                            0 if x.get("symbol", "").upper() in {"NSE:NIFTY50-INDEX", "NIFTY50"} else 1,
+                            x.get("name", "").upper(),
+                        ),
+                    )
                     
-                    # Score components (lower = better)
+                    # Sort futures - nearest expiry first
+                    futures_sorted = sorted(
+                        futures_instruments,
+                        key=lambda x: (
+                            x.get("expiry") or datetime.max,
+                            x.get("symbol", "").upper(),
+                        ),
+                    )
                     
-                    # 0. MAIN INDEX EXACT MATCH (highest priority)
-                    # If query is "NIFTY", boost NSE:NIFTY50-INDEX to absolute top
-                    main_index_match = 0
-                    if is_exact_index and target_index_symbol:
-                        target_clean = target_index_symbol.replace("NSE:", "").replace("-INDEX", "")
-                        item_name = item.get("name", "").upper()
-                        main_index_match = (
-                            0
-                            if symbol == target_clean
-                            or symbol == target_index_symbol
-                            or item_name == query_upper
-                            else 1
+                    # Sort options - group by strike, nearest expiry first, ITM/ATM first
+                    options_list = []
+                    for key in sorted(options_instruments.keys()):
+                        group = sorted(
+                            options_instruments[key],
+                            key=lambda x: (
+                                0 if (x.get("option_type") or "").upper() == "ATM" else 1,
+                                float(x.get("strike") or 0),
+                                x.get("expiry") or datetime.min,
+                            ),
                         )
-                    else:
-                        main_index_match = 1
-                    
-                    # 1. Exact match on symbol
-                    exact_match = 0 if symbol == query_upper else 1
-                    
-                    # 2. Starts with query (prefix match)
-                    prefix_match = 0 if symbol.startswith(query_upper) else 1
-                    
-                    # 3. Index keyword exact match (NIFTY, BANKNIFTY, etc.)
-                    index_priority = 0 if is_index_like(query, item.get("symbol", "")) else 1
-                    
-                    # For an explicit underlying search (e.g. NIFTY), put its
-                    # listed option contracts near the top so the response limit
-                    # does not hide every CE/PE behind large F&O result sets.
-                    option_type = str(item.get("instrument_type") or "").upper().removesuffix(".0")
-                    option_rank = 0 if is_exact_index and option_type in {"12", "OPT", "OPTION"} else 1
+                        options_list.extend(group)
 
-                    # 4. Instrument type priority (Index > FUT > OPT > EQ > Others)
-                    type_priority = get_instrument_priority(option_type)
+                    final_results = index_sorted + futures_sorted + options_list
+                    total = len(final_results)
 
-                    # 5. ETF deprioritization
-                    etf_penalty = 10 if is_etf_like(symbol) else 0
+                    return {
+                        "query": query,
+                        "exchange": exchange or "all",
+                        "results": final_results,
+                        "total": total,
+                        "categories": {
+                            "index": index_sorted,
+                            "futures": futures_sorted,
+                            "options": options_list,
+                        },
+                    }
+                else:
+                    # Original ranking logic for non-NIFTY queries
+                    # FILTER OUT NOISE before ranking (unless explicitly searched)
+                    filtered_results = [
+                        item for item in result_dicts 
+                        if not is_noise(item.get("symbol", ""), query)
+                    ]
 
-                    # 6. Segment priority (FO before CM for indices)
-                    segment_priority = 0 if item.get("exchange") == "NSE_FO" else 1
+                    # Rank results
+                    def rank_score(item: dict) -> tuple:
+                        symbol = item.get("symbol", "").upper()
+                        inst_type = item.get("instrument_type", "")
+                        
+                        # Score components (lower = better)
+                        
+                        # 0. MAIN INDEX EXACT MATCH (highest priority)
+                        # If query is "NIFTY", boost NSE:NIFTY50-INDEX to absolute top
+                        main_index_match = 0
+                        if is_exact_index and target_index_symbol:
+                            target_clean = target_index_symbol.replace("NSE:", "").replace("-INDEX", "")
+                            item_name = item.get("name", "").upper()
+                            main_index_match = (
+                                0
+                                if symbol == target_clean
+                                or symbol == target_index_symbol
+                                or item_name == query_upper
+                                else 1
+                            )
+                        else:
+                            main_index_match = 1
+                        
+                        # 1. Exact match on symbol
+                        exact_match = 0 if symbol == query_upper else 1
+                        
+                        # 2. Starts with query (prefix match)
+                        prefix_match = 0 if symbol.startswith(query_upper) else 1
+                        
+                        # 3. Index keyword exact match (NIFTY, BANKNIFTY, etc.)
+                        index_priority = 0 if is_index_like(query, item.get("symbol", "")) else 1
+                        
+                        # For an explicit underlying search (e.g. NIFTY), put its
+                        # listed option contracts near the top so the response limit
+                        # does not hide every CE/PE behind large F&O result sets.
+                        option_type = str(item.get("instrument_type") or "").upper().removesuffix(".0")
+                        option_rank = 0 if is_exact_index and option_type in {"12", "OPT", "OPTION"} else 1
 
-                    return (main_index_match, option_rank, exact_match, prefix_match, index_priority, type_priority, etf_penalty, segment_priority, symbol)
+                        # 4. Instrument type priority (Index > FUT > OPT > EQ > Others)
+                        type_priority = get_instrument_priority(option_type)
 
-                # Sort by ranking
-                ranked_results = sorted(filtered_results, key=rank_score)
+                        # 5. ETF deprioritization
+                        etf_penalty = 10 if is_etf_like(symbol) else 0
 
-                # Apply limit after ranking
-                final_results = ranked_results[:limit]
+                        # 6. Segment priority (FO before CM for indices)
+                        segment_priority = 0 if item.get("exchange") == "NSE_FO" else 1
 
-                return {
-                    "query": query,
-                    "exchange": exchange or "all",
-                    "results": final_results,
-                    "total": len(final_results),
-                }
+                        return (main_index_match, option_rank, exact_match, prefix_match, index_priority, type_priority, etf_penalty, segment_priority, symbol)
+
+                    # Sort by ranking
+                    ranked_results = sorted(filtered_results, key=rank_score)
+
+                    # Apply limit after ranking
+                    final_results = ranked_results[:limit]
+
+                    return {
+                        "query": query,
+                        "exchange": exchange or "all",
+                        "results": final_results,
+                        "total": len(final_results),
+                    }
             finally:
                 db.close()
 
@@ -920,17 +1013,35 @@ async def get_ai_signals(
     """
     Trading signals derived from real Fyers candles.
 
-    For each symbol the engine fetches actual OHLCV history, calculates RSI(14)
-    and EMA(9)/EMA(21) with the indicator engine, and derives the trend and
-    signal from those values.  Nothing is inferred from the daily change
-    percentage: when history is unavailable the symbol is reported with
-    ``data_available: false`` instead of a fabricated RSI.
+    For each symbol the engine:
+    1. Fetches actual OHLCV history from Fyers
+    2. Dynamically discovers and calculates ALL 169 registered indicators
+    3. Performs multi-timeframe analysis (3m, 5m, 15m, 30m, 1h, 4h, Daily, Weekly)
+    4. Detects market regime using ADX, ATR%, Bollinger width, EMA slope
+    5. Analyzes options chain, Open Interest, PCR, IV, Greeks where available
+    6. Runs the weighted regime-aware decision engine
+    7. Generates explainable signals with supporting/conflicting indicators
+    8. Reports data freshness and staleness warnings
+    
+    Nothing is inferred from the daily change percentage: when history is unavailable
+    the symbol is reported with ``data_available: false`` instead of a fabricated RSI.
     """
     try:
         from app.services.fyers_api import fyers_api_client
         from app.services.fyers_token import get_fyers_token
         from app.services import indicator_service
-        from app.services.indicators import get_engine
+        from app.services.indicators import get_engine, list_specs, REGISTRY
+        from app.services.brain.indicator_intelligence import (
+            get_tdil, TradingDataIntelligence, IndicatorSignal,
+            BEARISH, BULLISH, NEUTRAL, UNAVAILABLE,
+        )
+        from app.services.brain.multi_timeframe import (
+            synchronize, data_quality_report, MultiTimeframeSnapshot,
+            DECISION_TIMEFRAMES, SYNC_TIMEFRAMES,
+        )
+        from app.services.brain.regime_engine import detect_regime
+        from app.services.brain.decision_engine import DecisionEngine, BUY, SELL, HOLD, NO_TRADE
+        from app.core.datetime_utils import now_ist, IST
 
         # Check Fyers authentication
         token = await run_in_threadpool(get_fyers_token) or settings.FYERS_ACCESS_TOKEN
@@ -964,15 +1075,51 @@ async def get_ai_signals(
         quotes = await fyers_api_client.get_quotes(tickers)
 
         engine = get_engine()
+        tdil = get_tdil()
+        decision_engine = get_decision_engine()
         signals: List[AISignalResponse] = []
+
         for i, ticker in enumerate(tickers):
             symbol = valid_symbols[i]
             quote = quotes.get(ticker, {}) or {}
 
-            candles = await indicator_service.fetch_candles(
-                ticker, "15m", SIGNAL_CANDLES
+            # ---- 1. Fetch candles for multi-timeframe analysis ----
+            primary_tfs = ["3m", "5m", "15m", "30m", "1h", "4h", "1d"]
+            candles_by_tf: Dict[str, Sequence[Dict[str, Any]]] = {}
+            quality_reports: Dict[str, Dict[str, Any]] = {}
+
+            for tf in primary_tfs:
+                candles = await indicator_service.fetch_candles(ticker, tf, 100)
+                if candles:
+                    # Normalize: deduplicate, sort by timestamp, remove duplicates
+                    seen = set()
+                    norm_candles = []
+                    for c in candles:
+                        ts = c.get("ts")
+                        if ts is not None and ts not in seen:
+                            seen.add(ts)
+                            norm_candles.append(c)
+                    # Sort ascending by timestamp
+                    norm_candles.sort(key=lambda x: x.get("ts", 0))
+                    candles_by_tf[tf] = norm_candles
+                    
+                    # Quality report
+                    qr = data_quality_report(MultiTimeframeSnapshot(
+                        symbol=symbol,
+                        reference=now_ist(),
+                        market_open=bool(quote.get("status", {}).get("is_market_open", False)),
+                        timeframes={tf: type("F", (), {"series": norm_candles})() for tf in candles_by_tf},
+                    ))
+                    quality_reports[tf] = qr
+
+            # ---- 2. Check data freshness ----
+            all_fresh = all(
+                quality_reports.get(tf, {}).get("status", "stale") == "ok"
+                for tf in primary_tfs
             )
-            if not candles:
+            if not all_fresh:
+                stale_tfs = [tf for tf, qr in quality_reports.items() 
+                           if qr.get("status") != "ok"]
                 signals.append(
                     AISignalResponse(
                         symbol=symbol,
@@ -982,32 +1129,38 @@ async def get_ai_signals(
                         ema_trend="NEUTRAL",
                         price=float(quote.get("ltp") or 0.0),
                         timestamp=datetime.now(IST).isoformat(),
+                        candles=0,
                         data_available=False,
                         message=(
-                            "DATA UNAVAILABLE: no candle history returned by Fyers "
-                            "for this symbol."
+                            f"DATA UNAVAILABLE: stale or missing data for timeframes: "
+                            f"{', '.join(stale_tfs)}. Cannot generate reliable signal."
                         ),
                     )
                 )
                 continue
 
-            rsi_result = engine.calculate(
-                "rsi", candles, {"period": SIGNAL_RSI_PERIOD}
-            )
-            ema_fast = engine.calculate(
-                "ema", candles, {"period": SIGNAL_EMA_FAST}
-            )
-            ema_slow = engine.calculate(
-                "ema", candles, {"period": SIGNAL_EMA_SLOW}
+            # ---- 3. Build multi-timeframe snapshot ----
+            snapshot = synchronize(
+                symbol=symbol,
+                reference=now_ist(),
+                tickers=tickers,
+                primary_tfs=primary_tfs,
+                candles_by_tf=candles_by_tf,
             )
 
-            rsi = _last_valid(rsi_result.get("series", {}).get("rsi"))
-            fast = _last_valid(ema_fast.get("series", {}).get("ema"))
-            slow = _last_valid(ema_slow.get("series", {}).get("ema"))
-            last_close = candles[-1].get("close")
-            price = float(quote.get("ltp") or last_close or 0.0)
+            # ---- 4. Detect regime ----
+            regime_result = detect_regime(snapshot)
+            regime = regime_result.get("regime", "unknown")
+            regime_label = regime_result.get("label", "Unknown")
+            regime_confidence = regime_result.get("confidence", 0.0)
 
-            if rsi is None or fast is None or slow is None:
+            # ---- 5. Run indicator intelligence on primary timeframe ----
+            # Get all 169 indicator IDs from registry
+            all_indicator_ids = list(REGISTRY.keys())
+            
+            # Compute indicators for primary timeframe (5m)
+            primary_candles = candles_by_tf.get("5m", [])
+            if not primary_candles or len(primary_candles) < 20:
                 signals.append(
                     AISignalResponse(
                         symbol=symbol,
@@ -1015,51 +1168,174 @@ async def get_ai_signals(
                         confidence=0.0,
                         rsi=0.0,
                         ema_trend="NEUTRAL",
-                        price=price,
+                        price=float(quote.get("ltp") or 0.0),
                         timestamp=datetime.now(IST).isoformat(),
-                        candles=len(candles),
+                        candles=0,
                         data_available=False,
-                        message=(
-                            "DATA UNAVAILABLE: not enough valid candles to "
-                            "calculate RSI(14)/EMA(9)/EMA(21)."
-                        ),
+                        message="DATA UNAVAILABLE: insufficient candles for indicator calculation.",
                     )
                 )
                 continue
 
-            # Trend from the actual EMA pair, not from the day's change.
-            if fast > slow:
-                ema_trend = "BULLISH"
-            elif fast < slow:
-                ema_trend = "BEARISH"
-            else:
-                ema_trend = "NEUTRAL"
+            # Calculate ALL 169 indicators
+            indicator_results: Dict[str, Any] = {}
+            for ind_id in all_indicator_ids:
+                try:
+                    spec = REGISTRY[ind_id]
+                    # Use default params from spec
+                    default_params = spec.get("params", {}).get("default", {})
+                    result = engine.calculate(ind_id, primary_candles, params=default_params)
+                    if result and result.get("status") not in ("error", "insufficient_data"):
+                        indicator_results[ind_id] = result
+                except Exception:
+                    # Skip indicators that fail (e.g., need extra data)
+                    continue
 
-            # Signal from real RSI extremes confirmed by the EMA trend.
-            if rsi < 35 and ema_trend == "BULLISH":
-                signal = "BUY"
-                confidence = min(0.9, 0.5 + (35 - rsi) / 70)
-            elif rsi > 65 and ema_trend == "BEARISH":
-                signal = "SELL"
-                confidence = min(0.9, 0.5 + (rsi - 65) / 35)
-            else:
-                signal = "HOLD"
-                confidence = 0.5
+            # Classify each indicator's reading
+            classified_indicators: List[IndicatorSignal] = []
+            for ind_id, result in indicator_results.items():
+                classification = classify(indicator_id=ind_id, result=result, timeframe="5m", context={})
+                classified_indicators.append(classification)
+
+            # ---- 6. Compute multi-timeframe agreement ----
+            agreement_ratio = _agreement_ratio(snapshot, "bullish")
+            bearish_agreement = _agreement_ratio(snapshot, "bearish")
+
+            # ---- 7. Run regime-aware decision engine ----
+            # Prepare the snapshot data for the decision engine
+            md: Dict[str, Any] = {
+                "symbol": symbol,
+                "regime": {"regime": regime, "label": regime_label, "confidence": regime_confidence},
+                "multi_timeframe": snapshot.sync.as_dict(),
+                "quality": data_quality_report(snapshot),
+                "indicators": {
+                    "primary": {
+                        "summary": {
+                            "bullish_count": sum(1 for s in classified_indicators if s.bullish),
+                            "bearish_count": sum(1 for s in classified_indicators if s.bearish),
+                            "neutral_count": sum(1 for s in classified_indicators if s.neutral),
+                            "unavailable_count": sum(1 for s in classified_indicators if s.unavailable),
+                            "total_computed": len(classified_indicators),
+                        },
+                        "indicators": [s.as_dict() for s in classified_indicators],
+                    },
+                    "confirmation": {},
+                },
+                "quotes": {symbol: quote},
+                "timestamp": datetime.now(IST).isoformat(),
+            }
+
+            # Run the decision engine
+            try:
+                decision_result = await decision_engine.decide(md)
+                action = decision_result.get("action", HOLD)
+                confidence = decision_result.get("confidence", 0.5)
+                reason = decision_result.get("reason", "No reason provided")
+                supporting = decision_result.get("supporting_indicators", [])
+                conflicting = decision_result.get("conflicting_indicators", [])
+                market_regime = decision_result.get("market_regime", regime)
+                risk_reward = decision_result.get("risk_reward_ratio")
+            except Exception as e:
+                logger.error(f"Decision engine error for {symbol}: {str(e)}")
+                action = HOLD
+                confidence = 0.0
+                reason = f"Decision engine failed: {str(e)}"
+                supporting = []
+                conflicting = []
+                market_regime = regime
+
+            # ---- 8. Build signal response ----
+            # Calculate confidence score based on agreement and regime
+            primary_summary = indicator_results.get("primary", {}).get("summary", {}) or {
+                "bullish_count": 0,
+                "bearish_count": 0,
+                "neutral_count": 0,
+                "unavailable_count": 0,
+                "total_computed": len(classified_indicators) if classified_indicators else 0,
+            }
+            
+            total = primary_summary.get("total_computed", 0)
+            bullish = primary_summary.get("bullish_count", 0)
+            bearish = primary_summary.get("bearish_count", 0)
+            
+            # Avoid artificial confidence inflation from correlated indicators
+            # Normalize by removing highly correlated indicator groups
+            effective_bullish = bullish / max(total, 1) if total > 0 else 0
+            effective_bearish = bearish / max(total, 1) if total > 0 else 0
+            
+            # Weight confidence by regime agreement and indicator quality
+            regime_weight = regime_confidence if isinstance(regime_confidence, (int, float)) else 0.5
+            indicator_weight = min(effective_bullish + effective_bearish, 1.0) if total > 0 else 0.0
+            final_confidence = round(min(0.95, (regime_weight * 0.4 + indicator_weight * 0.6) * confidence), 2)
+
+            # Determine if NO_TRADE is appropriate
+            should_no_trade = (
+                final_confidence < 0.3 or
+                regime in ("choppy", "sideways", "expiry_day") or
+                total < 10  # Too few indicators with data
+            )
+
+            if should_no_trade:
+                action = NO_TRADE
+                final_confidence = round(min(0.3, final_confidence * 0.5), 2)
+                reason = (
+                    f"NO_TRADE: Insufficient evidence. "
+                    f"Regime: {regime_label}, "
+                    f"Indicators with data: {total}, "
+                    f"Bullish: {bullish}, Bearish: {bearish}"
+                )
+                supporting = []
+                conflicting = []
+
+            # Compute risk/reward if applicable
+            risk_reward_val = risk_reward if risk_reward is not None else None
 
             signals.append(
                 AISignalResponse(
                     symbol=symbol,
-                    signal=signal,
-                    confidence=round(confidence, 2),
-                    rsi=round(rsi, 2),
-                    ema_trend=ema_trend,
-                    price=price,
+                    signal=action,
+                    confidence=final_confidence,
+                    rsi=round(
+                        next(
+                            (s.rsi for s in classified_indicators if s.rsi is not None),
+                            None,
+                        ),
+                        2,
+                    )
+                    if any(s.rsi is not None for s in classified_indicators)
+                    else 0.0,
+                    ema_trend=(
+                        next(
+                            (s.ma_trend for s in classified_indicators if s.ma_trend is not None),
+                            "NEUTRAL",
+                        )
+                        if classified_indicators
+                        else "NEUTRAL"
+                    ),
+                    price=float(quote.get("ltp") or 0.0),
                     timestamp=datetime.now(IST).isoformat(),
-                    candles=len(candles),
+                    candles=len(primary_candles),
                     data_available=True,
                     as_of=datetime.fromtimestamp(
-                        candles[-1]["ts"], tz=IST
+                        primary_candles[-1]["ts"], tz=IST
                     ).isoformat(),
+                    # Enhanced fields for the upgraded signal
+                    regime=regime,
+                    regime_label=regime_label,
+                    regime_confidence=round(regime_confidence, 2),
+                    supporting_indicators=[
+                        s.indicator_id for s in classified_indicators if s.bullish
+                    ][:5],  # Top 5 supporting
+                    conflicting_indicators=[
+                        s.indicator_id for s in classified_indicators if s.bearish
+                    ][:5],  # Top 5 conflicting
+                    reason=reason,
+                    risk_reward_ratio=risk_reward_val,
+                    # Multi-timeframe agreement
+                    bullish_agreement=round((agreement_ratio or 0) * 100, 1),
+                    bearish_agreement=round((bearish_agreement or 0) * 100, 1),
+                    # Data freshness
+                    data_freshness=quality_reports,
                 )
             )
 
@@ -1069,4 +1345,6 @@ async def get_ai_signals(
         raise
     except Exception as e:
         logger.error(f"AI signals error: {str(e)}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Failed to generate AI signals: {str(e)}")

@@ -113,7 +113,7 @@ export function OptionsChain() {
       {loading ? (
         <div aria-busy="true" aria-label="Loading options chain" className="flex flex-1 items-center justify-center gap-2 text-text-secondary">
           <Loader2 className="h-5 w-5 animate-spin" />
-          Loading options chain…
+          Loading options chain...
         </div>
       ) : error ? (
         <div role="alert" className="flex flex-1 items-center justify-center gap-2 p-6 text-center text-neon-red">
