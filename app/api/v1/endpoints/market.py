@@ -1031,9 +1031,11 @@ async def get_ai_signals(
         from app.services.fyers_token import get_fyers_token
         from app.services import indicator_service
         from app.services.indicators import get_engine, list_specs, REGISTRY
+        from app.services.brain.data_intelligence import (
+            get_tdil, TradingDataIntelligence,
+        )
         from app.services.brain.indicator_intelligence import (
-            get_tdil, TradingDataIntelligence, IndicatorSignal,
-            BEARISH, BULLISH, NEUTRAL, UNAVAILABLE,
+            IndicatorSignal, BEARISH, BULLISH, NEUTRAL, UNAVAILABLE,
         )
         from app.services.brain.multi_timeframe import (
             synchronize, data_quality_report, MultiTimeframeSnapshot,
