@@ -250,7 +250,7 @@ export default function AISignalsPage() {
                           </p>
                         </div>
                       ) : (
-                      <!-- Enhanced signal detail panel -->
+                      {/* Enhanced signal detail panel */}
                       <dl className="space-y-2.5 text-sm">
                         <div className="flex items-center justify-between">
                           <dt className="text-text-muted">Price</dt>
