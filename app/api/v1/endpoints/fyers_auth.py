@@ -13,9 +13,26 @@ import secrets
 from datetime import timedelta
 from fastapi import APIRouter, Request, HTTPException, Depends, status
 from fastapi.responses import RedirectResponse
-from pydantic import BaseModel, ConfigDict, Field
-from cryptography.fernet import Fernet, InvalidToken
+from pydantic import BaseModel, Field
 from sqlalchemy import text
+
+# ConfigDict is pydantic v2.  The project targets v2, but constrained hosts may
+# still ship v1; fall back to a plain dict so the model import never fails.
+try:
+    from pydantic import ConfigDict
+except ImportError:  # pragma: no cover - pydantic v1
+    def ConfigDict(**kwargs):  # type: ignore[misc]
+        return dict(kwargs)
+
+# Fernet is optional: the dependency needs native libs that are not present in
+# every runtime (e.g. constrained mobile/dev hosts).  Token encryption is only
+# used when TOKEN_ENCRYPTION_KEY is configured, so degrade gracefully instead
+# of failing the whole application import.
+try:
+    from cryptography.fernet import Fernet, InvalidToken
+except Exception:  # pragma: no cover - environment without cryptography
+    Fernet = None  # type: ignore[assignment,misc]
+    InvalidToken = Exception  # type: ignore[assignment,misc]
 
 from app.core.config import settings
 from app.core.database import SessionLocal
@@ -29,12 +46,16 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["fyers-auth"])
 
 # Fernet encryption for secrets at rest
-_fernet: Fernet | None = None
+_fernet = None
 
 
-def _get_fernet() -> Fernet:
+def _get_fernet():
     global _fernet
     if _fernet is None:
+        if Fernet is None:
+            raise RuntimeError(
+                "Token encryption unavailable: the 'cryptography' package is not installed"
+            )
         key = settings.TOKEN_ENCRYPTION_KEY
         if not key:
             raise RuntimeError("TOKEN_ENCRYPTION_KEY not set in environment")

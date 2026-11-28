@@ -36,15 +36,31 @@ def _install_pydantic_stub() -> None:
         return
     try:  # real dependency available → use it
         import pydantic  # noqa: F401
-        import pydantic_settings  # noqa: F401
-        # v1 (no pydantic_settings) is not enough for this codebase.
+        # pydantic_settings is no longer required by app/core/config.py, so a
+        # working pydantic v1/v2 is enough.  Only stub what is truly missing.
         if not hasattr(pydantic, "BaseModel") or not hasattr(pydantic, "Field"):
-            raise ModuleNotFoundError("pydantic v1")
+            raise ModuleNotFoundError("pydantic incomplete")
+        # Minimal patch: expose Field and BaseModel as attribute-bag.
+        # Do NOT patch model_dump — that triggers the fastapi v2 import path
+        # which can't be retroactively fixed after the interpreter starts.
         return
     except ModuleNotFoundError:
-        pass
+        # Install a true stub module so imports don't raise.
+        class _Model:
+            """Attribute bag with the two helpers our code actually calls."""
+            def __init__(self, **kwargs):
+                for key, value in kwargs.items():
+                    setattr(self, key, value)
+            def model_dump(self, *args, **kwargs):
+                return dict(self.__dict__)
+            def dict(self, *args, **kwargs):
+                return dict(self.__dict__)
 
-    class _Model:
+        pydantic_mod = types.ModuleType("pydantic")
+        pydantic_mod.BaseModel = _Model
+        pydantic_mod.Field = lambda **kwargs: None  # noqa: E731 - pydantic name
+        pydantic_mod.ValidationError = ValidationError
+        sys.modules["pydantic"] = pydantic_mod
         """Attribute bag with the two helpers our code actually calls."""
 
         def __init__(self, **kwargs):
@@ -70,6 +86,13 @@ def _install_pydantic_stub() -> None:
     pydantic.Field = Field
     pydantic.ValidationError = ValidationError
     sys.modules["pydantic"] = pydantic
+    _install_settings_stub()
+
+
+def _install_settings_stub() -> None:
+    """Minimal pydantic-settings stand-in (only if the real one is missing)."""
+    if "pydantic_settings" in sys.modules:
+        return
 
     def _coerce(raw: str, current):
         if isinstance(current, bool):
@@ -86,7 +109,7 @@ def _install_pydantic_stub() -> None:
                 return current
         return raw
 
-    class BaseSettings(_Model):
+    class BaseSettings:
         def __init__(self, **kwargs):
             cls = type(self)
             for name in getattr(cls, "__annotations__", {}):

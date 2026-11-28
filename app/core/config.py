@@ -1,5 +1,5 @@
 """
-Application configuration using pydantic-settings.
+Application configuration using pydantic-settings (pydantic v1 compatible).
 
 Loads environment variables from .env file with type validation and
 graceful handling of missing optional keys.
@@ -12,18 +12,107 @@ Non-negotiable rules:
 - All timestamps in IST (Asia/Kolkata)
 """
 
+import os
+from pathlib import Path
 from typing import List, Optional
-from pydantic import Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Load .env file if present
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except Exception:
+    pass
 
 
-class Settings(BaseSettings):
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        case_sensitive=False,
-        extra="ignore",
-    )
+class Settings:
+    """Settings class compatible with pydantic v1."""
+    
+    def __init__(self):
+        # 1. GENERAL SETTINGS
+        self.ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
+        self.DEBUG = os.getenv("DEBUG", "true").lower() in ("1", "true", "yes")
+        
+        # 2. SECURITY & AUTH
+        self.SECRET_KEY = os.getenv("SECRET_KEY", "generate_a_random_secure_string_here")
+        self.JWT_SECRET = os.getenv("JWT_SECRET", "generate_another_random_secure_string_here")
+        self.JWT_TTL_MINUTES = int(os.getenv("JWT_TTL_MINUTES", "720"))
+        self.ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "agaffoor68@gmail.com")
+        self.ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "Abdul@222")
+        
+        # 3. DATABASE & CACHE
+        # Use SQLite for local development, PostgreSQL for production
+        self.DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./alphatrade_dev.db")
+        self.REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+        
+        # 4. FYERS API v3 (Market Data - ONLY data source)
+        self.FYERS_CLIENT_ID = os.getenv("FYERS_CLIENT_ID")
+        self.FYERS_CLIENT_SECRET = os.getenv("FYERS_CLIENT_SECRET")
+        self.FYERS_REDIRECT_URI = os.getenv("FYERS_REDIRECT_URI")
+        self.FYERS_ACCESS_TOKEN = os.getenv("FYERS_ACCESS_TOKEN")
+        self.FYERS_REFRESH_TOKEN = os.getenv("FYERS_REFRESH_TOKEN")
+        self.FYERS_API_BASE = os.getenv("FYERS_API_BASE", "https://api-t1.fyers.in/api")
+        self.FYERS_SYMBOL_MASTER_BASE = os.getenv("FYERS_SYMBOL_MASTER_BASE", "https://public.fyers.in/sym_details/")
+        
+        # 5. KOTAK NEO (Execution - ONLY broker for order placement)
+        self.KOTAK_CONSUMER_KEY = os.getenv("KOTAK_CONSUMER_KEY")
+        self.KOTAK_CONSUMER_SECRET = os.getenv("KOTAK_CONSUMER_SECRET")
+        self.KOTAK_TOTP_SECRET = os.getenv("KOTAK_TOTP_SECRET")
+        self.KOTAK_MOBILE_NUMBER = os.getenv("KOTAK_MOBILE_NUMBER")
+        self.KOTAK_MPIN = os.getenv("KOTAK_MPIN")
+        self.KOTAK_UCC = os.getenv("KOTAK_UCC")
+        self.KOTAK_ENVIRONMENT = os.getenv("KOTAK_ENVIRONMENT")
+        
+        # 6. xAI GROK (AI Brain - financial news analysis ONLY)
+        self.XAI_API_KEY = os.getenv("XAI_API_KEY")
+        self.XAI_MODEL = os.getenv("XAI_MODEL")
+        
+        # 7. URLS & CORS (CRITICAL FOR DEPLOYMENT)
+        self.BACKEND_URL = os.getenv("BACKEND_URL")
+        self.FRONTEND_URL = os.getenv("FRONTEND_URL")
+        self.ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS")
+        
+        # 8. FEATURE GATES
+        self.ENABLE_LIVE_TRADING = os.getenv("ENABLE_LIVE_TRADING", "false").lower() in ("1", "true", "yes")
+        self.ENABLE_PAPER_TRADING = os.getenv("ENABLE_PAPER_TRADING", "true").lower() in ("1", "true", "yes")
+        self.ENABLE_ALGO_EXECUTION = os.getenv("ENABLE_ALGO_EXECUTION", "false").lower() in ("1", "true", "yes")
+        self.ALLOW_PUBLIC_SIGNUP = os.getenv("ALLOW_PUBLIC_SIGNUP", "false").lower() in ("1", "true", "yes")
+        
+        # 8b. AI BRAIN
+        self.BRAIN_ENABLED = os.getenv("BRAIN_ENABLED", "true").lower() in ("1", "true", "yes")
+        self.BRAIN_NEWS_INGEST_ENABLED = os.getenv("BRAIN_NEWS_INGEST_ENABLED", "true").lower() in ("1", "true", "yes")
+        self.BRAIN_MONITOR_ENABLED = os.getenv("BRAIN_MONITOR_ENABLED", "true").lower() in ("1", "true", "yes")
+        self.BRAIN_RECONCILE_ENABLED = os.getenv("BRAIN_RECONCILE_ENABLED", "true").lower() in ("1", "true", "yes")
+        self.BRAIN_STRATEGY_LEARNING_ENABLED = os.getenv("BRAIN_STRATEGY_LEARNING_ENABLED", "false").lower() in ("1", "true", "yes")
+        self.BRAIN_MAX_QUOTE_AGE_SECONDS = int(os.getenv("BRAIN_MAX_QUOTE_AGE_SECONDS", "90"))
+        self.LIVE_BROKER_ADAPTER_ENABLED = os.getenv("LIVE_BROKER_ADAPTER_ENABLED", "false").lower() in ("1", "true", "yes")
+        
+        # 9. NOTIFICATIONS (OPTIONAL)
+        self.TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+        self.TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+        
+        # 10. ENCRYPTION
+        self.TOKEN_ENCRYPTION_KEY = os.getenv("TOKEN_ENCRYPTION_KEY")
+        
+        # APPLICATION SETTINGS
+        self.APP_HOST = os.getenv("APP_HOST", "0.0.0.0")
+        self.APP_PORT = int(os.getenv("APP_PORT", "8000"))
+        self.TZ = os.getenv("TZ", "Asia/Kolkata")
+
+    @property
+    def cors_origins_list(self) -> List[str]:
+        """Parse ALLOWED_ORIGINS into a list for CORSMiddleware."""
+        if not self.ALLOWED_ORIGINS:
+            return []
+        return [origin.strip() for origin in self.ALLOWED_ORIGINS.split(",") if origin.strip()]
+
+
+# Singleton settings instance
+settings = Settings()
+
+
+def get_settings() -> Settings:
+    """Return the settings singleton."""
+    return settings
 
     # -------------------------------------------------------------------------
     # 1. GENERAL SETTINGS

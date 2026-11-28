@@ -14,7 +14,13 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 from typing import Callable, List
 
-from fyers_apiv3.FyersWebsocket.data_ws import FyersDataSocket
+try:
+    from fyers_apiv3.FyersWebsocket.data_ws import FyersDataSocket
+except Exception:  # pragma: no cover - SDK absent on constrained hosts
+    # The broker SDK pulls native deps that are not installable everywhere.
+    # Import must not fail: the app stays up and the WS status reports the
+    # precise reason instead of the whole backend refusing to boot.
+    FyersDataSocket = None  # type: ignore[assignment,misc]
 
 from app.services.redis_ws import redis_tick_store
 from app.services.fyers_api import INDEX_MAP

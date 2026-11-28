@@ -473,6 +473,18 @@ class FyersAPIClient:
                                 "low": v.get("low"),
                                 "close": v.get("close"),
                                 "volume": v.get("volume"),
+                                # Options fields: passed through only when the
+                                # broker actually sent them.  A missing value
+                                # stays None so the options layer can mark it
+                                # unavailable instead of guessing.
+                                "oi": v.get("oi"),
+                                "oi_change": v.get("oiflag"),
+                                "prev_oi": v.get("prev_oi"),
+                                "bid": v.get("bid"),
+                                "ask": v.get("ask"),
+                                "bid_size": v.get("bid_size"),
+                                "ask_size": v.get("ask_size"),
+                                "spread": v.get("spread"),
                                 "source": "fyers_api_v3",
                                 "updated_at": datetime.now(IST).isoformat(),
                             }

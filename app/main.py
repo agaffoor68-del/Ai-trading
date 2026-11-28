@@ -34,6 +34,8 @@ from app.api.v1.endpoints.auth import router as auth_router, get_current_user_in
 from app.api.v1.endpoints.admin import router as admin_router
 from app.api.v1.endpoints.backtest import router as backtest_router
 from app.api.v1.endpoints.indicators import router as indicators_router
+from app.api.v1.endpoints.intelligence import router as intelligence_router
+from app.services.brain import learning_engine
 from app.api.v1.endpoints.brain import router as brain_router
 from app.api.v1.endpoints.brain_risk import router as brain_risk_router
 from app.api.v1.endpoints.strategies import router as strategies_router
@@ -100,6 +102,10 @@ app.add_api_route("/api/auth/me", get_current_user_info, methods=["GET"], respon
 app.include_router(admin_router, prefix="/api/v1/admin", tags=["admin"])
 app.include_router(backtest_router, prefix="/api/v1", tags=["backtest"])
 app.include_router(indicators_router, prefix="/api/v1/indicators", tags=["indicators"])
+app.include_router(intelligence_router, prefix="/api/v1/intelligence", tags=["intelligence"])
+
+# Initialise the learning engine (creates the SQLite schema if needed).
+_ = learning_engine.bootstrap_learning_db()
 app.include_router(strategies_router, prefix="/api/v1/strategies", tags=["strategies"])
 # AI Brain (Grok autonomous decision engine) + its independent risk controls.
 app.include_router(brain_router, prefix="/api/v1/brain", tags=["ai-brain"])

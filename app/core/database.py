@@ -13,7 +13,8 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Force psycopg3 driver - Render injects DATABASE_URL as postgresql://
+# 1. DATABASE URL - PostgreSQL for production, SQLite for development
+# 2. Force psycopg3 driver - Render injects DATABASE_URL as postgresql://
 # which SQLAlchemy defaults to psycopg2 (not installed). Normalize to +psycopg.
 _DATABASE_URL = settings.DATABASE_URL
 if _DATABASE_URL.startswith("postgres://"):
@@ -22,9 +23,15 @@ elif _DATABASE_URL.startswith("postgresql://"):
     _DATABASE_URL = _DATABASE_URL.replace("postgresql://", "postgresql+psycopg://", 1)
 elif "postgresql+psycopg2://" in _DATABASE_URL:
     _DATABASE_URL = _DATABASE_URL.replace("postgresql+psycopg2://", "postgresql+psycopg://", 1)
+elif "sqlite" in _DATABASE_URL:
+    # SQLite - no special driver needed
+    pass
+else:
+    # Default to PostgreSQL (will fail without psycopg3)
+    pass
 
 # Automatically append sslmode=require if missing (required for Render PostgreSQL)
-if "sslmode=" not in _DATABASE_URL:
+if "sslmode=" not in _DATABASE_URL and "sqlite" not in _DATABASE_URL:
     separator = "&" if "?" in _DATABASE_URL else "?"
     _DATABASE_URL = f"{_DATABASE_URL}{separator}sslmode=require"
 
