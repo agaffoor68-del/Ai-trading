@@ -461,7 +461,18 @@ class FyersAPIClient:
                             continue
                         v = item.get("v") if isinstance(item.get("v"), dict) else {}
                         symbol = v.get("symbol") or item.get("symbol")
-                        ltp = v.get("lp") or v.get("ltp") or item.get("lp") or item.get("ltp")
+                        # Safely get LTP: check key existence instead of truthiness to
+                        # preserve legitimate zero values (e.g. a stock trading at zero).
+                        if "lp" in v and v["lp"] is not None:
+                            ltp = v["lp"]
+                        elif "ltp" in v and v["ltp"] is not None:
+                            ltp = v["ltp"]
+                        elif "lp" in item and item["lp"] is not None:
+                            ltp = item["lp"]
+                        elif "ltp" in item and item["ltp"] is not None:
+                            ltp = item["ltp"]
+                        else:
+                            ltp = None
                         if symbol:
                             all_results[symbol] = {
                                 "symbol": symbol,

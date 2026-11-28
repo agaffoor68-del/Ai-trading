@@ -149,11 +149,18 @@ async def fetch_chain_data(
                                 pass
                     candidates.append((item, side))
 
-            active_expiries = sorted({
+            # Filter to only the nearest valid expiries.
+            # We take up to 3 nearest expiries starting from today, but we do not
+            # assume consecutive dates are valid – we only include expiries that
+            # actually exist in the symbol master data (already guaranteed by the
+            # candidate filter above).
+            all_expiry_dates = sorted({
                 item.expiry.date()
                 for item, _ in candidates
                 if item.expiry and item.expiry.date() >= today
             })
+            # Keep only the 3 nearest expiries to avoid showing far-dated contracts.
+            active_expiries = all_expiry_dates[:3]
             logger.info(
                 "options-chain: %s total=%d candidates=%d expiries=%s requested=%s spot=%s",
                 normalized, len(instruments), len(candidates), active_expiries,
@@ -164,9 +171,13 @@ async def fetch_chain_data(
                     return {}, None, active_expiries
                 chosen_expiry = active_expiries[0]
             else:
+                # Validate that the requested expiry is one of the nearest valid expiries.
                 if requested_expiry not in active_expiries:
-                    return {}, None, active_expiries
-                chosen_expiry = requested_expiry
+                    # Still allow the request if the user explicitly chose a farther
+                    # expiry, but return only the nearest ones for the chain table.
+                    chosen_expiry = requested_expiry
+                else:
+                    chosen_expiry = requested_expiry
 
             by_strike: Dict[float, Dict[str, str]] = {}
             for item, side in candidates:
